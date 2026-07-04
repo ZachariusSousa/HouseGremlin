@@ -3,178 +3,870 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Robit Control</title>
+    <title>Robit Conversation</title>
     <style>
       :root {
         color-scheme: light;
-        font-family: Arial, sans-serif;
-        background: #f5f7f8;
-        color: #1b1f23;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
+          sans-serif;
+        background: #eef2f5;
+        color: #182026;
+        --panel: #ffffff;
+        --panel-soft: #f7f9fb;
+        --line: #d5dde5;
+        --muted: #65717d;
+        --ink: #182026;
+        --accent: #167d77;
+        --accent-strong: #0f5f5a;
+        --accent-soft: #dff3f0;
+        --danger: #b42318;
+        --shadow: 0 18px 48px rgba(23, 38, 51, 0.12);
+      }
+
+      * {
+        box-sizing: border-box;
       }
 
       body {
         margin: 0;
+        min-height: 100vh;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(238, 242, 245, 0.95)),
+          #eef2f5;
+      }
+
+      button,
+      input,
+      textarea {
+        font: inherit;
+      }
+
+      button {
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: #ffffff;
+        color: var(--ink);
+        cursor: pointer;
+        transition:
+          background 120ms ease,
+          border-color 120ms ease,
+          color 120ms ease,
+          transform 120ms ease;
+      }
+
+      button:hover:not(:disabled) {
+        border-color: #9fb0bd;
+      }
+
+      button:active:not(:disabled) {
+        transform: translateY(1px);
+      }
+
+      button:disabled {
+        cursor: not-allowed;
+        opacity: 0.58;
       }
 
       main {
-        max-width: 760px;
+        width: min(1120px, 100%);
         margin: 0 auto;
         padding: 24px;
       }
 
-      header {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        gap: 16px;
-        margin-bottom: 20px;
+      .app-shell {
+        display: grid;
+        grid-template-rows: auto minmax(520px, 1fr) auto;
+        min-height: calc(100vh - 48px);
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        box-shadow: var(--shadow);
       }
 
-      h1, h2 {
+      .topbar {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 16px;
+        align-items: center;
+        padding: 18px 20px;
+        border-bottom: 1px solid var(--line);
+        background: rgba(255, 255, 255, 0.94);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        min-width: 0;
+        gap: 12px;
+      }
+
+      .avatar {
+        display: grid;
+        width: 44px;
+        height: 44px;
+        flex: 0 0 auto;
+        place-items: center;
+        border-radius: 8px;
+        background: var(--accent-soft);
+        color: var(--accent-strong);
+        font-weight: 800;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
         margin: 0;
       }
 
-      section {
-        background: #ffffff;
-        border: 1px solid #d8dee4;
-        border-radius: 8px;
-        padding: 16px;
-        margin: 14px 0;
+      h1 {
+        font-size: 22px;
+        line-height: 1.2;
+      }
+
+      h2 {
+        font-size: 17px;
+      }
+
+      h3 {
+        font-size: 15px;
+      }
+
+      .subtitle {
+        margin-top: 3px;
+        color: var(--muted);
+        font-size: 14px;
+      }
+
+      .connection {
+        display: grid;
+        grid-template-columns: auto minmax(190px, 300px) auto;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .status-pill {
+        display: inline-flex;
+        min-height: 34px;
+        align-items: center;
+        gap: 8px;
+        padding: 0 11px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        background: var(--panel-soft);
+        color: var(--muted);
+        font-size: 13px;
+        white-space: nowrap;
+      }
+
+      .status-dot {
+        width: 8px;
+        height: 8px;
+        border-radius: 50%;
+        background: #9aa7b2;
+      }
+
+      .status-pill.ready .status-dot {
+        background: var(--accent);
+      }
+
+      .status-pill.error .status-dot {
+        background: var(--danger);
       }
 
       label {
         display: block;
-        margin: 10px 0 6px;
+        color: #33404c;
+        font-size: 13px;
         font-weight: 700;
       }
 
-      input[type="url"], input[type="range"] {
-        width: 100%;
-        box-sizing: border-box;
+      .sr-only {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        padding: 0;
+        overflow: hidden;
+        clip: rect(0, 0, 0, 0);
+        white-space: nowrap;
+        border: 0;
       }
 
+      input[type="text"],
+      input[type="url"],
+      textarea {
+        width: 100%;
+        border: 1px solid #bfccd6;
+        border-radius: 8px;
+        background: #ffffff;
+        color: var(--ink);
+        outline: none;
+      }
+
+      input[type="text"],
       input[type="url"] {
-        padding: 10px;
-        border: 1px solid #c6cbd1;
-        border-radius: 6px;
-        font-size: 16px;
+        min-height: 38px;
+        padding: 8px 10px;
+      }
+
+      textarea {
+        min-height: 68px;
+        max-height: 170px;
+        resize: vertical;
+        padding: 12px;
+        line-height: 1.45;
+      }
+
+      input:focus,
+      textarea:focus {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px rgba(22, 125, 119, 0.14);
+      }
+
+      .conversation {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) 320px;
+        min-height: 0;
+      }
+
+      .chat-pane {
+        display: grid;
+        grid-template-rows: 1fr auto;
+        min-width: 0;
+        min-height: 0;
+      }
+
+      .transcript {
+        display: flex;
+        flex-direction: column;
+        gap: 14px;
+        min-height: 0;
+        overflow-y: auto;
+        padding: 22px;
+        background:
+          linear-gradient(180deg, rgba(247, 249, 251, 0.98), rgba(255, 255, 255, 0.98)),
+          var(--panel-soft);
+      }
+
+      .empty-state {
+        display: grid;
+        min-height: 100%;
+        place-items: center;
+        color: var(--muted);
+        text-align: center;
+      }
+
+      .empty-state-content {
+        max-width: 420px;
+      }
+
+      .empty-state strong {
+        display: block;
+        margin-bottom: 7px;
+        color: var(--ink);
+        font-size: 20px;
+      }
+
+      .message-row {
+        display: flex;
+      }
+
+      .message-row.user {
+        justify-content: flex-end;
+      }
+
+      .message {
+        max-width: min(680px, 86%);
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        padding: 12px 14px;
+        background: #ffffff;
+      }
+
+      .message-row.user .message {
+        border-color: rgba(22, 125, 119, 0.32);
+        background: var(--accent);
+        color: #ffffff;
+      }
+
+      .message-meta {
+        margin-bottom: 5px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 700;
+      }
+
+      .message-row.user .message-meta {
+        color: rgba(255, 255, 255, 0.82);
+      }
+
+      .message-body {
+        white-space: pre-wrap;
+        word-break: break-word;
+        line-height: 1.45;
+      }
+
+      .composer {
+        display: grid;
+        gap: 12px;
+        padding: 16px;
+        border-top: 1px solid var(--line);
+        background: #ffffff;
+      }
+
+      .composer-tools {
+        display: grid;
+        grid-template-columns: auto minmax(130px, 180px) 1fr auto;
+        gap: 12px;
+        align-items: end;
+      }
+
+      .segmented {
+        display: inline-grid;
+        grid-template-columns: 1fr 1fr;
+        min-width: 174px;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel-soft);
+      }
+
+      .segmented button {
+        min-height: 38px;
+        border: 0;
+        border-radius: 0;
+        background: transparent;
+        font-size: 14px;
+        font-weight: 700;
+      }
+
+      .segmented button.active {
+        background: var(--accent);
+        color: #ffffff;
+      }
+
+      .send-button,
+      .replay-button,
+      .stop-button {
+        min-height: 40px;
+        padding: 0 16px;
+        border-color: var(--accent);
+        background: var(--accent);
+        color: #ffffff;
+        font-weight: 800;
+      }
+
+      .replay-button {
+        display: none;
+        background: #ffffff;
+        color: var(--accent-strong);
+      }
+
+      .replay-button.visible {
+        display: inline-flex;
+        align-items: center;
+      }
+
+      .stop-button {
+        border-color: #c8d1d9;
+        background: #ffffff;
+        color: var(--ink);
+      }
+
+      .playback-status {
+        min-height: 20px;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .playback-status.error {
+        color: var(--danger);
+      }
+
+      .side-panel {
+        display: grid;
+        grid-template-rows: auto 1fr;
+        min-height: 0;
+        border-left: 1px solid var(--line);
+        background: #ffffff;
+      }
+
+      details {
+        border-bottom: 1px solid var(--line);
+      }
+
+      details[open] {
+        min-height: 100%;
+      }
+
+      summary {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        min-height: 54px;
+        padding: 0 16px;
+        cursor: pointer;
+        font-weight: 800;
+        list-style: none;
+      }
+
+      summary::-webkit-details-marker {
+        display: none;
+      }
+
+      .panel-content {
+        display: grid;
+        gap: 16px;
+        padding: 0 16px 16px;
+      }
+
+      .control-group {
+        display: grid;
+        gap: 10px;
       }
 
       .drive-grid {
         display: grid;
-        grid-template-columns: repeat(3, minmax(80px, 1fr));
+        grid-template-columns: repeat(3, minmax(64px, 1fr));
         gap: 8px;
-        max-width: 360px;
-        margin: 0 auto;
       }
 
-      button {
-        min-height: 48px;
-        border: 1px solid #9aa4ad;
-        border-radius: 8px;
-        background: #ffffff;
-        font-size: 18px;
-        cursor: pointer;
-      }
-
-      button:active {
-        background: #dbeafe;
+      .drive-grid button,
+      .center-button {
+        min-height: 46px;
+        font-weight: 800;
       }
 
       .spacer {
         visibility: hidden;
       }
 
-      .status {
-        min-height: 22px;
-        font-family: Consolas, monospace;
-        font-size: 14px;
+      input[type="range"] {
+        width: 100%;
+      }
+
+      .control-status {
+        min-height: 40px;
+        padding: 10px;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel-soft);
+        color: var(--muted);
+        font-family: Consolas, "Courier New", monospace;
+        font-size: 13px;
         white-space: pre-wrap;
+      }
+
+      .future-slot {
+        align-self: end;
+        padding: 16px;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 13px;
+        line-height: 1.45;
+      }
+
+      @media (max-width: 860px) {
+        main {
+          padding: 0;
+        }
+
+        .app-shell {
+          min-height: 100vh;
+          border-width: 0;
+          border-radius: 0;
+        }
+
+        .topbar,
+        .conversation {
+          grid-template-columns: 1fr;
+        }
+
+        .connection {
+          grid-template-columns: 1fr;
+        }
+
+        .conversation {
+          min-height: 0;
+        }
+
+        .side-panel {
+          border-top: 1px solid var(--line);
+          border-left: 0;
+        }
+
+        .composer-tools {
+          grid-template-columns: 1fr;
+          align-items: stretch;
+        }
+
+        .segmented {
+          width: 100%;
+        }
+
+        .message {
+          max-width: 94%;
+        }
       }
     </style>
   </head>
   <body>
     <main>
-      <header>
-        <h1>Robit Control</h1>
-        <button id="stopButton" type="button">Stop</button>
-      </header>
+      <div class="app-shell">
+        <header class="topbar">
+          <div class="brand">
+            <div class="avatar" aria-hidden="true">R</div>
+            <div>
+              <h1>Robit</h1>
+              <p class="subtitle">Conversation and control</p>
+            </div>
+          </div>
 
-      <section>
-        <h2>Connection</h2>
-        <label for="brainUrl">PC brain URL</label>
-        <input id="brainUrl" type="url" value="http://localhost:8080">
-        <p id="status" class="status">Not connected</p>
-      </section>
+          <div class="connection" aria-label="PC brain connection">
+            <div id="connectionStatus" class="status-pill">
+              <span class="status-dot" aria-hidden="true"></span>
+              <span id="connectionText">Ready</span>
+            </div>
+            <div>
+              <label class="sr-only" for="brainUrl">PC brain URL</label>
+              <input id="brainUrl" type="url" value="http://localhost:8080" autocomplete="off">
+            </div>
+            <button id="stopButton" class="stop-button" type="button">Stop</button>
+          </div>
+        </header>
 
-      <section>
-        <h2>Drive</h2>
-        <div class="drive-grid">
-          <button class="spacer" tabindex="-1"></button>
-          <button data-move="forward">W</button>
-          <button class="spacer" tabindex="-1"></button>
-          <button data-move="left">A</button>
-          <button data-move="stop">Stop</button>
-          <button data-move="right">D</button>
-          <button class="spacer" tabindex="-1"></button>
-          <button data-move="reverse">S</button>
-          <button class="spacer" tabindex="-1"></button>
-        </div>
-        <label for="speed">Speed: <span id="speedValue">180</span></label>
-        <input id="speed" type="range" min="0" max="255" value="180">
-      </section>
+        <section class="conversation" aria-label="Robit conversation">
+          <div class="chat-pane">
+            <div id="transcript" class="transcript" aria-live="polite">
+              <div id="emptyState" class="empty-state">
+                <div class="empty-state-content">
+                  <strong>Ask Robit anything.</strong>
+                  <p>Use Text for silent replies or Voice when you want Robit to answer out loud.</p>
+                </div>
+              </div>
+            </div>
 
-      <section>
-        <h2>Head</h2>
-        <label for="pan">Pan: <span id="panValue">90</span></label>
-        <input id="pan" type="range" min="55" max="135" value="90">
-        <label for="tilt">Tilt: <span id="tiltValue">90</span></label>
-        <input id="tilt" type="range" min="35" max="115" value="90">
-        <button id="centerButton" type="button">Center</button>
-      </section>
+            <form id="chatForm" class="composer">
+              <label for="messageInput">Message</label>
+              <textarea
+                id="messageInput"
+                placeholder="Tell me what you are in one short sentence."
+                autocomplete="off"
+                required
+              ></textarea>
+
+              <div class="composer-tools">
+                <div class="segmented" role="group" aria-label="Conversation mode">
+                  <button id="textModeButton" class="active" type="button" data-mode="text">Text</button>
+                  <button id="voiceModeButton" type="button" data-mode="voice">Voice</button>
+                </div>
+
+                <div>
+                  <label for="voiceId">Voice ID</label>
+                  <input id="voiceId" type="text" value="default" autocomplete="off">
+                </div>
+
+                <p id="playbackStatus" class="playback-status">Ready</p>
+
+                <div>
+                  <button id="replayButton" class="replay-button" type="button">Replay</button>
+                  <button id="sendButton" class="send-button" type="submit">Send</button>
+                </div>
+              </div>
+            </form>
+          </div>
+
+          <aside class="side-panel" aria-label="Robot controls and future tools">
+            <details open>
+              <summary>
+                <span>Robot Controls</span>
+                <span aria-hidden="true">+</span>
+              </summary>
+              <div class="panel-content">
+                <div class="control-group">
+                  <h2>Drive</h2>
+                  <div class="drive-grid">
+                    <button class="spacer" tabindex="-1" type="button"></button>
+                    <button data-move="forward" type="button">W</button>
+                    <button class="spacer" tabindex="-1" type="button"></button>
+                    <button data-move="left" type="button">A</button>
+                    <button data-move="stop" type="button">Stop</button>
+                    <button data-move="right" type="button">D</button>
+                    <button class="spacer" tabindex="-1" type="button"></button>
+                    <button data-move="reverse" type="button">S</button>
+                    <button class="spacer" tabindex="-1" type="button"></button>
+                  </div>
+                  <label for="speed">Speed: <span id="speedValue">180</span></label>
+                  <input id="speed" type="range" min="0" max="255" value="180">
+                </div>
+
+                <div class="control-group">
+                  <h2>Head</h2>
+                  <label for="pan">Pan: <span id="panValue">90</span></label>
+                  <input id="pan" type="range" min="55" max="135" value="90">
+                  <label for="tilt">Tilt: <span id="tiltValue">90</span></label>
+                  <input id="tilt" type="range" min="35" max="115" value="90">
+                  <button id="centerButton" class="center-button" type="button">Center</button>
+                </div>
+
+                <div>
+                  <h3>Control Status</h3>
+                  <p id="controlStatus" class="control-status">Idle</p>
+                </div>
+              </div>
+            </details>
+
+            <div class="future-slot">
+              Future panels can add microphone input, camera views, tool logs, and autonomous behavior without changing the conversation flow.
+            </div>
+          </aside>
+        </section>
+      </div>
     </main>
 
     <script>
-      const brainUrlInput = document.getElementById("brainUrl");
-      const statusEl = document.getElementById("status");
-      const speedInput = document.getElementById("speed");
-      const speedValue = document.getElementById("speedValue");
-      const panInput = document.getElementById("pan");
-      const panValue = document.getElementById("panValue");
-      const tiltInput = document.getElementById("tilt");
-      const tiltValue = document.getElementById("tiltValue");
-      const keys = new Set();
+      const state = {
+        mode: "text",
+        isSending: false,
+        conversationId: "default",
+        latestAudioUrls: [],
+        currentAudio: null
+      };
+
+      const els = {
+        brainUrl: document.getElementById("brainUrl"),
+        connectionStatus: document.getElementById("connectionStatus"),
+        connectionText: document.getElementById("connectionText"),
+        transcript: document.getElementById("transcript"),
+        emptyState: document.getElementById("emptyState"),
+        chatForm: document.getElementById("chatForm"),
+        messageInput: document.getElementById("messageInput"),
+        textModeButton: document.getElementById("textModeButton"),
+        voiceModeButton: document.getElementById("voiceModeButton"),
+        voiceId: document.getElementById("voiceId"),
+        playbackStatus: document.getElementById("playbackStatus"),
+        replayButton: document.getElementById("replayButton"),
+        sendButton: document.getElementById("sendButton"),
+        controlStatus: document.getElementById("controlStatus"),
+        speedInput: document.getElementById("speed"),
+        speedValue: document.getElementById("speedValue"),
+        panInput: document.getElementById("pan"),
+        panValue: document.getElementById("panValue"),
+        tiltInput: document.getElementById("tilt"),
+        tiltValue: document.getElementById("tiltValue")
+      };
 
       function brainUrl(path) {
-        return brainUrlInput.value.replace(/\/$/, "") + path;
+        return els.brainUrl.value.replace(/\/$/, "") + path;
       }
 
-      async function post(path, body = {}) {
+      function setConnectionState(kind, text) {
+        els.connectionStatus.classList.toggle("ready", kind === "ready");
+        els.connectionStatus.classList.toggle("error", kind === "error");
+        els.connectionText.textContent = text;
+      }
+
+      function setPlaybackStatus(text, isError = false) {
+        els.playbackStatus.textContent = text;
+        els.playbackStatus.classList.toggle("error", isError);
+      }
+
+      function setSending(isSending) {
+        state.isSending = isSending;
+        els.sendButton.disabled = isSending;
+        els.messageInput.disabled = isSending;
+        els.textModeButton.disabled = isSending;
+        els.voiceModeButton.disabled = isSending;
+      }
+
+      async function postJson(path, body = {}) {
         const response = await fetch(brainUrl(path), {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify(body)
         });
-        if (!response.ok) throw new Error(await response.text());
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(text || `${response.status} ${response.statusText}`);
+        }
         return response.json();
+      }
+
+      function addMessage(role, body, metadata = "") {
+        els.emptyState?.remove();
+
+        const row = document.createElement("div");
+        row.className = `message-row ${role}`;
+
+        const message = document.createElement("article");
+        message.className = "message";
+
+        const meta = document.createElement("div");
+        meta.className = "message-meta";
+        meta.textContent = metadata || (role === "user" ? "You" : "Robit");
+
+        const messageBody = document.createElement("div");
+        messageBody.className = "message-body";
+        messageBody.textContent = body;
+
+        message.append(meta, messageBody);
+        row.append(message);
+        els.transcript.append(row);
+        els.transcript.scrollTop = els.transcript.scrollHeight;
+      }
+
+      function setMode(mode) {
+        state.mode = mode;
+        els.textModeButton.classList.toggle("active", mode === "text");
+        els.voiceModeButton.classList.toggle("active", mode === "voice");
+        els.voiceId.disabled = mode !== "voice";
+        setPlaybackStatus(mode === "voice" ? "Ready to speak" : "Ready");
+      }
+
+      function resolveAudioUrls(result) {
+        if (Array.isArray(result.audio_urls) && result.audio_urls.length > 0) {
+          return result.audio_urls;
+        }
+        return result.audio_url ? [result.audio_url] : [];
+      }
+
+      function stopCurrentAudio() {
+        if (!state.currentAudio) return;
+        state.currentAudio.pause();
+        state.currentAudio.currentTime = 0;
+        state.currentAudio = null;
+      }
+
+      async function playAudioQueue(audioUrls) {
+        if (!audioUrls.length) return;
+
+        stopCurrentAudio();
+        state.latestAudioUrls = audioUrls;
+        els.replayButton.classList.remove("visible");
+        setPlaybackStatus("Speaking");
+
+        for (const audioPath of audioUrls) {
+          const audio = new Audio(brainUrl(audioPath));
+          state.currentAudio = audio;
+          await new Promise((resolve, reject) => {
+            audio.addEventListener("ended", resolve, { once: true });
+            audio.addEventListener("error", () => reject(new Error("Audio playback failed")), {
+              once: true
+            });
+            audio.play().catch(reject);
+          });
+        }
+
+        state.currentAudio = null;
+        els.replayButton.classList.add("visible");
+        setPlaybackStatus("Ready");
+      }
+
+      async function sendMessage(messageText) {
+        const isVoice = state.mode === "voice";
+        const path = isVoice ? "/chat/speak" : "/chat";
+        const body = {
+          text: messageText,
+          conversation_id: state.conversationId
+        };
+
+        if (isVoice) {
+          body.voice_id = els.voiceId.value.trim() || "default";
+        }
+
+        setSending(true);
+        setConnectionState("ready", "Thinking");
+        setPlaybackStatus("Thinking");
+        addMessage("user", messageText);
+
+        try {
+          const result = await postJson(path, body);
+          const metadata = result.model ? `Robit - ${result.model}` : "Robit";
+          addMessage("robit", result.response || "", metadata);
+          setConnectionState("ready", "Ready");
+
+          if (isVoice) {
+            const audioUrls = resolveAudioUrls(result);
+            if (audioUrls.length) {
+              try {
+                await playAudioQueue(audioUrls);
+              } catch (error) {
+                state.latestAudioUrls = audioUrls;
+                els.replayButton.classList.add("visible");
+                const message = error instanceof Error ? error.message : String(error);
+                setPlaybackStatus(`${message}. Use Replay to try again.`, true);
+              }
+            } else {
+              setPlaybackStatus("No audio returned", true);
+            }
+          } else {
+            state.latestAudioUrls = [];
+            els.replayButton.classList.remove("visible");
+            setPlaybackStatus("Ready");
+          }
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          setConnectionState("error", "Error");
+          setPlaybackStatus(message, true);
+          addMessage("robit", message, "Error");
+          if (state.latestAudioUrls.length) {
+            els.replayButton.classList.add("visible");
+          }
+        } finally {
+          setSending(false);
+          els.messageInput.focus();
+        }
       }
 
       async function drive(move) {
         try {
-          await post("/robot/drive", { move, speed: Number(speedInput.value) });
-          statusEl.textContent = `move=${move}`;
+          await postJson("/robot/drive", { move, speed: Number(els.speedInput.value) });
+          els.controlStatus.textContent = `move=${move}`;
+          setConnectionState("ready", "Ready");
         } catch (error) {
-          statusEl.textContent = String(error);
+          els.controlStatus.textContent = error instanceof Error ? error.message : String(error);
+          setConnectionState("error", "Error");
         }
       }
 
       async function setHead(update) {
         try {
-          await post("/robot/head", update);
+          await postJson("/robot/head", update);
+          setConnectionState("ready", "Ready");
         } catch (error) {
-          statusEl.textContent = String(error);
+          els.controlStatus.textContent = error instanceof Error ? error.message : String(error);
+          setConnectionState("error", "Error");
         }
       }
+
+      els.chatForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        const text = els.messageInput.value.trim();
+        if (!text || state.isSending) return;
+        els.messageInput.value = "";
+        sendMessage(text);
+      });
+
+      els.messageInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && !event.shiftKey) {
+          event.preventDefault();
+          els.chatForm.requestSubmit();
+        }
+      });
+
+      els.textModeButton.addEventListener("click", () => setMode("text"));
+      els.voiceModeButton.addEventListener("click", () => setMode("voice"));
+
+      els.replayButton.addEventListener("click", async () => {
+        try {
+          await playAudioQueue(state.latestAudioUrls);
+        } catch (error) {
+          setPlaybackStatus(error instanceof Error ? error.message : String(error), true);
+          els.replayButton.classList.add("visible");
+        }
+      });
 
       document.querySelectorAll("[data-move]").forEach((button) => {
         const move = button.dataset.move;
@@ -189,31 +881,31 @@
       });
 
       document.getElementById("stopButton").addEventListener("click", () => drive("stop"));
-      speedInput.addEventListener("input", () => {
-        speedValue.textContent = speedInput.value;
+
+      els.speedInput.addEventListener("input", () => {
+        els.speedValue.textContent = els.speedInput.value;
       });
 
-      panInput.addEventListener("input", () => {
-        panValue.textContent = panInput.value;
-        setHead({ pan: Number(panInput.value) });
+      els.panInput.addEventListener("input", () => {
+        els.panValue.textContent = els.panInput.value;
+        setHead({ pan: Number(els.panInput.value) });
       });
 
-      tiltInput.addEventListener("input", () => {
-        tiltValue.textContent = tiltInput.value;
-        setHead({ tilt: Number(tiltInput.value) });
+      els.tiltInput.addEventListener("input", () => {
+        els.tiltValue.textContent = els.tiltInput.value;
+        setHead({ tilt: Number(els.tiltInput.value) });
       });
 
       document.getElementById("centerButton").addEventListener("click", () => {
-        panInput.value = 90;
-        tiltInput.value = 90;
-        panValue.textContent = "90";
-        tiltValue.textContent = "90";
+        els.panInput.value = 90;
+        els.tiltInput.value = 90;
+        els.panValue.textContent = "90";
+        els.tiltValue.textContent = "90";
         setHead({ pan: 90, tilt: 90 });
       });
 
       document.addEventListener("keydown", (event) => {
-        if (event.repeat) return;
-        keys.add(event.code);
+        if (event.repeat || event.target.matches("input, textarea")) return;
         if (event.code === "KeyW") drive("forward");
         if (event.code === "KeyS") drive("reverse");
         if (event.code === "KeyA") drive("left");
@@ -225,11 +917,14 @@
       });
 
       document.addEventListener("keyup", (event) => {
-        keys.delete(event.code);
+        if (event.target.matches("input, textarea")) return;
         if (["KeyW", "KeyA", "KeyS", "KeyD"].includes(event.code)) {
           drive("stop");
         }
       });
+
+      setConnectionState("ready", "Ready");
+      setMode("text");
     </script>
   </body>
 </html>
