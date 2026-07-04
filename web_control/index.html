@@ -196,6 +196,7 @@
 
       input[type="text"],
       input[type="url"],
+      select,
       textarea {
         width: 100%;
         border: 1px solid #bfccd6;
@@ -206,7 +207,8 @@
       }
 
       input[type="text"],
-      input[type="url"] {
+      input[type="url"],
+      select {
         min-height: 38px;
         padding: 8px 10px;
       }
@@ -220,6 +222,7 @@
       }
 
       input:focus,
+      select:focus,
       textarea:focus {
         border-color: var(--accent);
         box-shadow: 0 0 0 3px rgba(22, 125, 119, 0.14);
@@ -349,6 +352,7 @@
 
       .send-button,
       .replay-button,
+      .secondary-button,
       .stop-button {
         min-height: 40px;
         padding: 0 16px;
@@ -362,6 +366,12 @@
         display: none;
         background: #ffffff;
         color: var(--accent-strong);
+      }
+
+      .secondary-button {
+        border-color: #c8d1d9;
+        background: #ffffff;
+        color: var(--ink);
       }
 
       .replay-button.visible {
@@ -395,10 +405,6 @@
 
       details {
         border-bottom: 1px solid var(--line);
-      }
-
-      details[open] {
-        min-height: 100%;
       }
 
       summary {
@@ -445,6 +451,34 @@
 
       input[type="range"] {
         width: 100%;
+      }
+
+      input[type="file"] {
+        width: 100%;
+        color: var(--muted);
+        font-size: 13px;
+      }
+
+      .voice-upload-form {
+        display: grid;
+        gap: 10px;
+      }
+
+      .button-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .check-row {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .check-row input {
+        width: 18px;
+        height: 18px;
       }
 
       .control-status {
@@ -564,8 +598,10 @@
                 </div>
 
                 <div>
-                  <label for="voiceId">Voice ID</label>
-                  <input id="voiceId" type="text" value="default" autocomplete="off">
+                  <label for="voiceSelect">Voice</label>
+                  <select id="voiceSelect">
+                    <option value="default">default</option>
+                  </select>
                 </div>
 
                 <p id="playbackStatus" class="playback-status">Ready</p>
@@ -581,34 +617,65 @@
           <aside class="side-panel" aria-label="Robot controls and future tools">
             <details open>
               <summary>
+                <span>Voice Library</span>
+                <span aria-hidden="true">+</span>
+              </summary>
+              <div class="panel-content">
+                <form id="voiceUploadForm" class="voice-upload-form">
+                  <div>
+                    <label for="newVoiceId">Voice name</label>
+                    <input id="newVoiceId" type="text" placeholder="narrator" autocomplete="off" required>
+                  </div>
+
+                  <div>
+                    <label for="voiceSample">Samples</label>
+                    <input id="voiceSample" type="file" accept=".wav,.mp3,audio/wav,audio/mpeg" multiple required>
+                  </div>
+
+                  <div class="button-row">
+                    <button id="uploadVoiceButton" class="send-button" type="submit">Upload</button>
+                    <button id="refreshVoicesButton" class="secondary-button" type="button">Refresh</button>
+                  </div>
+                </form>
+                <p id="voiceUploadStatus" class="playback-status">Ready</p>
+              </div>
+            </details>
+
+            <details open>
+              <summary>
                 <span>Robot Controls</span>
                 <span aria-hidden="true">+</span>
               </summary>
               <div class="panel-content">
+                <label class="check-row" for="controlsEnabled">
+                  <input id="controlsEnabled" type="checkbox">
+                  <span>Enable robot controls</span>
+                </label>
+
                 <div class="control-group">
                   <h2>Drive</h2>
                   <div class="drive-grid">
                     <button class="spacer" tabindex="-1" type="button"></button>
-                    <button data-move="forward" type="button">W</button>
+                    <button data-control data-move="forward" type="button">W</button>
                     <button class="spacer" tabindex="-1" type="button"></button>
-                    <button data-move="left" type="button">A</button>
-                    <button data-move="stop" type="button">Stop</button>
-                    <button data-move="right" type="button">D</button>
+                    <button data-control data-move="left" type="button">A</button>
+                    <button data-control data-move="stop" type="button">Stop</button>
+                    <button data-control data-move="right" type="button">D</button>
                     <button class="spacer" tabindex="-1" type="button"></button>
-                    <button data-move="reverse" type="button">S</button>
+                    <button data-control data-move="reverse" type="button">S</button>
                     <button class="spacer" tabindex="-1" type="button"></button>
                   </div>
                   <label for="speed">Speed: <span id="speedValue">180</span></label>
-                  <input id="speed" type="range" min="0" max="255" value="180">
+                  <input id="speed" data-control type="range" min="0" max="255" value="180">
                 </div>
 
                 <div class="control-group">
                   <h2>Head</h2>
                   <label for="pan">Pan: <span id="panValue">90</span></label>
-                  <input id="pan" type="range" min="55" max="135" value="90">
+                  <input id="pan" data-control type="range" min="55" max="135" value="90">
                   <label for="tilt">Tilt: <span id="tiltValue">90</span></label>
-                  <input id="tilt" type="range" min="35" max="115" value="90">
-                  <button id="centerButton" class="center-button" type="button">Center</button>
+                  <input id="tilt" data-control type="range" min="35" max="115" value="90">
+                  <button id="centerButton" data-control class="center-button" type="button">Center</button>
                 </div>
 
                 <div>
@@ -645,7 +712,15 @@
         messageInput: document.getElementById("messageInput"),
         textModeButton: document.getElementById("textModeButton"),
         voiceModeButton: document.getElementById("voiceModeButton"),
-        voiceId: document.getElementById("voiceId"),
+        voiceSelect: document.getElementById("voiceSelect"),
+        voiceUploadForm: document.getElementById("voiceUploadForm"),
+        newVoiceId: document.getElementById("newVoiceId"),
+        voiceSample: document.getElementById("voiceSample"),
+        uploadVoiceButton: document.getElementById("uploadVoiceButton"),
+        refreshVoicesButton: document.getElementById("refreshVoicesButton"),
+        voiceUploadStatus: document.getElementById("voiceUploadStatus"),
+        controlsEnabled: document.getElementById("controlsEnabled"),
+        controlInputs: [...document.querySelectorAll("[data-control]")],
         playbackStatus: document.getElementById("playbackStatus"),
         replayButton: document.getElementById("replayButton"),
         sendButton: document.getElementById("sendButton"),
@@ -662,6 +737,11 @@
         return els.brainUrl.value.replace(/\/$/, "") + path;
       }
 
+      function setVoiceUploadStatus(text, isError = false) {
+        els.voiceUploadStatus.textContent = text;
+        els.voiceUploadStatus.classList.toggle("error", isError);
+      }
+
       function setConnectionState(kind, text) {
         els.connectionStatus.classList.toggle("ready", kind === "ready");
         els.connectionStatus.classList.toggle("error", kind === "error");
@@ -671,6 +751,14 @@
       function setPlaybackStatus(text, isError = false) {
         els.playbackStatus.textContent = text;
         els.playbackStatus.classList.toggle("error", isError);
+      }
+
+      function setControlsEnabled(enabled) {
+        state.controlsEnabled = enabled;
+        els.controlInputs.forEach((control) => {
+          control.disabled = !enabled;
+        });
+        els.controlStatus.textContent = enabled ? "Controls enabled" : "Controls disabled";
       }
 
       function setSending(isSending) {
@@ -686,6 +774,27 @@
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify(body)
+        });
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(text || `${response.status} ${response.statusText}`);
+        }
+        return response.json();
+      }
+
+      async function getJson(path) {
+        const response = await fetch(brainUrl(path));
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(text || `${response.status} ${response.statusText}`);
+        }
+        return response.json();
+      }
+
+      async function postForm(path, formData) {
+        const response = await fetch(brainUrl(path), {
+          method: "POST",
+          body: formData
         });
         if (!response.ok) {
           const text = await response.text();
@@ -721,8 +830,81 @@
         state.mode = mode;
         els.textModeButton.classList.toggle("active", mode === "text");
         els.voiceModeButton.classList.toggle("active", mode === "voice");
-        els.voiceId.disabled = mode !== "voice";
+        els.voiceSelect.disabled = mode !== "voice";
         setPlaybackStatus(mode === "voice" ? "Ready to speak" : "Ready");
+      }
+
+      function renderVoiceOptions(voices, selectedVoice, voiceDetails = []) {
+        const current = selectedVoice || els.voiceSelect.value || "default";
+        const uniqueVoices = [...new Set(["default", ...voices])];
+        const sampleCounts = new Map(
+          voiceDetails.map((detail) => [detail.voice_id, detail.sample_count])
+        );
+        els.voiceSelect.replaceChildren(
+          ...uniqueVoices.map((voiceId) => {
+            const option = document.createElement("option");
+            const sampleCount = sampleCounts.get(voiceId) || 0;
+            option.value = voiceId;
+            option.textContent = sampleCount ? `${voiceId} (${sampleCount} clips)` : voiceId;
+            option.selected = voiceId === current;
+            return option;
+          })
+        );
+
+        if (!uniqueVoices.includes(current)) {
+          els.voiceSelect.value = uniqueVoices[0] || "default";
+        }
+      }
+
+      async function refreshVoices(selectedVoice = "") {
+        try {
+          const result = await getJson("/voices");
+          renderVoiceOptions(
+            result.voices || [],
+            selectedVoice || els.voiceSelect.value || result.default_voice_id,
+            result.voice_details || []
+          );
+          setVoiceUploadStatus("Ready");
+          setConnectionState("ready", "Ready");
+        } catch (error) {
+          renderVoiceOptions(["default"], "default");
+          const message = error instanceof Error ? error.message : String(error);
+          setVoiceUploadStatus(message, true);
+          setConnectionState("error", "Error");
+        }
+      }
+
+      async function uploadVoice() {
+        const voiceId = els.newVoiceId.value.trim();
+        const samples = [...els.voiceSample.files];
+        if (!voiceId || !samples.length) return;
+
+        els.uploadVoiceButton.disabled = true;
+        setVoiceUploadStatus(`Uploading 1 of ${samples.length}`);
+        try {
+          let uploadedVoiceId = voiceId;
+          let sampleCount = 0;
+          for (const [index, sample] of samples.entries()) {
+            const formData = new FormData();
+            formData.append("voice_id", voiceId);
+            formData.append("sample", sample);
+            setVoiceUploadStatus(`Uploading ${index + 1} of ${samples.length}`);
+            const result = await postForm("/voices", formData);
+            uploadedVoiceId = result.voice_id || uploadedVoiceId;
+            sampleCount = result.sample_count || sampleCount;
+          }
+          els.newVoiceId.value = "";
+          els.voiceSample.value = "";
+          await refreshVoices(uploadedVoiceId);
+          els.voiceSelect.value = uploadedVoiceId;
+          setVoiceUploadStatus(`Uploaded ${uploadedVoiceId} (${sampleCount || samples.length} clips)`);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          setVoiceUploadStatus(message, true);
+          setConnectionState("error", "Error");
+        } finally {
+          els.uploadVoiceButton.disabled = false;
+        }
       }
 
       function resolveAudioUrls(result) {
@@ -773,7 +955,7 @@
         };
 
         if (isVoice) {
-          body.voice_id = els.voiceId.value.trim() || "default";
+          body.voice_id = els.voiceSelect.value || "default";
         }
 
         setSending(true);
@@ -821,6 +1003,10 @@
       }
 
       async function drive(move) {
+        if (!state.controlsEnabled) {
+          els.controlStatus.textContent = "Controls disabled";
+          return;
+        }
         try {
           await postJson("/robot/drive", { move, speed: Number(els.speedInput.value) });
           els.controlStatus.textContent = `move=${move}`;
@@ -832,6 +1018,10 @@
       }
 
       async function setHead(update) {
+        if (!state.controlsEnabled) {
+          els.controlStatus.textContent = "Controls disabled";
+          return;
+        }
         try {
           await postJson("/robot/head", update);
           setConnectionState("ready", "Ready");
@@ -858,6 +1048,14 @@
 
       els.textModeButton.addEventListener("click", () => setMode("text"));
       els.voiceModeButton.addEventListener("click", () => setMode("voice"));
+      els.refreshVoicesButton.addEventListener("click", () => refreshVoices());
+      els.controlsEnabled.addEventListener("change", () => {
+        setControlsEnabled(els.controlsEnabled.checked);
+      });
+      els.voiceUploadForm.addEventListener("submit", (event) => {
+        event.preventDefault();
+        uploadVoice();
+      });
 
       els.replayButton.addEventListener("click", async () => {
         try {
@@ -905,7 +1103,8 @@
       });
 
       document.addEventListener("keydown", (event) => {
-        if (event.repeat || event.target.matches("input, textarea")) return;
+        if (event.repeat || event.target.matches("button, input, select, textarea")) return;
+        if (!state.controlsEnabled) return;
         if (event.code === "KeyW") drive("forward");
         if (event.code === "KeyS") drive("reverse");
         if (event.code === "KeyA") drive("left");
@@ -917,7 +1116,8 @@
       });
 
       document.addEventListener("keyup", (event) => {
-        if (event.target.matches("input, textarea")) return;
+        if (event.target.matches("button, input, select, textarea")) return;
+        if (!state.controlsEnabled) return;
         if (["KeyW", "KeyA", "KeyS", "KeyD"].includes(event.code)) {
           drive("stop");
         }
@@ -925,6 +1125,8 @@
 
       setConnectionState("ready", "Ready");
       setMode("text");
+      setControlsEnabled(false);
+      refreshVoices();
     </script>
   </body>
 </html>

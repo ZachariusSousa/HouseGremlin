@@ -65,6 +65,7 @@ python -m pytest tests
 - `POST /robot/head`
 - `POST /robot/stop`
 - `GET /tools`
+- `GET /voices`
 - `POST /voices`
 - `POST /voice/transcribe`
 - `POST /chat`
@@ -81,6 +82,8 @@ Upload a sample voice first:
 ```powershell
 curl.exe -F "voice_id=default" -F "sample=@C:\path\to\voice.mp3" http://localhost:8080/voices
 ```
+
+Upload more samples with the same `voice_id` to add more reference clips to that voice.
 
 Then test the roundtrip:
 

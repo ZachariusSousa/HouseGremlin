@@ -124,17 +124,33 @@ async def robot_stop():
     return await robot_get("/cmd", {"move": "stop"})
 
 
+@app.get("/voices")
+async def list_voices():
+    voice_ids = voice_store.list_voice_ids()
+    if settings.voice_id not in voice_ids:
+        voice_ids.insert(0, settings.voice_id)
+    return {
+        "voices": voice_ids,
+        "voice_details": [
+            {"voice_id": voice_id, "sample_count": voice_store.sample_count(voice_id)}
+            for voice_id in voice_ids
+        ],
+        "default_voice_id": settings.voice_id,
+    }
+
+
 @app.post("/voices")
 async def upload_voice(
     voice_id: str = Form(default=settings.voice_id),
     sample: UploadFile = File(...),
 ):
     uploaded = await save_upload(sample, settings.uploads_dir, "voice")
-    cleaned_voice_id, reference = voice_store.save_reference(voice_id, uploaded)
-    tts.register_voice(cleaned_voice_id, reference)
+    cleaned_voice_id, reference, references = voice_store.save_reference(voice_id, uploaded)
+    tts.register_voice(cleaned_voice_id, references)
     return {
         "voice_id": cleaned_voice_id,
         "reference_path": str(reference),
+        "sample_count": len(references),
         "ok": True,
     }
 

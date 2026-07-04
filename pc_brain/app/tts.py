@@ -7,6 +7,7 @@ from fastapi import HTTPException
 
 from .audio_utils import ensure_data_dirs, split_sentences
 from .config import Settings
+from .voices import VoiceStore
 
 
 @dataclass
@@ -20,7 +21,8 @@ class XttsSynthesizer:
     def __init__(self, settings: Settings):
         self.settings = settings
         self._model = None
-        self._voice_refs: dict[str, Path] = {}
+        self._voice_refs: dict[str, list[Path]] = {}
+        self._voice_store = VoiceStore(settings)
 
     def _load_model(self):
         if self.settings.tts_provider != "xtts":
@@ -55,23 +57,24 @@ class XttsSynthesizer:
         except Exception:
             return
 
-    def register_voice(self, voice_id: str, reference_wav: Path) -> None:
-        if not reference_wav.exists():
+    def register_voice(self, voice_id: str, reference_wavs: Path | list[Path]) -> None:
+        references = [reference_wavs] if isinstance(reference_wavs, Path) else reference_wavs
+        if not references or any(not reference.exists() for reference in references):
             raise HTTPException(status_code=404, detail=f"Voice reference not found for '{voice_id}'.")
-        self._voice_refs[voice_id] = reference_wav
+        self._voice_refs[voice_id] = references
         self.warmup()
 
-    def _reference_for(self, voice_id: str) -> Path:
+    def _references_for(self, voice_id: str) -> list[Path]:
         if voice_id in self._voice_refs:
             return self._voice_refs[voice_id]
-        reference = self.settings.voices_dir / voice_id / "reference.wav"
-        if not reference.exists():
+        references = self._voice_store.reference_paths(voice_id)
+        if not references:
             raise HTTPException(
                 status_code=404,
                 detail=f"Voice '{voice_id}' has no reference sample. Upload one with POST /voices.",
             )
-        self._voice_refs[voice_id] = reference
-        return reference
+        self._voice_refs[voice_id] = references
+        return references
 
     def synthesize(self, text: str, voice_id: str) -> SynthesisResult:
         stripped = text.strip()
@@ -79,7 +82,7 @@ class XttsSynthesizer:
             raise HTTPException(status_code=400, detail="text cannot be empty")
 
         model = self._load_model()
-        reference = self._reference_for(voice_id)
+        references = self._references_for(voice_id)
         ensure_data_dirs(self.settings.audio_dir)
 
         sentences = split_sentences(stripped) or [stripped]
@@ -88,7 +91,7 @@ class XttsSynthesizer:
             chunk_path = self.settings.audio_dir / f"{uuid.uuid4().hex}-{index}.wav"
             model.tts_to_file(
                 text=sentence,
-                speaker_wav=str(reference),
+                speaker_wav=[str(reference) for reference in references],
                 language=self.settings.tts_language,
                 file_path=str(chunk_path),
             )
