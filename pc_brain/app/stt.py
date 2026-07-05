@@ -4,6 +4,7 @@ from pathlib import Path
 from fastapi import HTTPException
 
 from .config import Settings
+from .cuda_paths import configure_windows_cuda_dll_paths
 
 
 @dataclass
@@ -22,6 +23,7 @@ class FasterWhisperTranscriber:
         if self.settings.stt_provider != "faster_whisper":
             raise HTTPException(status_code=501, detail="Only faster-whisper is supported for v1.")
         if self._model is None:
+            configure_windows_cuda_dll_paths()
             try:
                 from faster_whisper import WhisperModel
             except ImportError as exc:

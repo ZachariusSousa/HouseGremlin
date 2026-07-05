@@ -43,15 +43,16 @@ class Settings:
     stt_model: str
     stt_device: str
     stt_compute_type: str
-    tts_provider: str
     tts_model: str
     tts_language: str
     tts_device: str
     tts_temperature: float
     tts_top_p: float
-    tts_top_k: int
     tts_repetition_penalty: float
     tts_norm_loudness: bool
+    tts_chunk_size: int
+    tts_exaggeration: float
+    tts_cfg_weight: float
     voice_id: str
     data_dir: Path
     warm_models: bool
@@ -87,18 +88,19 @@ def load_settings() -> Settings:
         stt_model=os.getenv("ROBIT_STT_MODEL", "base"),
         stt_device=os.getenv("ROBIT_STT_DEVICE", "cuda"),
         stt_compute_type=os.getenv("ROBIT_STT_COMPUTE_TYPE", "float16"),
-        tts_provider=os.getenv("ROBIT_TTS_PROVIDER", "chatterbox_turbo"),
         tts_model=os.getenv(
             "ROBIT_TTS_MODEL",
-            "ResembleAI/chatterbox-turbo",
+            "ResembleAI/chatterbox",
         ),
         tts_language=os.getenv("ROBIT_TTS_LANGUAGE", "en"),
         tts_device=os.getenv("ROBIT_TTS_DEVICE", "cuda"),
         tts_temperature=_float_env("ROBIT_TTS_TEMPERATURE", 0.8),
         tts_top_p=_float_env("ROBIT_TTS_TOP_P", 0.95),
-        tts_top_k=_int_env("ROBIT_TTS_TOP_K", 1000),
         tts_repetition_penalty=_float_env("ROBIT_TTS_REPETITION_PENALTY", 1.2),
         tts_norm_loudness=_bool_env("ROBIT_TTS_NORM_LOUDNESS", True),
+        tts_chunk_size=_int_env("ROBIT_TTS_CHUNK_SIZE", 25),
+        tts_exaggeration=_float_env("ROBIT_TTS_EXAGGERATION", 0.5),
+        tts_cfg_weight=_float_env("ROBIT_TTS_CFG_WEIGHT", 0.5),
         voice_id=os.getenv("ROBIT_VOICE_ID", "default"),
         data_dir=data_dir,
         warm_models=_bool_env("ROBIT_WARM_MODELS", True),

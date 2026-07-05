@@ -9,5 +9,15 @@ numpy==1.26.4
 torch==2.6.0
 torchaudio==2.6.0
 faster-whisper==1.1.0
-chatterbox-tts==0.1.7
+librosa==0.10.0
+resampy==0.4.3
+transformers==4.46.3
+tokenizers==0.20.3
+huggingface-hub==0.36.0
+diffusers==0.29.0
+resemble-perth==1.0.1
+omegaconf==2.3.0
+conformer==0.3.2
+sounddevice==0.5.2
+chatterbox-streaming==0.1.2
 pytest==8.3.4

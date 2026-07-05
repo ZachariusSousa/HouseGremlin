@@ -1,3 +1,4 @@
+import sys
 from types import SimpleNamespace
 import wave
 
@@ -5,7 +6,7 @@ import pytest
 from fastapi import HTTPException
 
 from app.audio_utils import clean_spoken_text
-from app.tts import ChatterboxTurboSynthesizer
+from app.tts import ChatterboxSynthesizer
 
 
 class FakeChatterboxModel:
@@ -16,6 +17,7 @@ class FakeChatterboxModel:
     def generate(self, text, audio_prompt_path=None, **kwargs):
         self.calls.append(
             {
+                "method": "generate",
                 "text": text,
                 "audio_prompt_path": audio_prompt_path,
                 "kwargs": kwargs,
@@ -23,18 +25,33 @@ class FakeChatterboxModel:
         )
         return b"fake waveform"
 
+    def generate_stream(self, text, audio_prompt_path=None, chunk_size=None, **kwargs):
+        self.calls.append(
+            {
+                "method": "generate_stream",
+                "text": text,
+                "audio_prompt_path": audio_prompt_path,
+                "chunk_size": chunk_size,
+                "kwargs": kwargs,
+            }
+        )
+        metrics = SimpleNamespace(latency_to_first_chunk=1.25)
+        yield b"fake chunk 1", metrics
+        yield b"fake chunk 2", metrics
+
 
 def settings_for(tmp_path):
     return SimpleNamespace(
-        tts_provider="chatterbox_turbo",
-        tts_model="ResembleAI/chatterbox-turbo",
+        tts_model="ResembleAI/chatterbox",
         tts_language="en",
         tts_device="cuda",
         tts_temperature=0.8,
         tts_top_p=0.95,
-        tts_top_k=1000,
         tts_repetition_penalty=1.2,
         tts_norm_loudness=True,
+        tts_chunk_size=25,
+        tts_exaggeration=0.5,
+        tts_cfg_weight=0.5,
         voice_id="default",
         voices_dir=tmp_path / "voices",
         audio_dir=tmp_path / "audio",
@@ -68,7 +85,7 @@ def test_clean_spoken_text_preserves_normal_speech():
 
 def test_synthesize_rejects_non_speakable_text(tmp_path):
     write_reference(tmp_path, "default", "reference.wav")
-    synthesizer = ChatterboxTurboSynthesizer(settings_for(tmp_path))
+    synthesizer = ChatterboxSynthesizer(settings_for(tmp_path))
     synthesizer._model = FakeChatterboxModel()
 
     with pytest.raises(HTTPException) as exc_info:
@@ -83,7 +100,7 @@ def test_short_synthesis_uses_one_generation_and_one_reference(tmp_path):
     write_reference(tmp_path, "default", "reference-extra.wav")
     model = FakeChatterboxModel()
     saved_audio = []
-    synthesizer = ChatterboxTurboSynthesizer(settings_for(tmp_path))
+    synthesizer = ChatterboxSynthesizer(settings_for(tmp_path))
     synthesizer._model = model
     synthesizer._save_audio = lambda path, wav, sample_rate: saved_audio.append((path, wav, sample_rate))
 
@@ -97,18 +114,52 @@ def test_short_synthesis_uses_one_generation_and_one_reference(tmp_path):
     assert model.calls[0]["audio_prompt_path"] == str(expected_reference)
     assert model.calls[0]["kwargs"]["temperature"] == 0.8
     assert model.calls[0]["kwargs"]["top_p"] == 0.95
-    assert model.calls[0]["kwargs"]["top_k"] == 1000
     assert model.calls[0]["kwargs"]["repetition_penalty"] == 1.2
+    assert model.calls[0]["kwargs"]["exaggeration"] == 0.5
+    assert model.calls[0]["kwargs"]["cfg_weight"] == 0.5
     assert len(saved_audio) == 1
     assert saved_audio[0][1] == b"fake waveform"
     assert saved_audio[0][2] == 24000
+
+
+def test_streaming_synthesis_yields_chunks_and_final_wav(tmp_path, monkeypatch):
+    expected_reference = write_reference(tmp_path, "default", "reference.wav")
+    model = FakeChatterboxModel()
+    saved_audio = []
+    monkeypatch.setitem(
+        sys.modules,
+        "torch",
+        SimpleNamespace(cat=lambda chunks, dim: b"".join(chunks)),
+    )
+    synthesizer = ChatterboxSynthesizer(settings_for(tmp_path))
+    synthesizer._model = model
+    synthesizer._save_audio = lambda path, wav, sample_rate: saved_audio.append((path, wav, sample_rate))
+
+    events = list(synthesizer.synthesize_stream("Hello stream.", "default"))
+
+    assert len(events) == 3
+    assert events[0].event["type"] == "chunk"
+    assert events[0].event["chunk_index"] == 1
+    assert events[0].event["first_latency_seconds"] == 1.25
+    assert events[2].event["type"] == "final"
+    assert events[2].event["total_chunks"] == 2
+    assert events[2].event["audio_urls"] == [
+        events[0].event["audio_url"],
+        events[1].event["audio_url"],
+    ]
+    assert events[2].final_result.audio_url == events[2].event["audio_url"]
+    assert model.calls[0]["method"] == "generate_stream"
+    assert model.calls[0]["audio_prompt_path"] == str(expected_reference)
+    assert model.calls[0]["chunk_size"] == 25
+    assert len(saved_audio) == 3
+    assert saved_audio[-1][1] == b"fake chunk 1fake chunk 2"
 
 
 def test_synthesis_skips_short_reference_and_uses_longer_extra(tmp_path):
     write_reference(tmp_path, "default", "reference.wav", duration_seconds=2.0)
     expected_reference = write_reference(tmp_path, "default", "reference-extra.wav", duration_seconds=6.0)
     model = FakeChatterboxModel()
-    synthesizer = ChatterboxTurboSynthesizer(settings_for(tmp_path))
+    synthesizer = ChatterboxSynthesizer(settings_for(tmp_path))
     synthesizer._model = model
     synthesizer._save_audio = lambda path, wav, sample_rate: None
 
@@ -119,7 +170,7 @@ def test_synthesis_skips_short_reference_and_uses_longer_extra(tmp_path):
 
 def test_synthesis_rejects_voice_when_all_references_are_too_short(tmp_path):
     write_reference(tmp_path, "default", "reference.wav", duration_seconds=2.0)
-    synthesizer = ChatterboxTurboSynthesizer(settings_for(tmp_path))
+    synthesizer = ChatterboxSynthesizer(settings_for(tmp_path))
     synthesizer._model = FakeChatterboxModel()
 
     with pytest.raises(HTTPException) as exc_info:
@@ -130,7 +181,8 @@ def test_synthesis_rejects_voice_when_all_references_are_too_short(tmp_path):
 
 
 def test_runtime_info_reports_chatterbox_provider(tmp_path):
-    synthesizer = ChatterboxTurboSynthesizer(settings_for(tmp_path))
+    synthesizer = ChatterboxSynthesizer(settings_for(tmp_path))
 
-    assert synthesizer.runtime_info()["provider"] == "chatterbox_turbo"
+    assert synthesizer.runtime_info()["provider"] == "chatterbox_streaming"
     assert synthesizer.runtime_info()["temperature"] == 0.8
+    assert synthesizer.runtime_info()["chunk_size"] == 25

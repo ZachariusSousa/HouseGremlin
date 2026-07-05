@@ -1,9 +1,11 @@
+import json
 from dataclasses import dataclass
 from types import SimpleNamespace
 
 from fastapi.testclient import TestClient
 
 from app import main
+from app.tts import SynthesisStreamEvent
 from app.voices import VoiceStore
 
 
@@ -42,13 +44,43 @@ class FakeTranscriber:
 
 class FakeTts:
     def runtime_info(self):
-        return {"provider": "chatterbox_turbo", "model_loaded": False}
+        return {"provider": "chatterbox_streaming", "model_loaded": False}
 
     def synthesize(self, text: str, voice_id: str):
         return FakeSynthesisResult(
             audio_url="/audio/fake.wav",
             audio_urls=["/audio/fake.wav"],
             voice_id=voice_id,
+        )
+
+    def synthesize_stream(self, text: str, voice_id: str):
+        yield SynthesisStreamEvent(
+            event={
+                "type": "chunk",
+                "chunk_index": 1,
+                "audio_url": "/audio/chunk.wav",
+                "voice_id": voice_id,
+                "first_latency_seconds": 1.25,
+            }
+        )
+        yield SynthesisStreamEvent(
+            event={
+                "type": "final",
+                "audio_url": "/audio/final.wav",
+                "audio_urls": ["/audio/chunk.wav"],
+                "voice_id": voice_id,
+                "spoken_text": text,
+                "tts_input_chars": len(text),
+                "active_reference_count": 1,
+                "total_chunks": 1,
+            },
+            final_result=FakeSynthesisResult(
+                audio_url="/audio/final.wav",
+                audio_urls=["/audio/chunk.wav"],
+                voice_id=voice_id,
+                spoken_text=text,
+                tts_input_chars=len(text),
+            ),
         )
 
 
@@ -103,10 +135,10 @@ def test_health_reports_chatterbox_runtime(monkeypatch):
     response = TestClient(main.app).get("/health")
 
     assert response.status_code == 200
-    assert response.json()["tts_runtime"]["provider"] == "chatterbox_turbo"
+    assert response.json()["tts_runtime"]["provider"] == "chatterbox_streaming"
 
 
-def test_voice_roundtrip_endpoint_with_mocked_services(monkeypatch):
+def test_voice_roundtrip_endpoint_streams_with_mocked_services(monkeypatch):
     monkeypatch.setattr(main, "llm_client", FakeLlmClient())
     monkeypatch.setattr(main, "transcriber", FakeTranscriber())
     monkeypatch.setattr(main, "tts", FakeTts())
@@ -118,12 +150,16 @@ def test_voice_roundtrip_endpoint_with_mocked_services(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json()["transcript"] == "hello robit"
-    assert response.json()["model"] == "gemma4:e4b"
-    assert response.json()["audio_url"] == "/audio/fake.wav"
+    assert response.headers["content-type"].startswith("application/x-ndjson")
+    events = [json.loads(line) for line in response.text.splitlines()]
+    assert events[0]["type"] == "chunk"
+    assert events[1]["type"] == "final"
+    assert events[1]["transcript"] == "hello robit"
+    assert events[1]["model"] == "gemma4:e4b"
+    assert events[1]["audio_url"] == "/audio/final.wav"
 
 
-def test_chat_speak_endpoint_with_mocked_services(monkeypatch):
+def test_chat_speak_endpoint_streams_with_mocked_services(monkeypatch):
     monkeypatch.setattr(main, "llm_client", FakeLlmClient())
     monkeypatch.setattr(main, "tts", FakeTts())
 
@@ -133,8 +169,31 @@ def test_chat_speak_endpoint_with_mocked_services(monkeypatch):
     )
 
     assert response.status_code == 200
-    assert response.json()["response"] == "reply to hello"
-    assert response.json()["model"] == "gemma4:e4b"
-    assert response.json()["audio_url"] == "/audio/fake.wav"
-    assert response.json()["voice_id"] == "default"
-    assert response.json()["active_reference_count"] == 1
+    assert response.headers["content-type"].startswith("application/x-ndjson")
+    events = [json.loads(line) for line in response.text.splitlines()]
+    assert events[0]["type"] == "chunk"
+    assert events[0]["audio_url"] == "/audio/chunk.wav"
+    assert events[1]["type"] == "final"
+    assert events[1]["response"] == "reply to hello"
+    assert events[1]["model"] == "gemma4:e4b"
+    assert events[1]["audio_url"] == "/audio/final.wav"
+    assert events[1]["voice_id"] == "default"
+    assert events[1]["active_reference_count"] == 1
+
+
+def test_voice_synthesize_endpoint_streams_with_mocked_tts(monkeypatch):
+    monkeypatch.setattr(main, "tts", FakeTts())
+
+    response = TestClient(main.app).post(
+        "/voice/synthesize",
+        json={"text": "hello", "voice_id": "default"},
+    )
+
+    assert response.status_code == 200
+    assert response.headers["content-type"].startswith("application/x-ndjson")
+    events = [json.loads(line) for line in response.text.splitlines()]
+    assert events[0]["type"] == "chunk"
+    assert events[0]["audio_url"] == "/audio/chunk.wav"
+    assert events[1]["type"] == "final"
+    assert events[1]["audio_url"] == "/audio/final.wav"
+    assert events[1]["total_chunks"] == 1

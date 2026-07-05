@@ -4,10 +4,10 @@ This service runs on your computer and owns the expensive work: camera streaming
 
 ## Prerequisites
 
-- Python 3.11 recommended for the Chatterbox-Turbo voice stack.
+- Python 3.11 recommended for the Chatterbox Streaming voice stack.
 - [Ollama](https://ollama.com/) running locally
 - `ffmpeg` available on `PATH` for MP3/WAV normalization
-- NVIDIA GPU recommended for interactive Chatterbox-Turbo speech
+- NVIDIA GPU recommended for interactive Chatterbox Streaming speech
 
 ## Run
 
@@ -27,9 +27,9 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
 Run `ollama serve` in a separate terminal if Ollama is not already running.
 Edit `.env` and replace `ROBIT_BASE_URL` with the IP printed by the robot firmware.
 The default text model is `gemma4:e4b`, and chat requests send `think=false`.
-The voice model is Chatterbox-Turbo, configured by `ROBIT_TTS_PROVIDER=chatterbox_turbo` and `ROBIT_TTS_MODEL=ResembleAI/chatterbox-turbo`.
+The voice model is Chatterbox Streaming, configured by `ROBIT_TTS_MODEL=ResembleAI/chatterbox`.
 The Chatterbox sampling settings are exposed for experiments:
-`ROBIT_TTS_TEMPERATURE=0.8`, `ROBIT_TTS_TOP_P=0.95`, `ROBIT_TTS_TOP_K=1000`, and `ROBIT_TTS_REPETITION_PENALTY=1.2`.
+`ROBIT_TTS_TEMPERATURE=0.8`, `ROBIT_TTS_TOP_P=0.95`, `ROBIT_TTS_REPETITION_PENALTY=1.2`, `ROBIT_TTS_CHUNK_SIZE=25`, `ROBIT_TTS_EXAGGERATION=0.5`, and `ROBIT_TTS_CFG_WEIGHT=0.5`.
 
 `python --version` should print `Python 3.11.x`. If `py -3.11` is not available, install Python 3.11 first. The global Python on this machine appears to be 3.14, which is not the recommended runtime for this service.
 
@@ -86,7 +86,8 @@ curl.exe -F "audio=@C:\path\to\question.wav" -F "voice_id=default" http://localh
 Generated speech is written under `data/audio` and served from `/audio/{file}.wav`.
 
 The server logs timing lines for expensive stages with `perf operation=... elapsed_ms=...`.
-Use these to compare LLM, STT, voice normalization, and Chatterbox-Turbo synthesis costs.
+Use these to compare LLM, STT, voice normalization, and Chatterbox Streaming synthesis costs.
+STT is not warmed at startup because `faster-whisper` loads CTranslate2 CUDA libraries that can abort the process on Windows when CUDA/cuDNN DLLs are mismatched. Test STT separately with `/voice/transcribe` after text-to-speech is working.
 
 Check the active voice runtime:
 
@@ -97,35 +98,45 @@ $health.tts_runtime
 
 For best performance, `cuda_available` should be `True` and `cuda_device_name` should show the NVIDIA GPU.
 
-Send text and have Robit answer with speech:
+Send text and have Robit answer with streamed speech:
 
 ```powershell
-$response = Invoke-RestMethod -Method Post "http://localhost:8080/chat/speak" `
+$stream = Invoke-WebRequest -Method Post "http://localhost:8080/chat/speak" `
   -ContentType "application/json" `
   -Body '{"text":"Say hello in one short sentence.","voice_id":"default"}'
 
-$response
-Start-Process "http://localhost:8080$($response.audio_url)"
+$stream.Content
 ```
 
 Benchmark chat-to-speech latency:
 
 ```powershell
 Measure-Command {
-  Invoke-RestMethod http://localhost:8080/chat/speak `
+  Invoke-WebRequest http://localhost:8080/chat/speak `
     -Method Post `
     -ContentType "application/json" `
     -Body '{"text":"How are you doing?","voice_id":"default"}'
 }
 ```
 
-Compare Chatterbox-only synthesis without LLM time:
+Stream Chatterbox-only synthesis without LLM time:
 
 ```powershell
 Measure-Command {
-  Invoke-RestMethod http://localhost:8080/voice/synthesize `
+  Invoke-WebRequest http://localhost:8080/voice/synthesize `
     -Method Post `
     -ContentType "application/json" `
     -Body '{"text":"Ready to help.","voice_id":"default"}'
 }
+```
+
+Inspect streamed chunk events:
+
+```powershell
+$stream = Invoke-WebRequest http://localhost:8080/voice/synthesize `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body '{"text":"This is Robit testing streamed speech.","voice_id":"default"}'
+
+$stream.Content
 ```

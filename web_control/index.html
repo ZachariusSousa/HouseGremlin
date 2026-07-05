@@ -803,6 +803,43 @@
         return response.json();
       }
 
+      async function* postNdjson(path, body = {}) {
+        const response = await fetch(brainUrl(path), {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body)
+        });
+        if (!response.ok) {
+          const text = await response.text();
+          throw new Error(text || `${response.status} ${response.statusText}`);
+        }
+        if (!response.body) {
+          throw new Error("Streaming responses are not supported by this browser");
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed) yield JSON.parse(trimmed);
+          }
+        }
+
+        buffer += decoder.decode();
+        const trimmed = buffer.trim();
+        if (trimmed) yield JSON.parse(trimmed);
+      }
+
       function addMessage(role, body, metadata = "") {
         els.emptyState?.remove();
 
@@ -946,9 +983,90 @@
         setPlaybackStatus("Ready");
       }
 
+      async function playQueuedChunks(queueState) {
+        stopCurrentAudio();
+        els.replayButton.classList.remove("visible");
+        setPlaybackStatus("Speaking");
+
+        while (!queueState.done || queueState.queue.length) {
+          const audioPath = queueState.queue.shift();
+          if (!audioPath) {
+            await new Promise((resolve) => setTimeout(resolve, 25));
+            continue;
+          }
+
+          const audio = new Audio(brainUrl(audioPath));
+          state.currentAudio = audio;
+          await new Promise((resolve, reject) => {
+            audio.addEventListener("ended", resolve, { once: true });
+            audio.addEventListener("error", () => reject(new Error("Audio playback failed")), {
+              once: true
+            });
+            audio.play().catch(reject);
+          });
+        }
+
+        state.currentAudio = null;
+        els.replayButton.classList.add("visible");
+        setPlaybackStatus("Ready");
+      }
+
+      async function sendVoiceMessage(messageText, body) {
+        const queueState = {
+          queue: [],
+          done: false
+        };
+        const audioUrls = [];
+        let finalResult = null;
+        let streamError = null;
+        const playback = playQueuedChunks(queueState);
+
+        try {
+          for await (const event of postNdjson("/chat/speak", body)) {
+            if (event.type === "chunk" && event.audio_url) {
+              audioUrls.push(event.audio_url);
+              state.latestAudioUrls = audioUrls;
+              queueState.queue.push(event.audio_url);
+              setPlaybackStatus(`Speaking (${audioUrls.length} chunks)`);
+            }
+
+            if (event.type === "final") {
+              finalResult = event;
+              if (Array.isArray(event.audio_urls) && event.audio_urls.length > audioUrls.length) {
+                for (const audioUrl of event.audio_urls.slice(audioUrls.length)) {
+                  audioUrls.push(audioUrl);
+                  queueState.queue.push(audioUrl);
+                }
+              }
+              state.latestAudioUrls = audioUrls;
+              const metadata = event.model ? `Robit - ${event.model}` : "Robit";
+              addMessage("robit", event.response || "", metadata);
+              setConnectionState("ready", "Ready");
+            }
+          }
+        } catch (error) {
+          streamError = error;
+        } finally {
+          queueState.done = true;
+        }
+
+        try {
+          await playback;
+        } catch (error) {
+          if (!streamError) throw error;
+        }
+
+        if (streamError) {
+          throw streamError;
+        }
+
+        if (!finalResult) {
+          throw new Error("Speech stream ended without a final response");
+        }
+      }
+
       async function sendMessage(messageText) {
         const isVoice = state.mode === "voice";
-        const path = isVoice ? "/chat/speak" : "/chat";
         const body = {
           text: messageText,
           conversation_id: state.conversationId
@@ -964,26 +1082,13 @@
         addMessage("user", messageText);
 
         try {
-          const result = await postJson(path, body);
-          const metadata = result.model ? `Robit - ${result.model}` : "Robit";
-          addMessage("robit", result.response || "", metadata);
-          setConnectionState("ready", "Ready");
-
           if (isVoice) {
-            const audioUrls = resolveAudioUrls(result);
-            if (audioUrls.length) {
-              try {
-                await playAudioQueue(audioUrls);
-              } catch (error) {
-                state.latestAudioUrls = audioUrls;
-                els.replayButton.classList.add("visible");
-                const message = error instanceof Error ? error.message : String(error);
-                setPlaybackStatus(`${message}. Use Replay to try again.`, true);
-              }
-            } else {
-              setPlaybackStatus("No audio returned", true);
-            }
+            await sendVoiceMessage(messageText, body);
           } else {
+            const result = await postJson("/chat", body);
+            const metadata = result.model ? `Robit - ${result.model}` : "Robit";
+            addMessage("robit", result.response || "", metadata);
+            setConnectionState("ready", "Ready");
             state.latestAudioUrls = [];
             els.replayButton.classList.remove("visible");
             setPlaybackStatus("Ready");

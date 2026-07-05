@@ -1,25 +1,32 @@
 import asyncio
+import json
 from contextlib import asynccontextmanager
+from collections.abc import Iterable
 from typing import Literal
 
 import httpx
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+
+from .cuda_paths import configure_windows_cuda_dll_paths
+
+configure_windows_cuda_dll_paths()
 
 from .audio_utils import ensure_data_dirs, save_upload
 from .config import settings
 from .llm import OllamaChatClient
 from .stt import FasterWhisperTranscriber
 from .timing import timed
-from .tts import ChatterboxTurboSynthesizer
+from .tts import ChatterboxSynthesizer, SynthesisStreamEvent
 from .voices import VoiceStore
 
 
 llm_client = OllamaChatClient(settings)
 transcriber = FasterWhisperTranscriber(settings)
-tts = ChatterboxTurboSynthesizer(settings)
+tts = ChatterboxSynthesizer(settings)
 voice_store = VoiceStore(settings)
 
 
@@ -29,8 +36,7 @@ async def lifespan(app: FastAPI):
     if settings.warm_models:
         await asyncio.gather(
             llm_client.warmup(),
-            asyncio.to_thread(transcriber.warmup),
-            asyncio.to_thread(tts.warmup),
+            asyncio.to_thread(tts.warmup, False),
         )
     yield
 
@@ -69,6 +75,17 @@ class ChatSpeakRequest(ChatRequest):
 class SynthesizeRequest(BaseModel):
     text: str
     voice_id: str | None = None
+
+
+def ndjson_stream(
+    events: Iterable[SynthesisStreamEvent],
+    final_extra: dict | None = None,
+):
+    for item in events:
+        event = dict(item.event)
+        if item.final_result and final_extra:
+            event.update(final_extra)
+        yield json.dumps(event) + "\n"
 
 
 async def robot_get(path: str, params: dict | None = None):
@@ -191,34 +208,26 @@ async def chat_speak(request: ChatSpeakRequest):
     with timed("endpoint.chat_speak", voice_id=voice_id, prompt_chars=len(request.text)):
         with timed("stage.chat_speak.llm", prompt_chars=len(request.text)):
             chat_result = await llm_client.chat(request.text)
-        with timed("stage.chat_speak.tts", voice_id=voice_id, response_chars=len(chat_result.response)):
-            speech = await asyncio.to_thread(tts.synthesize, chat_result.response, voice_id)
-    return {
-        "response": chat_result.response,
-        "model": chat_result.model,
-        "conversation_id": request.conversation_id,
-        "audio_url": speech.audio_url,
-        "audio_urls": speech.audio_urls,
-        "voice_id": speech.voice_id,
-        "spoken_text": speech.spoken_text,
-        "tts_input_chars": speech.tts_input_chars,
-        "active_reference_count": speech.active_reference_count,
-    }
+    events = tts.synthesize_stream(chat_result.response, voice_id)
+    return StreamingResponse(
+        ndjson_stream(
+            events,
+            {
+                "response": chat_result.response,
+                "model": chat_result.model,
+                "conversation_id": request.conversation_id,
+            },
+        ),
+        media_type="application/x-ndjson",
+    )
 
 
 @app.post("/voice/synthesize")
 async def voice_synthesize(request: SynthesizeRequest):
     voice_id = request.voice_id or settings.voice_id
     with timed("endpoint.voice.synthesize", voice_id=voice_id, text_chars=len(request.text)):
-        result = await asyncio.to_thread(tts.synthesize, request.text, voice_id)
-    return {
-        "audio_url": result.audio_url,
-        "audio_urls": result.audio_urls,
-        "voice_id": result.voice_id,
-        "spoken_text": result.spoken_text,
-        "tts_input_chars": result.tts_input_chars,
-        "active_reference_count": result.active_reference_count,
-    }
+        events = tts.synthesize_stream(request.text, voice_id)
+    return StreamingResponse(ndjson_stream(events), media_type="application/x-ndjson")
 
 
 @app.post("/voice/roundtrip")
@@ -234,20 +243,19 @@ async def voice_roundtrip(
             transcript = await asyncio.to_thread(transcriber.transcribe, uploaded)
         with timed("stage.roundtrip.llm", transcript_chars=len(transcript.text)):
             chat_result = await llm_client.chat(transcript.text)
-        with timed("stage.roundtrip.tts", voice_id=voice_id, response_chars=len(chat_result.response)):
-            speech = await asyncio.to_thread(tts.synthesize, chat_result.response, voice_id)
-    return {
-        "conversation_id": conversation_id,
-        "transcript": transcript.text,
-        "response": chat_result.response,
-        "model": chat_result.model,
-        "audio_url": speech.audio_url,
-        "audio_urls": speech.audio_urls,
-        "voice_id": speech.voice_id,
-        "spoken_text": speech.spoken_text,
-        "tts_input_chars": speech.tts_input_chars,
-        "active_reference_count": speech.active_reference_count,
-    }
+    events = tts.synthesize_stream(chat_result.response, voice_id)
+    return StreamingResponse(
+        ndjson_stream(
+            events,
+            {
+                "conversation_id": conversation_id,
+                "transcript": transcript.text,
+                "response": chat_result.response,
+                "model": chat_result.model,
+            },
+        ),
+        media_type="application/x-ndjson",
+    )
 
 
 @app.get("/tools")
