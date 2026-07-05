@@ -3,6 +3,7 @@ from pathlib import Path
 
 from .audio_utils import clean_id, normalize_to_wav
 from .config import Settings
+from .timing import timed
 
 
 class VoiceStore:
@@ -24,7 +25,8 @@ class VoiceStore:
         reference = self.reference_path(cleaned)
         if reference.exists():
             reference = voice_dir / f"reference-{uuid.uuid4().hex}.wav"
-        normalize_to_wav(source_audio, reference)
+        with timed("voice.normalize", voice_id=cleaned, source_suffix=source_audio.suffix.lower()):
+            normalize_to_wav(source_audio, reference)
         return cleaned, reference, self.reference_paths(cleaned)
 
     def list_voice_ids(self) -> list[str]:

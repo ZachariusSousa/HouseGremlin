@@ -12,6 +12,7 @@ from .audio_utils import ensure_data_dirs, save_upload
 from .config import settings
 from .llm import OllamaChatClient
 from .stt import FasterWhisperTranscriber
+from .timing import timed
 from .tts import XttsSynthesizer
 from .voices import VoiceStore
 
@@ -144,9 +145,12 @@ async def upload_voice(
     voice_id: str = Form(default=settings.voice_id),
     sample: UploadFile = File(...),
 ):
-    uploaded = await save_upload(sample, settings.uploads_dir, "voice")
-    cleaned_voice_id, reference, references = voice_store.save_reference(voice_id, uploaded)
-    tts.register_voice(cleaned_voice_id, references)
+    with timed("endpoint.voices.upload", voice_id=voice_id, filename=sample.filename or "unknown"):
+        with timed("upload.save", kind="voice", filename=sample.filename or "unknown"):
+            uploaded = await save_upload(sample, settings.uploads_dir, "voice")
+        cleaned_voice_id, reference, references = voice_store.save_reference(voice_id, uploaded)
+        with timed("tts.register_voice", voice_id=cleaned_voice_id, reference_count=len(references)):
+            tts.register_voice(cleaned_voice_id, references)
     return {
         "voice_id": cleaned_voice_id,
         "reference_path": str(reference),
@@ -157,8 +161,11 @@ async def upload_voice(
 
 @app.post("/voice/transcribe")
 async def voice_transcribe(audio: UploadFile = File(...)):
-    uploaded = await save_upload(audio, settings.uploads_dir, "stt")
-    result = await asyncio.to_thread(transcriber.transcribe, uploaded)
+    with timed("endpoint.voice.transcribe", filename=audio.filename or "unknown"):
+        with timed("upload.save", kind="stt", filename=audio.filename or "unknown"):
+            uploaded = await save_upload(audio, settings.uploads_dir, "stt")
+        with timed("stt.transcribe"):
+            result = await asyncio.to_thread(transcriber.transcribe, uploaded)
     return {
         "text": result.text,
         "language": result.language,
@@ -168,7 +175,8 @@ async def voice_transcribe(audio: UploadFile = File(...)):
 
 @app.post("/chat")
 async def chat(request: ChatRequest):
-    result = await llm_client.chat(request.text)
+    with timed("endpoint.chat", prompt_chars=len(request.text)):
+        result = await llm_client.chat(request.text)
     return {
         "response": result.response,
         "model": result.model,
@@ -179,8 +187,11 @@ async def chat(request: ChatRequest):
 @app.post("/chat/speak")
 async def chat_speak(request: ChatSpeakRequest):
     voice_id = request.voice_id or settings.voice_id
-    chat_result = await llm_client.chat(request.text)
-    speech = await asyncio.to_thread(tts.synthesize, chat_result.response, voice_id)
+    with timed("endpoint.chat_speak", voice_id=voice_id, prompt_chars=len(request.text)):
+        with timed("stage.chat_speak.llm", prompt_chars=len(request.text)):
+            chat_result = await llm_client.chat(request.text)
+        with timed("stage.chat_speak.tts", voice_id=voice_id, response_chars=len(chat_result.response)):
+            speech = await asyncio.to_thread(tts.synthesize, chat_result.response, voice_id)
     return {
         "response": chat_result.response,
         "model": chat_result.model,
@@ -194,7 +205,8 @@ async def chat_speak(request: ChatSpeakRequest):
 @app.post("/voice/synthesize")
 async def voice_synthesize(request: SynthesizeRequest):
     voice_id = request.voice_id or settings.voice_id
-    result = await asyncio.to_thread(tts.synthesize, request.text, voice_id)
+    with timed("endpoint.voice.synthesize", voice_id=voice_id, text_chars=len(request.text)):
+        result = await asyncio.to_thread(tts.synthesize, request.text, voice_id)
     return {
         "audio_url": result.audio_url,
         "audio_urls": result.audio_urls,
@@ -208,10 +220,15 @@ async def voice_roundtrip(
     voice_id: str = Form(default=settings.voice_id),
     conversation_id: str = Form(default="default"),
 ):
-    uploaded = await save_upload(audio, settings.uploads_dir, "roundtrip")
-    transcript = await asyncio.to_thread(transcriber.transcribe, uploaded)
-    chat_result = await llm_client.chat(transcript.text)
-    speech = await asyncio.to_thread(tts.synthesize, chat_result.response, voice_id)
+    with timed("endpoint.voice.roundtrip", voice_id=voice_id, filename=audio.filename or "unknown"):
+        with timed("upload.save", kind="roundtrip", filename=audio.filename or "unknown"):
+            uploaded = await save_upload(audio, settings.uploads_dir, "roundtrip")
+        with timed("stage.roundtrip.stt"):
+            transcript = await asyncio.to_thread(transcriber.transcribe, uploaded)
+        with timed("stage.roundtrip.llm", transcript_chars=len(transcript.text)):
+            chat_result = await llm_client.chat(transcript.text)
+        with timed("stage.roundtrip.tts", voice_id=voice_id, response_chars=len(chat_result.response)):
+            speech = await asyncio.to_thread(tts.synthesize, chat_result.response, voice_id)
     return {
         "conversation_id": conversation_id,
         "transcript": transcript.text,

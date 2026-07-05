@@ -7,6 +7,7 @@ from fastapi import HTTPException
 
 from .audio_utils import ensure_data_dirs, split_sentences
 from .config import Settings
+from .timing import timed
 from .voices import VoiceStore
 
 
@@ -37,9 +38,10 @@ class XttsSynthesizer:
                 ) from exc
 
             try:
-                self._model = TTS(self.settings.tts_model)
-                if self.settings.tts_device == "cuda":
-                    self._model = self._model.to("cuda")
+                with timed("tts.xtts.load_model", model=self.settings.tts_model, device=self.settings.tts_device):
+                    self._model = TTS(self.settings.tts_model)
+                    if self.settings.tts_device == "cuda":
+                        self._model = self._model.to("cuda")
             except Exception as exc:
                 raise HTTPException(
                     status_code=500,
@@ -81,27 +83,38 @@ class XttsSynthesizer:
         if not stripped:
             raise HTTPException(status_code=400, detail="text cannot be empty")
 
-        model = self._load_model()
-        references = self._references_for(voice_id)
-        ensure_data_dirs(self.settings.audio_dir)
+        with timed("tts.synthesize.total", voice_id=voice_id, text_chars=len(stripped)):
+            model = self._load_model()
+            with timed("tts.references", voice_id=voice_id):
+                references = self._references_for(voice_id)
+            ensure_data_dirs(self.settings.audio_dir)
 
-        sentences = split_sentences(stripped) or [stripped]
-        chunk_paths = []
-        for index, sentence in enumerate(sentences):
-            chunk_path = self.settings.audio_dir / f"{uuid.uuid4().hex}-{index}.wav"
-            model.tts_to_file(
-                text=sentence,
-                speaker_wav=[str(reference) for reference in references],
-                language=self.settings.tts_language,
-                file_path=str(chunk_path),
-            )
-            chunk_paths.append(chunk_path)
+            sentences = split_sentences(stripped) or [stripped]
+            chunk_paths = []
+            reference_paths = [str(reference) for reference in references]
+            for index, sentence in enumerate(sentences):
+                chunk_path = self.settings.audio_dir / f"{uuid.uuid4().hex}-{index}.wav"
+                with timed(
+                    "tts.xtts.sentence",
+                    voice_id=voice_id,
+                    sentence_index=index,
+                    sentence_chars=len(sentence),
+                    reference_count=len(references),
+                ):
+                    model.tts_to_file(
+                        text=sentence,
+                        speaker_wav=reference_paths,
+                        language=self.settings.tts_language,
+                        file_path=str(chunk_path),
+                    )
+                chunk_paths.append(chunk_path)
 
-        if len(chunk_paths) == 1:
-            final_path = chunk_paths[0]
-        else:
-            final_path = self.settings.audio_dir / f"{uuid.uuid4().hex}.wav"
-            self._concat_wavs(chunk_paths, final_path)
+            if len(chunk_paths) == 1:
+                final_path = chunk_paths[0]
+            else:
+                final_path = self.settings.audio_dir / f"{uuid.uuid4().hex}.wav"
+                with timed("tts.concat_wavs", chunk_count=len(chunk_paths)):
+                    self._concat_wavs(chunk_paths, final_path)
 
         return SynthesisResult(
             audio_url=f"/audio/{final_path.name}",

@@ -4,6 +4,7 @@ import httpx
 from fastapi import HTTPException
 
 from .config import Settings
+from .timing import timed
 
 
 SYSTEM_PROMPT = (
@@ -46,10 +47,11 @@ class OllamaChatClient:
 
         try:
             async with httpx.AsyncClient(timeout=self.settings.llm_timeout) as client:
-                response = await client.post(
-                    f"{self.settings.llm_base_url}/api/chat",
-                    json=self._payload(stripped),
-                )
+                with timed("llm.chat.http", model=self.settings.llm_model, prompt_chars=len(stripped)):
+                    response = await client.post(
+                        f"{self.settings.llm_base_url}/api/chat",
+                        json=self._payload(stripped),
+                    )
                 response.raise_for_status()
         except httpx.HTTPError as exc:
             raise HTTPException(status_code=502, detail=f"Ollama request failed: {exc}") from exc

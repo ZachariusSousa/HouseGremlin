@@ -93,6 +93,9 @@ curl.exe -F "audio=@C:\path\to\question.wav" -F "voice_id=default" http://localh
 
 Generated speech is written under `data/audio` and served from `/audio/{file}.wav`.
 
+The server logs timing lines for expensive stages with `perf operation=... elapsed_ms=...`.
+Use these to compare LLM, STT, voice normalization, and TTS sentence synthesis costs.
+
 Send text and have Robit answer with speech:
 
 ```powershell
