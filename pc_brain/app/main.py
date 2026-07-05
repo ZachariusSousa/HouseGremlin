@@ -13,13 +13,13 @@ from .config import settings
 from .llm import OllamaChatClient
 from .stt import FasterWhisperTranscriber
 from .timing import timed
-from .tts import XttsSynthesizer
+from .tts import ChatterboxTurboSynthesizer
 from .voices import VoiceStore
 
 
 llm_client = OllamaChatClient(settings)
 transcriber = FasterWhisperTranscriber(settings)
-tts = XttsSynthesizer(settings)
+tts = ChatterboxTurboSynthesizer(settings)
 voice_store = VoiceStore(settings)
 
 
@@ -93,6 +93,7 @@ async def health():
         "llm_model": settings.llm_model,
         "stt_model": settings.stt_model,
         "tts_model": settings.tts_model,
+        "tts_runtime": tts.runtime_info(),
     }
 
 
@@ -199,6 +200,9 @@ async def chat_speak(request: ChatSpeakRequest):
         "audio_url": speech.audio_url,
         "audio_urls": speech.audio_urls,
         "voice_id": speech.voice_id,
+        "spoken_text": speech.spoken_text,
+        "tts_input_chars": speech.tts_input_chars,
+        "active_reference_count": speech.active_reference_count,
     }
 
 
@@ -211,6 +215,9 @@ async def voice_synthesize(request: SynthesizeRequest):
         "audio_url": result.audio_url,
         "audio_urls": result.audio_urls,
         "voice_id": result.voice_id,
+        "spoken_text": result.spoken_text,
+        "tts_input_chars": result.tts_input_chars,
+        "active_reference_count": result.active_reference_count,
     }
 
 
@@ -237,6 +244,9 @@ async def voice_roundtrip(
         "audio_url": speech.audio_url,
         "audio_urls": speech.audio_urls,
         "voice_id": speech.voice_id,
+        "spoken_text": speech.spoken_text,
+        "tts_input_chars": speech.tts_input_chars,
+        "active_reference_count": speech.active_reference_count,
     }
 
 

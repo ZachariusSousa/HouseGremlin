@@ -1,7 +1,9 @@
 import re
 import shutil
 import subprocess
+import unicodedata
 import uuid
+import wave
 from pathlib import Path
 
 from fastapi import HTTPException, UploadFile
@@ -69,3 +71,30 @@ def normalize_to_wav(source: Path, target: Path) -> Path:
 def split_sentences(text: str) -> list[str]:
     chunks = re.split(r"(?<=[.!?])\s+", text.strip())
     return [chunk.strip() for chunk in chunks if chunk.strip()]
+
+
+def clean_spoken_text(text: str) -> str:
+    cleaned = re.sub(r"!\[([^\]]*)\]\([^)]+\)", r"\1", text)
+    cleaned = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", cleaned)
+    cleaned = re.sub(r"https?://\S+|www\.\S+", " ", cleaned)
+    cleaned = re.sub(r"[*_`~#>|{}\[\]\\]", " ", cleaned)
+
+    speakable_chars = []
+    for char in cleaned:
+        category = unicodedata.category(char)
+        if category.startswith("C") or category in {"So", "Sk"}:
+            speakable_chars.append(" ")
+        else:
+            speakable_chars.append(char)
+
+    cleaned = "".join(speakable_chars)
+    cleaned = re.sub(r"\s+", " ", cleaned).strip()
+    return cleaned
+
+
+def wav_duration_seconds(path: Path) -> float:
+    with wave.open(str(path), "rb") as audio:
+        frame_rate = audio.getframerate()
+        if frame_rate <= 0:
+            return 0.0
+        return audio.getnframes() / frame_rate

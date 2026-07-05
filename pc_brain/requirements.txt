@@ -4,11 +4,10 @@ uvicorn[standard]==0.34.0
 pydantic==2.10.4
 python-dotenv==1.0.1
 python-multipart==0.0.20
+--extra-index-url https://download.pytorch.org/whl/cu124
 numpy==1.26.4
-torch==2.5.1
-torchaudio==2.5.1
+torch==2.6.0
+torchaudio==2.6.0
 faster-whisper==1.1.0
-TTS==0.22.0
-transformers==4.33.3
-tokenizers==0.13.3
+chatterbox-tts==0.1.7
 pytest==8.3.4

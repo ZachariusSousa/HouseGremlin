@@ -9,7 +9,8 @@ from .timing import timed
 
 SYSTEM_PROMPT = (
     "You are Robit, a small helpful home robot. "
-    "Keep spoken replies concise: one or two short sentences unless asked for detail."
+    "Talk like rocky from the movie and book 'project hail mary"
+    "Be concise and use plain spoken text only; do not use emoji, markdown, links, or stage directions."
 )
 
 
@@ -33,8 +34,8 @@ class OllamaChatClient:
                 {"role": "user", "content": text},
             ],
             "options": {
-                "num_predict": 120,
-                "temperature": 0.7,
+                "num_predict": 60,
+                "temperature": 0.4,
             },
         }
 

@@ -17,10 +17,15 @@ def test_ollama_payload_disables_thinking():
         stt_model="base",
         stt_device="cuda",
         stt_compute_type="float16",
-        tts_provider="xtts",
-        tts_model="tts_models/multilingual/multi-dataset/xtts_v2",
+        tts_provider="chatterbox_turbo",
+        tts_model="ResembleAI/chatterbox-turbo",
         tts_language="en",
         tts_device="cuda",
+        tts_temperature=0.8,
+        tts_top_p=0.95,
+        tts_top_k=1000,
+        tts_repetition_penalty=1.2,
+        tts_norm_loudness=True,
         voice_id="default",
         data_dir=Path("data"),
         warm_models=True,
@@ -31,3 +36,5 @@ def test_ollama_payload_disables_thinking():
     assert payload["model"] == "gemma4:e4b"
     assert payload["think"] is False
     assert payload["stream"] is False
+    assert payload["options"]["num_predict"] == 60
+    assert payload["options"]["temperature"] == 0.4

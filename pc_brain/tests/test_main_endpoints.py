@@ -25,6 +25,9 @@ class FakeSynthesisResult:
     audio_url: str
     audio_urls: list[str]
     voice_id: str
+    spoken_text: str = "reply to hello"
+    tts_input_chars: int = 14
+    active_reference_count: int = 1
 
 
 class FakeLlmClient:
@@ -38,6 +41,9 @@ class FakeTranscriber:
 
 
 class FakeTts:
+    def runtime_info(self):
+        return {"provider": "chatterbox_turbo", "model_loaded": False}
+
     def synthesize(self, text: str, voice_id: str):
         return FakeSynthesisResult(
             audio_url="/audio/fake.wav",
@@ -91,6 +97,15 @@ def test_chat_endpoint_uses_configured_model(monkeypatch):
     assert response.json()["response"] == "reply to hello"
 
 
+def test_health_reports_chatterbox_runtime(monkeypatch):
+    monkeypatch.setattr(main, "tts", FakeTts())
+
+    response = TestClient(main.app).get("/health")
+
+    assert response.status_code == 200
+    assert response.json()["tts_runtime"]["provider"] == "chatterbox_turbo"
+
+
 def test_voice_roundtrip_endpoint_with_mocked_services(monkeypatch):
     monkeypatch.setattr(main, "llm_client", FakeLlmClient())
     monkeypatch.setattr(main, "transcriber", FakeTranscriber())
@@ -122,3 +137,4 @@ def test_chat_speak_endpoint_with_mocked_services(monkeypatch):
     assert response.json()["model"] == "gemma4:e4b"
     assert response.json()["audio_url"] == "/audio/fake.wav"
     assert response.json()["voice_id"] == "default"
+    assert response.json()["active_reference_count"] == 1
