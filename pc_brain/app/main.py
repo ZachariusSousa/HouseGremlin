@@ -2,11 +2,13 @@ import asyncio
 import json
 from contextlib import asynccontextmanager
 from collections.abc import Iterable
+from pathlib import Path
 from typing import Literal
 
 import httpx
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -51,6 +53,7 @@ app.add_middleware(
 )
 ensure_data_dirs(settings.audio_dir)
 app.mount("/audio", StaticFiles(directory=settings.audio_dir), name="audio")
+WEB_CONTROL_INDEX = Path(__file__).resolve().parents[2] / "web_control" / "index.html"
 
 
 class DriveCommand(BaseModel):
@@ -88,6 +91,34 @@ def ndjson_stream(
         yield json.dumps(event) + "\n"
 
 
+def chat_speak_stream(chat_result, voice_id: str, conversation_id: str):
+    yield json.dumps(
+        {
+            "type": "response",
+            "response": chat_result.response,
+            "model": chat_result.model,
+            "conversation_id": conversation_id,
+            "voice_id": voice_id,
+        }
+    ) + "\n"
+
+    result = tts.synthesize(chat_result.response, voice_id)
+    yield json.dumps(
+        {
+            "type": "final",
+            "audio_url": result.audio_url,
+            "audio_urls": result.audio_urls,
+            "voice_id": result.voice_id,
+            "spoken_text": result.spoken_text,
+            "tts_input_chars": result.tts_input_chars,
+            "active_reference_count": result.active_reference_count,
+            "response": chat_result.response,
+            "model": chat_result.model,
+            "conversation_id": conversation_id,
+        }
+    ) + "\n"
+
+
 async def robot_get(path: str, params: dict | None = None):
     url = f"{settings.robot_base_url}{path}"
     try:
@@ -112,6 +143,13 @@ async def health():
         "tts_model": settings.tts_model,
         "tts_runtime": tts.runtime_info(),
     }
+
+
+@app.get("/", include_in_schema=False)
+async def web_control():
+    if not WEB_CONTROL_INDEX.exists():
+        raise HTTPException(status_code=404, detail="web_control/index.html was not found")
+    return FileResponse(WEB_CONTROL_INDEX)
 
 
 @app.get("/robot/status")
@@ -208,16 +246,8 @@ async def chat_speak(request: ChatSpeakRequest):
     with timed("endpoint.chat_speak", voice_id=voice_id, prompt_chars=len(request.text)):
         with timed("stage.chat_speak.llm", prompt_chars=len(request.text)):
             chat_result = await llm_client.chat(request.text)
-    events = tts.synthesize_stream(chat_result.response, voice_id)
     return StreamingResponse(
-        ndjson_stream(
-            events,
-            {
-                "response": chat_result.response,
-                "model": chat_result.model,
-                "conversation_id": request.conversation_id,
-            },
-        ),
+        chat_speak_stream(chat_result, voice_id, request.conversation_id),
         media_type="application/x-ndjson",
     )
 

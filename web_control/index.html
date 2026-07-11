@@ -983,77 +983,39 @@
         setPlaybackStatus("Ready");
       }
 
-      async function playQueuedChunks(queueState) {
-        stopCurrentAudio();
-        els.replayButton.classList.remove("visible");
-        setPlaybackStatus("Speaking");
-
-        while (!queueState.done || queueState.queue.length) {
-          const audioPath = queueState.queue.shift();
-          if (!audioPath) {
-            await new Promise((resolve) => setTimeout(resolve, 25));
-            continue;
-          }
-
-          const audio = new Audio(brainUrl(audioPath));
-          state.currentAudio = audio;
-          await new Promise((resolve, reject) => {
-            audio.addEventListener("ended", resolve, { once: true });
-            audio.addEventListener("error", () => reject(new Error("Audio playback failed")), {
-              once: true
-            });
-            audio.play().catch(reject);
-          });
-        }
-
-        state.currentAudio = null;
-        els.replayButton.classList.add("visible");
-        setPlaybackStatus("Ready");
-      }
-
       async function sendVoiceMessage(messageText, body) {
-        const queueState = {
-          queue: [],
-          done: false
-        };
         const audioUrls = [];
         let finalResult = null;
         let streamError = null;
-        const playback = playQueuedChunks(queueState);
+        let responseRendered = false;
 
         try {
           for await (const event of postNdjson("/chat/speak", body)) {
+            if (event.type === "response" && !responseRendered) {
+              const metadata = event.model ? `Robit - ${event.model}` : "Robit";
+              addMessage("robit", event.response || "", metadata);
+              responseRendered = true;
+              setConnectionState("ready", "Generating speech");
+            }
+
             if (event.type === "chunk" && event.audio_url) {
               audioUrls.push(event.audio_url);
-              state.latestAudioUrls = audioUrls;
-              queueState.queue.push(event.audio_url);
-              setPlaybackStatus(`Speaking (${audioUrls.length} chunks)`);
+              setPlaybackStatus(`Generating audio (${audioUrls.length} chunks)`);
             }
 
             if (event.type === "final") {
               finalResult = event;
-              if (Array.isArray(event.audio_urls) && event.audio_urls.length > audioUrls.length) {
-                for (const audioUrl of event.audio_urls.slice(audioUrls.length)) {
-                  audioUrls.push(audioUrl);
-                  queueState.queue.push(audioUrl);
-                }
+              state.latestAudioUrls = event.audio_url ? [event.audio_url] : audioUrls;
+              if (!responseRendered) {
+                const metadata = event.model ? `Robit - ${event.model}` : "Robit";
+                addMessage("robit", event.response || "", metadata);
+                responseRendered = true;
               }
-              state.latestAudioUrls = audioUrls;
-              const metadata = event.model ? `Robit - ${event.model}` : "Robit";
-              addMessage("robit", event.response || "", metadata);
-              setConnectionState("ready", "Ready");
+              setConnectionState("ready", "Speaking");
             }
           }
         } catch (error) {
           streamError = error;
-        } finally {
-          queueState.done = true;
-        }
-
-        try {
-          await playback;
-        } catch (error) {
-          if (!streamError) throw error;
         }
 
         if (streamError) {
@@ -1063,6 +1025,8 @@
         if (!finalResult) {
           throw new Error("Speech stream ended without a final response");
         }
+
+        await playAudioQueue(state.latestAudioUrls);
       }
 
       async function sendMessage(messageText) {

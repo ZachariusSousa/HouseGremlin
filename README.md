@@ -36,6 +36,22 @@ The firmware exposes:
 - `GET /servo?pan=55..135`
 - `GET /servo?tilt=35..115`
 
+It also exposes first-pass JSON-style aliases for the PC brain and later LLM
+tool layer:
+
+- `GET /api/status`
+- `POST /api/move` with `direction`, optional `speed`, and optional `duration_ms`
+- `POST /api/head` with `pan`/`tilt` or `pan_delta`/`tilt_delta`
+- `POST /api/emergency-stop`
+
+Current soldered pin assumptions:
+
+- `D0` left forward, `D1` left reverse
+- `D2` right forward, `D3` right reverse
+- `D4` shared PWM for both motor-driver PWM inputs
+- `D6`/`D7` PCA9685 servo I2C
+- `D5`/`D8` reserved for the OLED eye I2C bus
+
 ## PC Brain
 
 The PC service is intentionally a thin scaffold right now. It gives you a clean place to add:

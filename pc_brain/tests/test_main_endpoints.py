@@ -51,6 +51,8 @@ class FakeTts:
             audio_url="/audio/fake.wav",
             audio_urls=["/audio/fake.wav"],
             voice_id=voice_id,
+            spoken_text=text,
+            tts_input_chars=len(text),
         )
 
     def synthesize_stream(self, text: str, voice_id: str):
@@ -171,12 +173,13 @@ def test_chat_speak_endpoint_streams_with_mocked_services(monkeypatch):
     assert response.status_code == 200
     assert response.headers["content-type"].startswith("application/x-ndjson")
     events = [json.loads(line) for line in response.text.splitlines()]
-    assert events[0]["type"] == "chunk"
-    assert events[0]["audio_url"] == "/audio/chunk.wav"
+    assert events[0]["type"] == "response"
+    assert events[0]["response"] == "reply to hello"
+    assert events[0]["model"] == "gemma4:e4b"
     assert events[1]["type"] == "final"
     assert events[1]["response"] == "reply to hello"
     assert events[1]["model"] == "gemma4:e4b"
-    assert events[1]["audio_url"] == "/audio/final.wav"
+    assert events[1]["audio_url"] == "/audio/fake.wav"
     assert events[1]["voice_id"] == "default"
     assert events[1]["active_reference_count"] == 1
 
