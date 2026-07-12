@@ -8,3 +8,6 @@
 
 #define ROBIT_AP_SSID "Robit-Control"
 #define ROBIT_AP_PASSWORD "12345678"
+
+// Station-mode mDNS name. Try http://robit.local after the robot joins Wi-Fi.
+#define ROBIT_HOSTNAME "robit"

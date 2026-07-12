@@ -1,9 +1,11 @@
 import asyncio
 import json
+import logging
 from contextlib import asynccontextmanager
 from collections.abc import Iterable
 from pathlib import Path
 from typing import Literal
+from urllib.parse import urlparse, urlunparse
 
 import httpx
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
@@ -11,7 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ValidationError
 
 from .cuda_paths import configure_windows_cuda_dll_paths
 
@@ -26,6 +28,7 @@ from .tts import ChatterboxSynthesizer, SynthesisStreamEvent
 from .voices import VoiceStore
 
 
+logger = logging.getLogger("uvicorn.error")
 llm_client = OllamaChatClient(settings)
 transcriber = FasterWhisperTranscriber(settings)
 tts = ChatterboxSynthesizer(settings)
@@ -66,12 +69,41 @@ class HeadCommand(BaseModel):
     tilt: int | None = Field(default=None, ge=35, le=115)
 
 
+class MovementAction(BaseModel):
+    direction: Literal["forward", "reverse", "left", "right", "stop"]
+    speed: int | None = Field(default=None, ge=0, le=255)
+    duration_ms: int | None = Field(default=None, ge=0)
+
+
+class HeadAction(BaseModel):
+    pan: int | None = Field(default=None, ge=55, le=135)
+    tilt: int | None = Field(default=None, ge=35, le=115)
+    pan_delta: int | None = Field(default=None, ge=-80, le=80)
+    tilt_delta: int | None = Field(default=None, ge=-80, le=80)
+
+
+class EyeAction(BaseModel):
+    expression: str
+    duration_ms: int | None = Field(default=None, ge=0, le=10000)
+
+
+class RobotActionRequest(BaseModel):
+    movement: MovementAction | None = None
+    head: HeadAction | None = None
+    eyes: EyeAction | None = None
+    emergency_stop: bool = False
+
+
 class ChatRequest(BaseModel):
     text: str
     conversation_id: str = "default"
 
 
 class ChatSpeakRequest(ChatRequest):
+    voice_id: str | None = None
+
+
+class ChatActionRequest(ChatRequest):
     voice_id: str | None = None
 
 
@@ -133,6 +165,124 @@ async def robot_get(path: str, params: dict | None = None):
         raise HTTPException(status_code=502, detail=f"Robot request failed: {exc}") from exc
 
 
+async def robot_post(path: str, body: dict | None = None):
+    url = f"{settings.robot_base_url}{path}"
+    try:
+        async with httpx.AsyncClient(timeout=settings.request_timeout) as client:
+            response = await client.post(url, json=body or {})
+            response.raise_for_status()
+            content_type = response.headers.get("content-type", "")
+            if "application/json" in content_type:
+                return response.json()
+            return {"ok": True, "body": response.text}
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Robot request failed: {exc}") from exc
+
+
+def camera_urls() -> dict:
+    parsed = urlparse(settings.robot_base_url)
+    hostname = parsed.hostname or "192.168.4.1"
+    scheme = parsed.scheme or "http"
+    stream_url = urlunparse((scheme, f"{hostname}:81", "/stream", "", "", ""))
+    return {
+        "ok": True,
+        "robot_base_url": settings.robot_base_url,
+        "page_url": f"{settings.robot_base_url}/camera",
+        "capture_url": f"{settings.robot_base_url}/camera/capture",
+        "stream_url": stream_url,
+    }
+
+
+def sanitized_action_payload(action: RobotActionRequest) -> dict:
+    payload: dict = {}
+    if action.movement:
+        movement = action.movement.model_dump(exclude_none=True)
+        if "speed" in movement:
+            movement["speed"] = min(movement["speed"], settings.robot_llm_max_speed)
+        if "duration_ms" in movement:
+            movement["duration_ms"] = min(movement["duration_ms"], settings.robot_llm_max_duration_ms)
+        elif movement["direction"] != "stop":
+            movement["duration_ms"] = min(300, settings.robot_llm_max_duration_ms)
+        payload["movement"] = movement
+    if action.head:
+        payload["head"] = action.head.model_dump(exclude_none=True)
+    if action.eyes:
+        payload["eyes"] = action.eyes.model_dump(exclude_none=True)
+    if action.emergency_stop:
+        payload["emergency_stop"] = True
+    return payload
+
+
+def normalize_llm_action_body(action_body: dict) -> dict:
+    normalized = dict(action_body)
+    movement = normalized.get("movement")
+    if isinstance(movement, dict):
+        movement = dict(movement)
+        if "speed" in movement and isinstance(movement["speed"], float):
+            if 0 <= movement["speed"] <= 1:
+                movement["speed"] = round(movement["speed"] * settings.robot_llm_max_speed)
+            else:
+                movement["speed"] = round(movement["speed"])
+        if "duration_ms" in movement and isinstance(movement["duration_ms"], float):
+            movement["duration_ms"] = round(movement["duration_ms"])
+        normalized["movement"] = movement
+
+    head = normalized.get("head")
+    if isinstance(head, dict):
+        head = dict(head)
+        for key in ("pan", "tilt", "pan_delta", "tilt_delta"):
+            if key in head and isinstance(head[key], float):
+                head[key] = round(head[key])
+        normalized["head"] = head
+
+    eyes = normalized.get("eyes")
+    if isinstance(eyes, dict):
+        eyes = dict(eyes)
+        if "duration_ms" in eyes and isinstance(eyes["duration_ms"], float):
+            eyes["duration_ms"] = round(eyes["duration_ms"])
+        normalized["eyes"] = eyes
+
+    return normalized
+
+
+async def execute_robot_action(action: RobotActionRequest) -> dict:
+    payload = sanitized_action_payload(action)
+    executed: list[dict] = []
+    skipped: list[dict] = []
+
+    if payload.get("emergency_stop"):
+        result = await robot_post("/api/emergency-stop")
+        executed.append({"type": "emergency_stop", "result": result})
+        logger.info("robot.llm_action emergency_stop")
+        return {"ok": True, "action": payload, "executed": executed, "skipped": skipped}
+
+    if movement := payload.get("movement"):
+        result = await robot_post("/api/move", movement)
+        executed.append({"type": "movement", "request": movement, "result": result})
+
+    if head := payload.get("head"):
+        result = await robot_post("/api/head", head)
+        executed.append({"type": "head", "request": head, "result": result})
+
+    if eyes := payload.get("eyes"):
+        try:
+            result = await robot_post("/api/eyes", eyes)
+            executed.append({"type": "eyes", "request": eyes, "result": result})
+        except HTTPException as exc:
+            skipped.append({"type": "eyes", "request": eyes, "reason": exc.detail})
+
+    logger.info("robot.llm_action %s", json.dumps(payload))
+    return {"ok": True, "action": payload, "executed": executed, "skipped": skipped}
+
+
+def parse_action_response(content: str) -> dict | None:
+    try:
+        parsed = json.loads(content)
+    except json.JSONDecodeError:
+        return None
+    return parsed if isinstance(parsed, dict) else None
+
+
 @app.get("/health")
 async def health():
     return {
@@ -157,6 +307,26 @@ async def robot_status():
     return await robot_get("/status")
 
 
+@app.get("/robot/camera")
+async def robot_camera():
+    return camera_urls()
+
+
+@app.get("/robot/camera/capture")
+async def robot_camera_capture():
+    url = f"{settings.robot_base_url}/camera/capture"
+    try:
+        async with httpx.AsyncClient(timeout=settings.request_timeout) as client:
+            response = await client.get(url)
+            response.raise_for_status()
+    except httpx.HTTPError as exc:
+        raise HTTPException(status_code=502, detail=f"Robot camera request failed: {exc}") from exc
+    return StreamingResponse(
+        iter([response.content]),
+        media_type=response.headers.get("content-type", "image/jpeg"),
+    )
+
+
 @app.post("/robot/drive")
 async def robot_drive(command: DriveCommand):
     if command.speed is not None:
@@ -178,7 +348,15 @@ async def robot_head(command: HeadCommand):
 
 @app.post("/robot/stop")
 async def robot_stop():
-    return await robot_get("/cmd", {"move": "stop"})
+    try:
+        return await robot_post("/api/emergency-stop")
+    except HTTPException:
+        return await robot_get("/cmd", {"move": "stop"})
+
+
+@app.post("/robot/action")
+async def robot_action(action: RobotActionRequest):
+    return await execute_robot_action(action)
 
 
 @app.get("/voices")
@@ -252,6 +430,49 @@ async def chat_speak(request: ChatSpeakRequest):
     )
 
 
+@app.post("/chat/action")
+async def chat_action(request: ChatActionRequest):
+    with timed("endpoint.chat_action", prompt_chars=len(request.text)):
+        chat_result = await llm_client.action_chat(request.text)
+
+    parsed = parse_action_response(chat_result.response)
+    if parsed is None:
+        return {
+            "response": chat_result.response,
+            "model": chat_result.model,
+            "conversation_id": request.conversation_id,
+            "action": None,
+            "action_result": None,
+            "parse_error": "LLM did not return strict JSON; no robot action was executed.",
+        }
+
+    response_text = str(parsed.get("response") or "").strip()
+    action_body = parsed.get("action")
+    action_result = None
+    if isinstance(action_body, dict) and action_body:
+        try:
+            action = RobotActionRequest.model_validate(normalize_llm_action_body(action_body))
+        except ValidationError as exc:
+            return {
+                "response": response_text or parsed.get("response") or "",
+                "model": chat_result.model,
+                "conversation_id": request.conversation_id,
+                "action": action_body,
+                "action_result": None,
+                "parse_error": f"LLM returned an invalid robot action; no robot action was executed: {exc.errors()[0]['msg']}",
+            }
+        action_result = await execute_robot_action(action)
+
+    return {
+        "response": response_text,
+        "model": chat_result.model,
+        "conversation_id": request.conversation_id,
+        "action": action_body if isinstance(action_body, dict) else None,
+        "action_result": action_result,
+        "parse_error": None,
+    }
+
+
 @app.post("/voice/synthesize")
 async def voice_synthesize(request: SynthesizeRequest):
     voice_id = request.voice_id or settings.voice_id
@@ -306,6 +527,11 @@ async def tools():
                 "name": "stop",
                 "description": "Immediately stop Robit's tracks.",
                 "endpoint": "POST /robot/stop",
+            },
+            {
+                "name": "action",
+                "description": "Execute a combined bounded robot action from the PC safety layer.",
+                "endpoint": "POST /robot/action",
             },
         ]
     }

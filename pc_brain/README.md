@@ -27,6 +27,7 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8080
 Run `ollama serve` in a separate terminal if Ollama is not already running.
 Edit `.env` and replace `ROBIT_BASE_URL` with the IP printed by the robot firmware.
 The default text model is `gemma4:e4b`, and chat requests send `think=false`.
+LLM-issued movement is clamped by `ROBIT_LLM_MAX_SPEED=180` and `ROBIT_LLM_MAX_DURATION_MS=1000`.
 The voice model is Chatterbox Streaming, configured by `ROBIT_TTS_MODEL=ResembleAI/chatterbox`.
 The Chatterbox sampling settings are exposed for experiments:
 `ROBIT_TTS_TEMPERATURE=0.8`, `ROBIT_TTS_TOP_P=0.95`, `ROBIT_TTS_REPETITION_PENALTY=1.2`, `ROBIT_TTS_CHUNK_SIZE=25`, `ROBIT_TTS_EXAGGERATION=0.5`, and `ROBIT_TTS_CFG_WEIGHT=0.5`.
@@ -53,19 +54,45 @@ python -m pytest tests
 
 - `GET /health`
 - `GET /robot/status`
+- `GET /robot/camera`
+- `GET /robot/camera/capture`
 - `POST /robot/drive`
 - `POST /robot/head`
 - `POST /robot/stop`
+- `POST /robot/action`
 - `GET /tools`
 - `GET /voices`
 - `POST /voices`
 - `POST /voice/transcribe`
 - `POST /chat`
+- `POST /chat/action`
 - `POST /chat/speak`
 - `POST /voice/synthesize`
 - `POST /voice/roundtrip`
 
 The LLM/tool layer should call these PC endpoints, not the ESP firmware directly.
+
+## Operator Console
+
+Open the browser UI after starting the server:
+
+```powershell
+Start-Process http://localhost:8080
+```
+
+The console shows the live robot camera, robot telemetry, text/voice chat, manual controls, voice library, and an action log. The camera stream is embedded from the firmware stream URL derived from `ROBIT_BASE_URL`.
+
+Quick endpoint checks:
+
+```powershell
+Invoke-RestMethod http://localhost:8080/robot/status
+Invoke-RestMethod http://localhost:8080/robot/camera
+Invoke-WebRequest http://localhost:8080/robot/camera/capture -OutFile $env:TEMP\robit.jpg
+Invoke-RestMethod http://localhost:8080/robot/action `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body '{"movement":{"direction":"forward","speed":120,"duration_ms":300}}'
+```
 
 ## Voice Pipeline
 

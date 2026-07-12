@@ -26,6 +26,22 @@ Maindesign.stl                Current printable model
 5. Add camera streaming.
 6. Add LLM tool calling against the PC brain API, not directly against the microcontroller.
 
+## Windows Quick Start
+
+From PowerShell:
+
+```powershell
+.\Scripts\setup.bat
+.\Scripts\run.bat
+```
+
+By default, `run.bat` uses `http://robit.local`. To override it with a current IP
+printed by the robot Serial Monitor:
+
+```powershell
+.\Scripts\run.bat 172.22.1.176
+```
+
 ## Robot HTTP API
 
 The firmware exposes:
@@ -43,6 +59,16 @@ tool layer:
 - `POST /api/move` with `direction`, optional `speed`, and optional `duration_ms`
 - `POST /api/head` with `pan`/`tilt` or `pan_delta`/`tilt_delta`
 - `POST /api/emergency-stop`
+- `GET /camera`
+- `GET /camera/capture`
+- `GET /camera/stream` redirects to the MJPEG stream on port `81`
+
+The XIAO ESP32S3 Sense camera stream is served at:
+
+```text
+http://ROBOT_IP/camera
+http://ROBOT_IP:81/stream
+```
 
 Current soldered pin assumptions:
 

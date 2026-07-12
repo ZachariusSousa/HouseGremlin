@@ -54,6 +54,8 @@ class Settings:
     tts_exaggeration: float
     tts_cfg_weight: float
     voice_id: str
+    robot_llm_max_speed: int
+    robot_llm_max_duration_ms: int
     data_dir: Path
     warm_models: bool
 
@@ -102,6 +104,8 @@ def load_settings() -> Settings:
         tts_exaggeration=_float_env("ROBIT_TTS_EXAGGERATION", 0.5),
         tts_cfg_weight=_float_env("ROBIT_TTS_CFG_WEIGHT", 0.5),
         voice_id=os.getenv("ROBIT_VOICE_ID", "default"),
+        robot_llm_max_speed=_int_env("ROBIT_LLM_MAX_SPEED", 180),
+        robot_llm_max_duration_ms=_int_env("ROBIT_LLM_MAX_DURATION_MS", 1000),
         data_dir=data_dir,
         warm_models=_bool_env("ROBIT_WARM_MODELS", True),
     )

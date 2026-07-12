@@ -2,6 +2,7 @@
 
 #include <WebServer.h>
 #include <WiFi.h>
+#include <ESPmDNS.h>
 
 #if __has_include("config.h")
 #include "config.h"
@@ -9,12 +10,18 @@
 #include "config.example.h"
 #endif
 
+#include "camera.h"
 #include "motors.h"
 #include "robot_state.h"
 #include "servos.h"
 
 namespace {
 WebServer server(80);
+bool mdnsStarted = false;
+
+#ifndef ROBIT_HOSTNAME
+#define ROBIT_HOSTNAME "robit"
+#endif
 
 String jsonEscape(const String& value) {
   String escaped;
@@ -32,6 +39,7 @@ String statusJson() {
   json += "\"ok\":true,";
   json += "\"mode\":\"" + String(robotState.apFallback ? "ap" : "sta") + "\",";
   json += "\"ip\":\"" + jsonEscape(getRobotIp()) + "\",";
+  json += "\"hostname\":\"" + jsonEscape(String(ROBIT_HOSTNAME) + ".local") + "\",";
   json += "\"movement\":\"" + jsonEscape(robotState.movement) + "\",";
   json += "\"move\":\"" + jsonEscape(robotState.movement) + "\",";
   json += "\"speed\":" + String(robotState.motorSpeed) + ",";
@@ -152,6 +160,27 @@ void handleEmergencyStop() {
   emergencyStopMotors();
   sendJson(200, statusJson());
 }
+
+void handleCameraStreamRedirect() {
+  const String host = mdnsStarted ? String(ROBIT_HOSTNAME) + ".local" : getRobotIp();
+  server.sendHeader("Location", "http://" + host + ":81/stream");
+  server.send(302, "text/plain", "Camera stream is on port 81");
+}
+
+void startMdns() {
+  if (robotState.apFallback) return;
+  if (MDNS.begin(ROBIT_HOSTNAME)) {
+    MDNS.addService("http", "tcp", 80);
+    MDNS.addService("robit-camera", "tcp", 81);
+    mdnsStarted = true;
+    Serial.print("[WIFI] mDNS started: http://");
+    Serial.print(ROBIT_HOSTNAME);
+    Serial.println(".local");
+  } else {
+    mdnsStarted = false;
+    Serial.println("[WIFI][ERROR] mDNS start failed");
+  }
+}
 }
 
 void initializeWifi() {
@@ -168,6 +197,7 @@ void initializeWifi() {
     robotState.apFallback = false;
     Serial.print("[WIFI] Connected: ");
     Serial.println(WiFi.localIP());
+    startMdns();
     return;
   }
 
@@ -193,8 +223,12 @@ void initializeHttpServer() {
   server.on("/api/move", HTTP_ANY, handleApiMove);
   server.on("/api/head", HTTP_ANY, handleApiHead);
   server.on("/api/emergency-stop", HTTP_ANY, handleEmergencyStop);
+  server.on("/camera", HTTP_GET, []() { handleCameraPage(server); });
+  server.on("/camera/capture", HTTP_GET, []() { handleCameraCapture(server); });
+  server.on("/camera/stream", HTTP_GET, handleCameraStreamRedirect);
   server.begin();
   Serial.println("[HTTP] Control server started on port 80");
+  initializeCameraServer();
 }
 
 void updateHttpServer() {

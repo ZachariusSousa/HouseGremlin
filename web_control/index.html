@@ -3,25 +3,26 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Robit Conversation</title>
+    <title>Robit Operator Console</title>
     <style>
       :root {
         color-scheme: light;
         font-family:
           Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
           sans-serif;
-        background: #eef2f5;
-        color: #182026;
+        background: #e8edf1;
+        color: #172027;
         --panel: #ffffff;
-        --panel-soft: #f7f9fb;
-        --line: #d5dde5;
-        --muted: #65717d;
-        --ink: #182026;
+        --soft: #f5f7f9;
+        --line: #d2dbe3;
+        --muted: #64717d;
+        --ink: #172027;
         --accent: #167d77;
-        --accent-strong: #0f5f5a;
+        --accent-dark: #0f5f5a;
         --accent-soft: #dff3f0;
         --danger: #b42318;
-        --shadow: 0 18px 48px rgba(23, 38, 51, 0.12);
+        --warn: #a15c07;
+        --shadow: 0 18px 44px rgba(21, 35, 48, 0.12);
       }
 
       * {
@@ -32,27 +33,25 @@
         margin: 0;
         min-height: 100vh;
         background:
-          linear-gradient(180deg, rgba(255, 255, 255, 0.9), rgba(238, 242, 245, 0.95)),
-          #eef2f5;
+          linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(232, 237, 241, 0.96)),
+          #e8edf1;
       }
 
       button,
       input,
+      select,
       textarea {
         font: inherit;
       }
 
       button {
+        min-height: 38px;
         border: 1px solid var(--line);
         border-radius: 8px;
         background: #ffffff;
         color: var(--ink);
         cursor: pointer;
-        transition:
-          background 120ms ease,
-          border-color 120ms ease,
-          color 120ms ease,
-          transform 120ms ease;
+        font-weight: 750;
       }
 
       button:hover:not(:disabled) {
@@ -65,52 +64,45 @@
 
       button:disabled {
         cursor: not-allowed;
-        opacity: 0.58;
+        opacity: 0.56;
       }
 
-      main {
-        width: min(1120px, 100%);
-        margin: 0 auto;
-        padding: 24px;
-      }
-
-      .app-shell {
-        display: grid;
-        grid-template-rows: auto minmax(520px, 1fr) auto;
-        min-height: calc(100vh - 48px);
-        overflow: hidden;
-        border: 1px solid var(--line);
+      input,
+      select,
+      textarea {
+        width: 100%;
+        border: 1px solid #bfccd6;
         border-radius: 8px;
-        background: var(--panel);
-        box-shadow: var(--shadow);
+        background: #ffffff;
+        color: var(--ink);
+        outline: none;
       }
 
-      .topbar {
-        display: grid;
-        grid-template-columns: 1fr auto;
-        gap: 16px;
-        align-items: center;
-        padding: 18px 20px;
-        border-bottom: 1px solid var(--line);
-        background: rgba(255, 255, 255, 0.94);
+      input,
+      select {
+        min-height: 38px;
+        padding: 8px 10px;
       }
 
-      .brand {
-        display: flex;
-        align-items: center;
-        min-width: 0;
-        gap: 12px;
+      textarea {
+        min-height: 74px;
+        max-height: 180px;
+        resize: vertical;
+        padding: 11px 12px;
+        line-height: 1.45;
       }
 
-      .avatar {
-        display: grid;
-        width: 44px;
-        height: 44px;
-        flex: 0 0 auto;
-        place-items: center;
-        border-radius: 8px;
-        background: var(--accent-soft);
-        color: var(--accent-strong);
+      input:focus,
+      select:focus,
+      textarea:focus {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px rgba(22, 125, 119, 0.14);
+      }
+
+      label {
+        display: block;
+        color: #33404c;
+        font-size: 13px;
         font-weight: 800;
       }
 
@@ -127,27 +119,71 @@
       }
 
       h2 {
-        font-size: 17px;
+        font-size: 16px;
       }
 
       h3 {
-        font-size: 15px;
+        font-size: 14px;
+      }
+
+      main {
+        width: min(1440px, 100%);
+        margin: 0 auto;
+        padding: 18px;
+      }
+
+      .console {
+        display: grid;
+        grid-template-rows: auto minmax(620px, calc(100vh - 124px));
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 8px;
+        background: var(--panel);
+        box-shadow: var(--shadow);
+      }
+
+      .topbar {
+        display: grid;
+        grid-template-columns: 1fr minmax(260px, 420px) auto;
+        gap: 14px;
+        align-items: center;
+        padding: 16px 18px;
+        border-bottom: 1px solid var(--line);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        min-width: 0;
+        gap: 12px;
+      }
+
+      .avatar {
+        display: grid;
+        width: 42px;
+        height: 42px;
+        flex: 0 0 auto;
+        place-items: center;
+        border-radius: 8px;
+        background: var(--accent-soft);
+        color: var(--accent-dark);
+        font-weight: 900;
       }
 
       .subtitle {
-        margin-top: 3px;
+        margin-top: 2px;
         color: var(--muted);
-        font-size: 14px;
+        font-size: 13px;
       }
 
       .connection {
         display: grid;
-        grid-template-columns: auto minmax(190px, 300px) auto;
+        grid-template-columns: auto 1fr;
         gap: 10px;
         align-items: center;
       }
 
-      .status-pill {
+      .pill {
         display: inline-flex;
         min-height: 34px;
         align-items: center;
@@ -155,102 +191,130 @@
         padding: 0 11px;
         border: 1px solid var(--line);
         border-radius: 999px;
-        background: var(--panel-soft);
+        background: var(--soft);
         color: var(--muted);
         font-size: 13px;
         white-space: nowrap;
       }
 
-      .status-dot {
+      .dot {
         width: 8px;
         height: 8px;
         border-radius: 50%;
         background: #9aa7b2;
       }
 
-      .status-pill.ready .status-dot {
+      .pill.ready .dot {
         background: var(--accent);
       }
 
-      .status-pill.error .status-dot {
+      .pill.error .dot {
         background: var(--danger);
       }
 
-      label {
+      .stop-button {
+        border-color: var(--danger);
+        background: var(--danger);
+        color: #ffffff;
+      }
+
+      .workspace {
+        display: grid;
+        grid-template-columns: minmax(360px, 1.2fr) minmax(420px, 1fr) 330px;
+        min-height: 0;
+      }
+
+      .camera-pane,
+      .chat-pane,
+      .side-panel {
+        min-width: 0;
+        min-height: 0;
+      }
+
+      .camera-pane {
+        display: grid;
+        grid-template-rows: auto minmax(280px, 1fr) auto;
+        border-right: 1px solid var(--line);
+        background: #101820;
+        color: #eaf0f4;
+      }
+
+      .panel-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        min-height: 52px;
+        gap: 12px;
+        padding: 0 15px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+      }
+
+      .camera-frame {
+        display: grid;
+        min-height: 0;
+        place-items: center;
+        background: #0b1117;
+      }
+
+      .camera-frame img {
         display: block;
-        color: #33404c;
-        font-size: 13px;
-        font-weight: 700;
-      }
-
-      .sr-only {
-        position: absolute;
-        width: 1px;
-        height: 1px;
-        padding: 0;
-        overflow: hidden;
-        clip: rect(0, 0, 0, 0);
-        white-space: nowrap;
-        border: 0;
-      }
-
-      input[type="text"],
-      input[type="url"],
-      select,
-      textarea {
         width: 100%;
-        border: 1px solid #bfccd6;
-        border-radius: 8px;
-        background: #ffffff;
-        color: var(--ink);
-        outline: none;
+        height: 100%;
+        object-fit: contain;
       }
 
-      input[type="text"],
-      input[type="url"],
-      select {
-        min-height: 38px;
-        padding: 8px 10px;
-      }
-
-      textarea {
-        min-height: 68px;
-        max-height: 170px;
-        resize: vertical;
-        padding: 12px;
+      .camera-empty {
+        max-width: 380px;
+        padding: 20px;
+        color: #aebbc5;
+        text-align: center;
         line-height: 1.45;
       }
 
-      input:focus,
-      select:focus,
-      textarea:focus {
-        border-color: var(--accent);
-        box-shadow: 0 0 0 3px rgba(22, 125, 119, 0.14);
+      .telemetry {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 1px;
+        border-top: 1px solid rgba(255, 255, 255, 0.12);
+        background: rgba(255, 255, 255, 0.12);
       }
 
-      .conversation {
-        display: grid;
-        grid-template-columns: minmax(0, 1fr) 320px;
-        min-height: 0;
+      .metric {
+        padding: 10px;
+        background: #14212b;
+      }
+
+      .metric span {
+        display: block;
+        color: #9fb0bd;
+        font-size: 11px;
+        font-weight: 800;
+        text-transform: uppercase;
+      }
+
+      .metric strong {
+        display: block;
+        margin-top: 4px;
+        overflow: hidden;
+        color: #ffffff;
+        font-size: 15px;
+        text-overflow: ellipsis;
+        white-space: nowrap;
       }
 
       .chat-pane {
         display: grid;
-        grid-template-rows: 1fr auto;
-        min-width: 0;
-        min-height: 0;
+        grid-template-rows: minmax(0, 1fr) auto;
+        background: var(--soft);
       }
 
       .transcript {
         display: flex;
         flex-direction: column;
-        gap: 14px;
+        gap: 12px;
         min-height: 0;
         overflow-y: auto;
-        padding: 22px;
-        background:
-          linear-gradient(180deg, rgba(247, 249, 251, 0.98), rgba(255, 255, 255, 0.98)),
-          var(--panel-soft);
+        padding: 18px;
       }
 
       .empty-state {
@@ -261,13 +325,9 @@
         text-align: center;
       }
 
-      .empty-state-content {
-        max-width: 420px;
-      }
-
       .empty-state strong {
         display: block;
-        margin-bottom: 7px;
+        margin-bottom: 6px;
         color: var(--ink);
         font-size: 20px;
       }
@@ -281,15 +341,15 @@
       }
 
       .message {
-        max-width: min(680px, 86%);
+        max-width: min(680px, 90%);
         border: 1px solid var(--line);
         border-radius: 8px;
-        padding: 12px 14px;
+        padding: 11px 13px;
         background: #ffffff;
       }
 
       .message-row.user .message {
-        border-color: rgba(22, 125, 119, 0.32);
+        border-color: rgba(22, 125, 119, 0.34);
         background: var(--accent);
         color: #ffffff;
       }
@@ -298,7 +358,7 @@
         margin-bottom: 5px;
         color: var(--muted);
         font-size: 12px;
-        font-weight: 700;
+        font-weight: 800;
       }
 
       .message-row.user .message-meta {
@@ -314,15 +374,15 @@
       .composer {
         display: grid;
         gap: 12px;
-        padding: 16px;
+        padding: 14px;
         border-top: 1px solid var(--line);
         background: #ffffff;
       }
 
       .composer-tools {
         display: grid;
-        grid-template-columns: auto minmax(130px, 180px) 1fr auto;
-        gap: 12px;
+        grid-template-columns: auto minmax(126px, 170px) 1fr auto;
+        gap: 10px;
         align-items: end;
       }
 
@@ -333,16 +393,13 @@
         overflow: hidden;
         border: 1px solid var(--line);
         border-radius: 8px;
-        background: var(--panel-soft);
+        background: var(--soft);
       }
 
       .segmented button {
-        min-height: 38px;
         border: 0;
         border-radius: 0;
         background: transparent;
-        font-size: 14px;
-        font-weight: 700;
       }
 
       .segmented button.active {
@@ -351,21 +408,10 @@
       }
 
       .send-button,
-      .replay-button,
-      .secondary-button,
-      .stop-button {
-        min-height: 40px;
-        padding: 0 16px;
+      .secondary-button {
         border-color: var(--accent);
         background: var(--accent);
         color: #ffffff;
-        font-weight: 800;
-      }
-
-      .replay-button {
-        display: none;
-        background: #ffffff;
-        color: var(--accent-strong);
       }
 
       .secondary-button {
@@ -374,31 +420,19 @@
         color: var(--ink);
       }
 
-      .replay-button.visible {
-        display: inline-flex;
-        align-items: center;
-      }
-
-      .stop-button {
-        border-color: #c8d1d9;
-        background: #ffffff;
-        color: var(--ink);
-      }
-
-      .playback-status {
+      .status-text {
         min-height: 20px;
         color: var(--muted);
         font-size: 13px;
       }
 
-      .playback-status.error {
+      .status-text.error {
         color: var(--danger);
       }
 
       .side-panel {
         display: grid;
-        grid-template-rows: auto 1fr;
-        min-height: 0;
+        grid-template-rows: auto auto minmax(0, 1fr);
         border-left: 1px solid var(--line);
         background: #ffffff;
       }
@@ -411,10 +445,10 @@
         display: flex;
         align-items: center;
         justify-content: space-between;
-        min-height: 54px;
-        padding: 0 16px;
+        min-height: 50px;
+        padding: 0 14px;
         cursor: pointer;
-        font-weight: 800;
+        font-weight: 900;
         list-style: none;
       }
 
@@ -424,50 +458,8 @@
 
       .panel-content {
         display: grid;
-        gap: 16px;
-        padding: 0 16px 16px;
-      }
-
-      .control-group {
-        display: grid;
-        gap: 10px;
-      }
-
-      .drive-grid {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(64px, 1fr));
-        gap: 8px;
-      }
-
-      .drive-grid button,
-      .center-button {
-        min-height: 46px;
-        font-weight: 800;
-      }
-
-      .spacer {
-        visibility: hidden;
-      }
-
-      input[type="range"] {
-        width: 100%;
-      }
-
-      input[type="file"] {
-        width: 100%;
-        color: var(--muted);
-        font-size: 13px;
-      }
-
-      .voice-upload-form {
-        display: grid;
-        gap: 10px;
-      }
-
-      .button-row {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
+        gap: 14px;
+        padding: 0 14px 14px;
       }
 
       .check-row {
@@ -481,179 +473,187 @@
         height: 18px;
       }
 
-      .control-status {
-        min-height: 40px;
-        padding: 10px;
+      .control-group {
+        display: grid;
+        gap: 9px;
+      }
+
+      .drive-grid {
+        display: grid;
+        grid-template-columns: repeat(3, minmax(58px, 1fr));
+        gap: 8px;
+      }
+
+      .drive-grid button,
+      .center-button {
+        min-height: 44px;
+      }
+
+      .spacer {
+        visibility: hidden;
+      }
+
+      .button-row {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px;
+      }
+
+      .action-log {
+        display: grid;
+        grid-template-rows: auto minmax(0, 1fr);
+        min-height: 0;
+        padding: 14px;
+      }
+
+      .log-list {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        min-height: 0;
+        overflow-y: auto;
+        padding-top: 10px;
+      }
+
+      .log-item {
         border: 1px solid var(--line);
         border-radius: 8px;
-        background: var(--panel-soft);
-        color: var(--muted);
+        padding: 9px;
+        background: var(--soft);
+        color: #33404c;
         font-family: Consolas, "Courier New", monospace;
-        font-size: 13px;
+        font-size: 12px;
+        line-height: 1.35;
         white-space: pre-wrap;
+        word-break: break-word;
       }
 
-      .future-slot {
-        align-self: end;
-        padding: 16px;
-        border-top: 1px solid var(--line);
-        color: var(--muted);
-        font-size: 13px;
-        line-height: 1.45;
-      }
-
-      @media (max-width: 860px) {
+      @media (max-width: 1120px) {
         main {
           padding: 0;
         }
 
-        .app-shell {
+        .console {
           min-height: 100vh;
           border-width: 0;
           border-radius: 0;
         }
 
         .topbar,
-        .conversation {
+        .workspace {
           grid-template-columns: 1fr;
         }
 
-        .connection {
-          grid-template-columns: 1fr;
+        .workspace {
+          overflow-y: auto;
         }
 
-        .conversation {
-          min-height: 0;
+        .camera-pane {
+          min-height: 420px;
+          border-right: 0;
         }
 
         .side-panel {
-          border-top: 1px solid var(--line);
           border-left: 0;
+          border-top: 1px solid var(--line);
         }
 
-        .composer-tools {
+        .composer-tools,
+        .connection {
           grid-template-columns: 1fr;
-          align-items: stretch;
-        }
-
-        .segmented {
-          width: 100%;
-        }
-
-        .message {
-          max-width: 94%;
         }
       }
     </style>
   </head>
   <body>
     <main>
-      <div class="app-shell">
+      <div class="console">
         <header class="topbar">
           <div class="brand">
             <div class="avatar" aria-hidden="true">R</div>
             <div>
-              <h1>Robit</h1>
-              <p class="subtitle">Conversation and control</p>
+              <h1>Robit Operator Console</h1>
+              <p class="subtitle">Camera, LLM actions, voice, and manual control</p>
             </div>
           </div>
 
           <div class="connection" aria-label="PC brain connection">
-            <div id="connectionStatus" class="status-pill">
-              <span class="status-dot" aria-hidden="true"></span>
-              <span id="connectionText">Ready</span>
+            <div id="connectionStatus" class="pill">
+              <span class="dot" aria-hidden="true"></span>
+              <span id="connectionText">Starting</span>
             </div>
-            <div>
-              <label class="sr-only" for="brainUrl">PC brain URL</label>
-              <input id="brainUrl" type="url" value="http://localhost:8080" autocomplete="off">
-            </div>
-            <button id="stopButton" class="stop-button" type="button">Stop</button>
+            <input id="brainUrl" type="url" value="http://localhost:8080" aria-label="PC brain URL">
           </div>
+
+          <button id="stopButton" class="stop-button" type="button">Emergency Stop</button>
         </header>
 
-        <section class="conversation" aria-label="Robit conversation">
-          <div class="chat-pane">
+        <section class="workspace">
+          <section class="camera-pane" aria-label="Camera and telemetry">
+            <div class="panel-head">
+              <h2>Live Camera</h2>
+              <div id="cameraStatus" class="pill">
+                <span class="dot" aria-hidden="true"></span>
+                <span id="cameraText">Waiting</span>
+              </div>
+            </div>
+            <div class="camera-frame">
+              <img id="cameraStream" alt="Robit live camera feed">
+              <div id="cameraEmpty" class="camera-empty">
+                Camera feed will appear here when the firmware stream is available.
+              </div>
+            </div>
+            <div class="telemetry">
+              <div class="metric"><span>Mode</span><strong id="metricMode">-</strong></div>
+              <div class="metric"><span>Move</span><strong id="metricMove">-</strong></div>
+              <div class="metric"><span>Speed</span><strong id="metricSpeed">-</strong></div>
+              <div class="metric"><span>Head</span><strong id="metricHead">-</strong></div>
+            </div>
+          </section>
+
+          <section class="chat-pane" aria-label="LLM chat and actions">
             <div id="transcript" class="transcript" aria-live="polite">
               <div id="emptyState" class="empty-state">
-                <div class="empty-state-content">
-                  <strong>Ask Robit anything.</strong>
-                  <p>Use Text for silent replies or Voice when you want Robit to answer out loud.</p>
+                <div>
+                  <strong>Talk to Robit.</strong>
+                  <p>Text is silent. Voice speaks. LLM actions can move the robot through the PC brain.</p>
                 </div>
               </div>
             </div>
 
             <form id="chatForm" class="composer">
               <label for="messageInput">Message</label>
-              <textarea
-                id="messageInput"
-                placeholder="Tell me what you are in one short sentence."
-                autocomplete="off"
-                required
-              ></textarea>
-
+              <textarea id="messageInput" placeholder="Look left and move forward a little." autocomplete="off" required></textarea>
               <div class="composer-tools">
                 <div class="segmented" role="group" aria-label="Conversation mode">
-                  <button id="textModeButton" class="active" type="button" data-mode="text">Text</button>
-                  <button id="voiceModeButton" type="button" data-mode="voice">Voice</button>
+                  <button id="textModeButton" class="active" type="button">Text</button>
+                  <button id="voiceModeButton" type="button">Voice</button>
                 </div>
-
                 <div>
                   <label for="voiceSelect">Voice</label>
                   <select id="voiceSelect">
                     <option value="default">default</option>
                   </select>
                 </div>
-
-                <p id="playbackStatus" class="playback-status">Ready</p>
-
-                <div>
-                  <button id="replayButton" class="replay-button" type="button">Replay</button>
+                <p id="playbackStatus" class="status-text">Ready</p>
+                <div class="button-row">
+                  <button id="replayButton" class="secondary-button" type="button" hidden>Replay</button>
                   <button id="sendButton" class="send-button" type="submit">Send</button>
                 </div>
               </div>
             </form>
-          </div>
+          </section>
 
-          <aside class="side-panel" aria-label="Robot controls and future tools">
+          <aside class="side-panel" aria-label="Controls and logs">
             <details open>
-              <summary>
-                <span>Voice Library</span>
-                <span aria-hidden="true">+</span>
-              </summary>
-              <div class="panel-content">
-                <form id="voiceUploadForm" class="voice-upload-form">
-                  <div>
-                    <label for="newVoiceId">Voice name</label>
-                    <input id="newVoiceId" type="text" placeholder="narrator" autocomplete="off" required>
-                  </div>
-
-                  <div>
-                    <label for="voiceSample">Samples</label>
-                    <input id="voiceSample" type="file" accept=".wav,.mp3,audio/wav,audio/mpeg" multiple required>
-                  </div>
-
-                  <div class="button-row">
-                    <button id="uploadVoiceButton" class="send-button" type="submit">Upload</button>
-                    <button id="refreshVoicesButton" class="secondary-button" type="button">Refresh</button>
-                  </div>
-                </form>
-                <p id="voiceUploadStatus" class="playback-status">Ready</p>
-              </div>
-            </details>
-
-            <details open>
-              <summary>
-                <span>Robot Controls</span>
-                <span aria-hidden="true">+</span>
-              </summary>
+              <summary><span>Manual Controls</span><span aria-hidden="true">+</span></summary>
               <div class="panel-content">
                 <label class="check-row" for="controlsEnabled">
                   <input id="controlsEnabled" type="checkbox">
-                  <span>Enable robot controls</span>
+                  <span>Enable manual controls and hotkeys</span>
                 </label>
-
                 <div class="control-group">
-                  <h2>Drive</h2>
+                  <h3>Drive</h3>
                   <div class="drive-grid">
                     <button class="spacer" tabindex="-1" type="button"></button>
                     <button data-control data-move="forward" type="button">W</button>
@@ -668,26 +668,42 @@
                   <label for="speed">Speed: <span id="speedValue">180</span></label>
                   <input id="speed" data-control type="range" min="0" max="255" value="180">
                 </div>
-
                 <div class="control-group">
-                  <h2>Head</h2>
+                  <h3>Head</h3>
                   <label for="pan">Pan: <span id="panValue">90</span></label>
                   <input id="pan" data-control type="range" min="55" max="135" value="90">
                   <label for="tilt">Tilt: <span id="tiltValue">90</span></label>
                   <input id="tilt" data-control type="range" min="35" max="115" value="90">
                   <button id="centerButton" data-control class="center-button" type="button">Center</button>
                 </div>
-
-                <div>
-                  <h3>Control Status</h3>
-                  <p id="controlStatus" class="control-status">Idle</p>
-                </div>
+                <p id="controlStatus" class="status-text">Manual controls disabled</p>
               </div>
             </details>
 
-            <div class="future-slot">
-              Future panels can add microphone input, camera views, tool logs, and autonomous behavior without changing the conversation flow.
-            </div>
+            <details>
+              <summary><span>Voice Library</span><span aria-hidden="true">+</span></summary>
+              <div class="panel-content">
+                <form id="voiceUploadForm" class="control-group">
+                  <label for="newVoiceId">Voice name</label>
+                  <input id="newVoiceId" type="text" placeholder="narrator" autocomplete="off" required>
+                  <label for="voiceSample">Samples</label>
+                  <input id="voiceSample" type="file" accept=".wav,.mp3,audio/wav,audio/mpeg" multiple required>
+                  <div class="button-row">
+                    <button id="uploadVoiceButton" class="send-button" type="submit">Upload</button>
+                    <button id="refreshVoicesButton" class="secondary-button" type="button">Refresh</button>
+                  </div>
+                </form>
+                <p id="voiceUploadStatus" class="status-text">Ready</p>
+              </div>
+            </details>
+
+            <section class="action-log" aria-label="LLM action log">
+              <div class="button-row">
+                <h2>Action Log</h2>
+                <button id="refreshStatusButton" class="secondary-button" type="button">Refresh</button>
+              </div>
+              <div id="actionLog" class="log-list"></div>
+            </section>
           </aside>
         </section>
       </div>
@@ -697,15 +713,24 @@
       const state = {
         mode: "text",
         isSending: false,
-        conversationId: "default",
+        controlsEnabled: false,
         latestAudioUrls: [],
-        currentAudio: null
+        currentAudio: null,
+        camera: null
       };
 
       const els = {
         brainUrl: document.getElementById("brainUrl"),
         connectionStatus: document.getElementById("connectionStatus"),
         connectionText: document.getElementById("connectionText"),
+        cameraStatus: document.getElementById("cameraStatus"),
+        cameraText: document.getElementById("cameraText"),
+        cameraStream: document.getElementById("cameraStream"),
+        cameraEmpty: document.getElementById("cameraEmpty"),
+        metricMode: document.getElementById("metricMode"),
+        metricMove: document.getElementById("metricMove"),
+        metricSpeed: document.getElementById("metricSpeed"),
+        metricHead: document.getElementById("metricHead"),
         transcript: document.getElementById("transcript"),
         emptyState: document.getElementById("emptyState"),
         chatForm: document.getElementById("chatForm"),
@@ -713,39 +738,35 @@
         textModeButton: document.getElementById("textModeButton"),
         voiceModeButton: document.getElementById("voiceModeButton"),
         voiceSelect: document.getElementById("voiceSelect"),
-        voiceUploadForm: document.getElementById("voiceUploadForm"),
-        newVoiceId: document.getElementById("newVoiceId"),
-        voiceSample: document.getElementById("voiceSample"),
-        uploadVoiceButton: document.getElementById("uploadVoiceButton"),
-        refreshVoicesButton: document.getElementById("refreshVoicesButton"),
-        voiceUploadStatus: document.getElementById("voiceUploadStatus"),
-        controlsEnabled: document.getElementById("controlsEnabled"),
-        controlInputs: [...document.querySelectorAll("[data-control]")],
         playbackStatus: document.getElementById("playbackStatus"),
         replayButton: document.getElementById("replayButton"),
         sendButton: document.getElementById("sendButton"),
+        controlsEnabled: document.getElementById("controlsEnabled"),
+        controlInputs: [...document.querySelectorAll("[data-control]")],
         controlStatus: document.getElementById("controlStatus"),
         speedInput: document.getElementById("speed"),
         speedValue: document.getElementById("speedValue"),
         panInput: document.getElementById("pan"),
         panValue: document.getElementById("panValue"),
         tiltInput: document.getElementById("tilt"),
-        tiltValue: document.getElementById("tiltValue")
+        tiltValue: document.getElementById("tiltValue"),
+        actionLog: document.getElementById("actionLog"),
+        voiceUploadForm: document.getElementById("voiceUploadForm"),
+        newVoiceId: document.getElementById("newVoiceId"),
+        voiceSample: document.getElementById("voiceSample"),
+        uploadVoiceButton: document.getElementById("uploadVoiceButton"),
+        refreshVoicesButton: document.getElementById("refreshVoicesButton"),
+        voiceUploadStatus: document.getElementById("voiceUploadStatus")
       };
 
       function brainUrl(path) {
         return els.brainUrl.value.replace(/\/$/, "") + path;
       }
 
-      function setVoiceUploadStatus(text, isError = false) {
-        els.voiceUploadStatus.textContent = text;
-        els.voiceUploadStatus.classList.toggle("error", isError);
-      }
-
-      function setConnectionState(kind, text) {
-        els.connectionStatus.classList.toggle("ready", kind === "ready");
-        els.connectionStatus.classList.toggle("error", kind === "error");
-        els.connectionText.textContent = text;
+      function setPill(element, textElement, kind, text) {
+        element.classList.toggle("ready", kind === "ready");
+        element.classList.toggle("error", kind === "error");
+        textElement.textContent = text;
       }
 
       function setPlaybackStatus(text, isError = false) {
@@ -753,20 +774,18 @@
         els.playbackStatus.classList.toggle("error", isError);
       }
 
-      function setControlsEnabled(enabled) {
-        state.controlsEnabled = enabled;
-        els.controlInputs.forEach((control) => {
-          control.disabled = !enabled;
-        });
-        els.controlStatus.textContent = enabled ? "Controls enabled" : "Controls disabled";
+      function addLog(label, payload) {
+        const item = document.createElement("div");
+        item.className = "log-item";
+        const body = typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
+        item.textContent = `[${new Date().toLocaleTimeString()}] ${label}\n${body}`;
+        els.actionLog.prepend(item);
       }
 
-      function setSending(isSending) {
-        state.isSending = isSending;
-        els.sendButton.disabled = isSending;
-        els.messageInput.disabled = isSending;
-        els.textModeButton.disabled = isSending;
-        els.voiceModeButton.disabled = isSending;
+      async function getJson(path) {
+        const response = await fetch(brainUrl(path));
+        if (!response.ok) throw new Error(await response.text());
+        return response.json();
       }
 
       async function postJson(path, body = {}) {
@@ -775,88 +794,28 @@
           headers: { "content-type": "application/json" },
           body: JSON.stringify(body)
         });
-        if (!response.ok) {
-          const text = await response.text();
-          throw new Error(text || `${response.status} ${response.statusText}`);
-        }
-        return response.json();
-      }
-
-      async function getJson(path) {
-        const response = await fetch(brainUrl(path));
-        if (!response.ok) {
-          const text = await response.text();
-          throw new Error(text || `${response.status} ${response.statusText}`);
-        }
+        if (!response.ok) throw new Error(await response.text());
         return response.json();
       }
 
       async function postForm(path, formData) {
-        const response = await fetch(brainUrl(path), {
-          method: "POST",
-          body: formData
-        });
-        if (!response.ok) {
-          const text = await response.text();
-          throw new Error(text || `${response.status} ${response.statusText}`);
-        }
+        const response = await fetch(brainUrl(path), { method: "POST", body: formData });
+        if (!response.ok) throw new Error(await response.text());
         return response.json();
-      }
-
-      async function* postNdjson(path, body = {}) {
-        const response = await fetch(brainUrl(path), {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(body)
-        });
-        if (!response.ok) {
-          const text = await response.text();
-          throw new Error(text || `${response.status} ${response.statusText}`);
-        }
-        if (!response.body) {
-          throw new Error("Streaming responses are not supported by this browser");
-        }
-
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || "";
-
-          for (const line of lines) {
-            const trimmed = line.trim();
-            if (trimmed) yield JSON.parse(trimmed);
-          }
-        }
-
-        buffer += decoder.decode();
-        const trimmed = buffer.trim();
-        if (trimmed) yield JSON.parse(trimmed);
       }
 
       function addMessage(role, body, metadata = "") {
         els.emptyState?.remove();
-
         const row = document.createElement("div");
         row.className = `message-row ${role}`;
-
         const message = document.createElement("article");
         message.className = "message";
-
         const meta = document.createElement("div");
         meta.className = "message-meta";
         meta.textContent = metadata || (role === "user" ? "You" : "Robit");
-
         const messageBody = document.createElement("div");
         messageBody.className = "message-body";
-        messageBody.textContent = body;
-
+        messageBody.textContent = body || "";
         message.append(meta, messageBody);
         row.append(message);
         els.transcript.append(row);
@@ -871,12 +830,59 @@
         setPlaybackStatus(mode === "voice" ? "Ready to speak" : "Ready");
       }
 
+      function setControlsEnabled(enabled) {
+        state.controlsEnabled = enabled;
+        els.controlInputs.forEach((control) => {
+          control.disabled = !enabled;
+        });
+        els.controlStatus.textContent = enabled ? "Manual controls enabled" : "Manual controls disabled";
+      }
+
+      function setSending(isSending) {
+        state.isSending = isSending;
+        els.sendButton.disabled = isSending;
+        els.messageInput.disabled = isSending;
+        els.textModeButton.disabled = isSending;
+        els.voiceModeButton.disabled = isSending;
+      }
+
+      async function refreshRobotStatus() {
+        try {
+          const status = await getJson("/robot/status");
+          els.metricMode.textContent = status.mode || "-";
+          els.metricMove.textContent = status.movement || status.move || "-";
+          els.metricSpeed.textContent = String(status.speed ?? "-");
+          els.metricHead.textContent = `${status.pan ?? "-"}, ${status.tilt ?? "-"}`;
+          setPill(els.connectionStatus, els.connectionText, "ready", "Robot online");
+          return status;
+        } catch (error) {
+          setPill(els.connectionStatus, els.connectionText, "error", "Robot error");
+          addLog("status error", error instanceof Error ? error.message : String(error));
+          throw error;
+        }
+      }
+
+      async function refreshCamera() {
+        try {
+          const camera = await getJson("/robot/camera");
+          state.camera = camera;
+          state.cameraFallbackTried = false;
+          els.cameraStream.src = `${camera.stream_url}?t=${Date.now()}`;
+          els.cameraStream.hidden = false;
+          els.cameraEmpty.hidden = true;
+          setPill(els.cameraStatus, els.cameraText, "ready", "Streaming");
+        } catch (error) {
+          els.cameraStream.hidden = true;
+          els.cameraEmpty.hidden = false;
+          setPill(els.cameraStatus, els.cameraText, "error", "Unavailable");
+          addLog("camera error", error instanceof Error ? error.message : String(error));
+        }
+      }
+
       function renderVoiceOptions(voices, selectedVoice, voiceDetails = []) {
         const current = selectedVoice || els.voiceSelect.value || "default";
+        const sampleCounts = new Map(voiceDetails.map((detail) => [detail.voice_id, detail.sample_count]));
         const uniqueVoices = [...new Set(["default", ...voices])];
-        const sampleCounts = new Map(
-          voiceDetails.map((detail) => [detail.voice_id, detail.sample_count])
-        );
         els.voiceSelect.replaceChildren(
           ...uniqueVoices.map((voiceId) => {
             const option = document.createElement("option");
@@ -887,27 +893,18 @@
             return option;
           })
         );
-
-        if (!uniqueVoices.includes(current)) {
-          els.voiceSelect.value = uniqueVoices[0] || "default";
-        }
       }
 
       async function refreshVoices(selectedVoice = "") {
         try {
           const result = await getJson("/voices");
-          renderVoiceOptions(
-            result.voices || [],
-            selectedVoice || els.voiceSelect.value || result.default_voice_id,
-            result.voice_details || []
-          );
-          setVoiceUploadStatus("Ready");
-          setConnectionState("ready", "Ready");
+          renderVoiceOptions(result.voices || [], selectedVoice || result.default_voice_id, result.voice_details || []);
+          els.voiceUploadStatus.textContent = "Ready";
+          els.voiceUploadStatus.classList.remove("error");
         } catch (error) {
           renderVoiceOptions(["default"], "default");
-          const message = error instanceof Error ? error.message : String(error);
-          setVoiceUploadStatus(message, true);
-          setConnectionState("error", "Error");
+          els.voiceUploadStatus.textContent = error instanceof Error ? error.message : String(error);
+          els.voiceUploadStatus.classList.add("error");
         }
       }
 
@@ -915,40 +912,28 @@
         const voiceId = els.newVoiceId.value.trim();
         const samples = [...els.voiceSample.files];
         if (!voiceId || !samples.length) return;
-
         els.uploadVoiceButton.disabled = true;
-        setVoiceUploadStatus(`Uploading 1 of ${samples.length}`);
         try {
           let uploadedVoiceId = voiceId;
-          let sampleCount = 0;
           for (const [index, sample] of samples.entries()) {
+            els.voiceUploadStatus.textContent = `Uploading ${index + 1} of ${samples.length}`;
             const formData = new FormData();
             formData.append("voice_id", voiceId);
             formData.append("sample", sample);
-            setVoiceUploadStatus(`Uploading ${index + 1} of ${samples.length}`);
             const result = await postForm("/voices", formData);
             uploadedVoiceId = result.voice_id || uploadedVoiceId;
-            sampleCount = result.sample_count || sampleCount;
           }
           els.newVoiceId.value = "";
           els.voiceSample.value = "";
           await refreshVoices(uploadedVoiceId);
           els.voiceSelect.value = uploadedVoiceId;
-          setVoiceUploadStatus(`Uploaded ${uploadedVoiceId} (${sampleCount || samples.length} clips)`);
+          addLog("voice uploaded", uploadedVoiceId);
         } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          setVoiceUploadStatus(message, true);
-          setConnectionState("error", "Error");
+          els.voiceUploadStatus.textContent = error instanceof Error ? error.message : String(error);
+          els.voiceUploadStatus.classList.add("error");
         } finally {
           els.uploadVoiceButton.disabled = false;
         }
-      }
-
-      function resolveAudioUrls(result) {
-        if (Array.isArray(result.audio_urls) && result.audio_urls.length > 0) {
-          return result.audio_urls;
-        }
-        return result.audio_url ? [result.audio_url] : [];
       }
 
       function stopCurrentAudio() {
@@ -960,111 +945,83 @@
 
       async function playAudioQueue(audioUrls) {
         if (!audioUrls.length) return;
-
         stopCurrentAudio();
         state.latestAudioUrls = audioUrls;
-        els.replayButton.classList.remove("visible");
+        els.replayButton.hidden = true;
         setPlaybackStatus("Speaking");
-
         for (const audioPath of audioUrls) {
           const audio = new Audio(brainUrl(audioPath));
           state.currentAudio = audio;
           await new Promise((resolve, reject) => {
             audio.addEventListener("ended", resolve, { once: true });
-            audio.addEventListener("error", () => reject(new Error("Audio playback failed")), {
-              once: true
-            });
+            audio.addEventListener("error", () => reject(new Error("Audio playback failed")), { once: true });
             audio.play().catch(reject);
           });
         }
-
         state.currentAudio = null;
-        els.replayButton.classList.add("visible");
+        els.replayButton.hidden = false;
         setPlaybackStatus("Ready");
       }
 
-      async function sendVoiceMessage(messageText, body) {
-        const audioUrls = [];
-        let finalResult = null;
-        let streamError = null;
-        let responseRendered = false;
-
-        try {
-          for await (const event of postNdjson("/chat/speak", body)) {
-            if (event.type === "response" && !responseRendered) {
-              const metadata = event.model ? `Robit - ${event.model}` : "Robit";
-              addMessage("robit", event.response || "", metadata);
-              responseRendered = true;
-              setConnectionState("ready", "Generating speech");
-            }
-
-            if (event.type === "chunk" && event.audio_url) {
-              audioUrls.push(event.audio_url);
-              setPlaybackStatus(`Generating audio (${audioUrls.length} chunks)`);
-            }
-
-            if (event.type === "final") {
-              finalResult = event;
-              state.latestAudioUrls = event.audio_url ? [event.audio_url] : audioUrls;
-              if (!responseRendered) {
-                const metadata = event.model ? `Robit - ${event.model}` : "Robit";
-                addMessage("robit", event.response || "", metadata);
-                responseRendered = true;
-              }
-              setConnectionState("ready", "Speaking");
-            }
+      async function synthesizeAndPlay(text) {
+        if (!text) return;
+        const response = await fetch(brainUrl("/voice/synthesize"), {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ text, voice_id: els.voiceSelect.value || "default" })
+        });
+        if (!response.ok) throw new Error(await response.text());
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let finalEvent = null;
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+          for (const line of lines) {
+            if (!line.trim()) continue;
+            const event = JSON.parse(line);
+            if (event.type === "final") finalEvent = event;
           }
-        } catch (error) {
-          streamError = error;
         }
-
-        if (streamError) {
-          throw streamError;
+        if (buffer.trim()) {
+          const event = JSON.parse(buffer);
+          if (event.type === "final") finalEvent = event;
         }
-
-        if (!finalResult) {
-          throw new Error("Speech stream ended without a final response");
-        }
-
-        await playAudioQueue(state.latestAudioUrls);
+        const urls = finalEvent?.audio_urls?.length ? finalEvent.audio_urls : finalEvent?.audio_url ? [finalEvent.audio_url] : [];
+        await playAudioQueue(urls);
       }
 
       async function sendMessage(messageText) {
         const isVoice = state.mode === "voice";
-        const body = {
-          text: messageText,
-          conversation_id: state.conversationId
-        };
-
-        if (isVoice) {
-          body.voice_id = els.voiceSelect.value || "default";
-        }
-
         setSending(true);
-        setConnectionState("ready", "Thinking");
+        setPill(els.connectionStatus, els.connectionText, "ready", "Thinking");
         setPlaybackStatus("Thinking");
         addMessage("user", messageText);
-
         try {
-          if (isVoice) {
-            await sendVoiceMessage(messageText, body);
-          } else {
-            const result = await postJson("/chat", body);
-            const metadata = result.model ? `Robit - ${result.model}` : "Robit";
-            addMessage("robit", result.response || "", metadata);
-            setConnectionState("ready", "Ready");
-            state.latestAudioUrls = [];
-            els.replayButton.classList.remove("visible");
-            setPlaybackStatus("Ready");
-          }
+          const result = await postJson("/chat/action", {
+            text: messageText,
+            conversation_id: "default",
+            voice_id: els.voiceSelect.value || "default"
+          });
+          const metadata = result.model ? `Robit - ${result.model}` : "Robit";
+          const responseText = result.response || result.parse_error || "Done.";
+          addMessage("robit", responseText, metadata);
+          if (result.action_result) addLog("llm action", result.action_result);
+          if (result.parse_error) addLog("llm parse fallback", result.parse_error);
+          if (isVoice && result.response) await synthesizeAndPlay(result.response);
+          setPill(els.connectionStatus, els.connectionText, "ready", "Ready");
+          setPlaybackStatus("Ready");
+          await refreshRobotStatus().catch(() => {});
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
-          setConnectionState("error", "Error");
+          setPill(els.connectionStatus, els.connectionText, "error", "Error");
           setPlaybackStatus(message, true);
           addMessage("robit", message, "Error");
-          if (state.latestAudioUrls.length) {
-            els.replayButton.classList.add("visible");
-          }
+          addLog("chat error", message);
         } finally {
           setSending(false);
           els.messageInput.focus();
@@ -1073,30 +1030,38 @@
 
       async function drive(move) {
         if (!state.controlsEnabled) {
-          els.controlStatus.textContent = "Controls disabled";
+          els.controlStatus.textContent = "Manual controls disabled";
           return;
         }
         try {
           await postJson("/robot/drive", { move, speed: Number(els.speedInput.value) });
           els.controlStatus.textContent = `move=${move}`;
-          setConnectionState("ready", "Ready");
+          await refreshRobotStatus().catch(() => {});
         } catch (error) {
           els.controlStatus.textContent = error instanceof Error ? error.message : String(error);
-          setConnectionState("error", "Error");
         }
       }
 
       async function setHead(update) {
         if (!state.controlsEnabled) {
-          els.controlStatus.textContent = "Controls disabled";
+          els.controlStatus.textContent = "Manual controls disabled";
           return;
         }
         try {
           await postJson("/robot/head", update);
-          setConnectionState("ready", "Ready");
+          await refreshRobotStatus().catch(() => {});
         } catch (error) {
           els.controlStatus.textContent = error instanceof Error ? error.message : String(error);
-          setConnectionState("error", "Error");
+        }
+      }
+
+      async function emergencyStop() {
+        try {
+          const result = await postJson("/robot/stop", {});
+          addLog("emergency stop", result);
+          await refreshRobotStatus().catch(() => {});
+        } catch (error) {
+          addLog("emergency stop error", error instanceof Error ? error.message : String(error));
         }
       }
 
@@ -1117,22 +1082,29 @@
 
       els.textModeButton.addEventListener("click", () => setMode("text"));
       els.voiceModeButton.addEventListener("click", () => setMode("voice"));
+      els.controlsEnabled.addEventListener("change", () => setControlsEnabled(els.controlsEnabled.checked));
+      document.getElementById("refreshStatusButton").addEventListener("click", () => refreshRobotStatus());
+      document.getElementById("stopButton").addEventListener("click", emergencyStop);
       els.refreshVoicesButton.addEventListener("click", () => refreshVoices());
-      els.controlsEnabled.addEventListener("change", () => {
-        setControlsEnabled(els.controlsEnabled.checked);
-      });
       els.voiceUploadForm.addEventListener("submit", (event) => {
         event.preventDefault();
         uploadVoice();
       });
 
-      els.replayButton.addEventListener("click", async () => {
-        try {
-          await playAudioQueue(state.latestAudioUrls);
-        } catch (error) {
-          setPlaybackStatus(error instanceof Error ? error.message : String(error), true);
-          els.replayButton.classList.add("visible");
+      els.replayButton.addEventListener("click", () => playAudioQueue(state.latestAudioUrls).catch((error) => {
+        setPlaybackStatus(error instanceof Error ? error.message : String(error), true);
+      }));
+
+      els.cameraStream.addEventListener("error", () => {
+        if (state.camera && !state.cameraFallbackTried) {
+          state.cameraFallbackTried = true;
+          els.cameraStream.src = brainUrl(`/robot/camera/capture?t=${Date.now()}`);
+          setPill(els.cameraStatus, els.cameraText, "ready", "Still frame");
+          return;
         }
+        els.cameraStream.hidden = true;
+        els.cameraEmpty.hidden = false;
+        setPill(els.cameraStatus, els.cameraText, "error", "Unavailable");
       });
 
       document.querySelectorAll("[data-move]").forEach((button) => {
@@ -1147,22 +1119,17 @@
         button.addEventListener("touchend", () => drive("stop"));
       });
 
-      document.getElementById("stopButton").addEventListener("click", () => drive("stop"));
-
       els.speedInput.addEventListener("input", () => {
         els.speedValue.textContent = els.speedInput.value;
       });
-
       els.panInput.addEventListener("input", () => {
         els.panValue.textContent = els.panInput.value;
         setHead({ pan: Number(els.panInput.value) });
       });
-
       els.tiltInput.addEventListener("input", () => {
         els.tiltValue.textContent = els.tiltInput.value;
         setHead({ tilt: Number(els.tiltInput.value) });
       });
-
       document.getElementById("centerButton").addEventListener("click", () => {
         els.panInput.value = 90;
         els.tiltInput.value = 90;
@@ -1183,19 +1150,19 @@
           drive("stop");
         }
       });
-
       document.addEventListener("keyup", (event) => {
         if (event.target.matches("button, input, select, textarea")) return;
         if (!state.controlsEnabled) return;
-        if (["KeyW", "KeyA", "KeyS", "KeyD"].includes(event.code)) {
-          drive("stop");
-        }
+        if (["KeyW", "KeyA", "KeyS", "KeyD"].includes(event.code)) drive("stop");
       });
 
-      setConnectionState("ready", "Ready");
       setMode("text");
       setControlsEnabled(false);
+      setPill(els.connectionStatus, els.connectionText, "ready", "Ready");
       refreshVoices();
+      refreshCamera();
+      refreshRobotStatus().catch(() => {});
+      setInterval(() => refreshRobotStatus().catch(() => {}), 3000);
     </script>
   </body>
 </html>
