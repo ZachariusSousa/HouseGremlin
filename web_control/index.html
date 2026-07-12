@@ -634,10 +634,8 @@
                   <button id="voiceModeButton" type="button">Voice</button>
                 </div>
                 <div>
-                  <label for="voiceSelect">Voice</label>
-                  <select id="voiceSelect">
-                    <option value="default">default</option>
-                  </select>
+                  <label for="realtimeVoice">Voice</label>
+                  <input id="realtimeVoice" type="text" value="serena" autocomplete="off">
                 </div>
                 <p id="playbackStatus" class="status-text">Ready</p>
                 <div class="button-row">
@@ -685,19 +683,16 @@
             </details>
 
             <details>
-              <summary><span>Voice Library</span><span aria-hidden="true">+</span></summary>
+              <summary><span>Realtime Voice</span><span aria-hidden="true">+</span></summary>
               <div class="panel-content">
-                <form id="voiceUploadForm" class="control-group">
-                  <label for="newVoiceId">Voice name</label>
-                  <input id="newVoiceId" type="text" placeholder="narrator" autocomplete="off" required>
-                  <label for="voiceSample">Samples</label>
-                  <input id="voiceSample" type="file" accept=".wav,.mp3,audio/wav,audio/mpeg" multiple required>
+                <div class="control-group">
+                  <label for="realtimeUrl">Server URL</label>
+                  <input id="realtimeUrl" type="text" value="ws://localhost:7861/v1/realtime" autocomplete="off">
                   <div class="button-row">
-                    <button id="uploadVoiceButton" class="send-button" type="submit">Upload</button>
-                    <button id="refreshVoicesButton" class="secondary-button" type="button">Refresh</button>
+                    <button id="realtimeButton" class="send-button" type="button">Connect</button>
                   </div>
-                </form>
-                <p id="voiceUploadStatus" class="status-text">Ready</p>
+                </div>
+                <p id="realtimeStatus" class="status-text">Disconnected</p>
               </div>
             </details>
 
@@ -717,9 +712,25 @@
         mode: "text",
         isSending: false,
         controlsEnabled: false,
-        latestAudioUrls: [],
-        currentAudio: null,
         camera: null,
+        realtime: {
+          ws: null,
+          audioContext: null,
+          micStream: null,
+          micSource: null,
+          captureNode: null,
+          captureSink: null,
+          playbackSources: [],
+          nextPlaybackTime: 0,
+          connected: false,
+          connecting: false,
+          instructions: "",
+          userTranscript: null,
+          assistantTranscript: null,
+          userTranscriptText: "",
+          assistantTranscriptText: "",
+          functionArgs: new Map()
+        },
         activeMove: null,
         activeSpeed: null,
         driveInFlight: false,
@@ -748,7 +759,10 @@
         messageInput: document.getElementById("messageInput"),
         textModeButton: document.getElementById("textModeButton"),
         voiceModeButton: document.getElementById("voiceModeButton"),
-        voiceSelect: document.getElementById("voiceSelect"),
+        realtimeVoice: document.getElementById("realtimeVoice"),
+        realtimeUrl: document.getElementById("realtimeUrl"),
+        realtimeButton: document.getElementById("realtimeButton"),
+        realtimeStatus: document.getElementById("realtimeStatus"),
         playbackStatus: document.getElementById("playbackStatus"),
         replayButton: document.getElementById("replayButton"),
         sendButton: document.getElementById("sendButton"),
@@ -761,13 +775,7 @@
         panValue: document.getElementById("panValue"),
         tiltInput: document.getElementById("tilt"),
         tiltValue: document.getElementById("tiltValue"),
-        actionLog: document.getElementById("actionLog"),
-        voiceUploadForm: document.getElementById("voiceUploadForm"),
-        newVoiceId: document.getElementById("newVoiceId"),
-        voiceSample: document.getElementById("voiceSample"),
-        uploadVoiceButton: document.getElementById("uploadVoiceButton"),
-        refreshVoicesButton: document.getElementById("refreshVoicesButton"),
-        voiceUploadStatus: document.getElementById("voiceUploadStatus")
+        actionLog: document.getElementById("actionLog")
       };
 
       function brainUrl(path) {
@@ -809,12 +817,6 @@
         return response.json();
       }
 
-      async function postForm(path, formData) {
-        const response = await fetch(brainUrl(path), { method: "POST", body: formData });
-        if (!response.ok) throw new Error(await response.text());
-        return response.json();
-      }
-
       function addMessage(role, body, metadata = "") {
         els.emptyState?.remove();
         const row = document.createElement("div");
@@ -831,14 +833,22 @@
         row.append(message);
         els.transcript.append(row);
         els.transcript.scrollTop = els.transcript.scrollHeight;
+        return messageBody;
       }
 
       function setMode(mode) {
         state.mode = mode;
         els.textModeButton.classList.toggle("active", mode === "text");
         els.voiceModeButton.classList.toggle("active", mode === "voice");
-        els.voiceSelect.disabled = mode !== "voice";
-        setPlaybackStatus(mode === "voice" ? "Ready to speak" : "Ready");
+        els.realtimeVoice.disabled = mode !== "voice";
+        setPlaybackStatus(mode === "voice" ? "Voice ready" : "Ready");
+        if (mode === "voice") {
+          connectRealtime().catch((error) => {
+            setRealtimeStatus(error instanceof Error ? error.message : String(error), true);
+          });
+        } else if (state.realtime.connected || state.realtime.connecting) {
+          disconnectRealtime();
+        }
       }
 
       function setControlsEnabled(enabled) {
@@ -881,120 +891,394 @@
         }
       }
 
-      function renderVoiceOptions(voices, selectedVoice, voiceDetails = []) {
-        const current = selectedVoice || els.voiceSelect.value || "default";
-        const sampleCounts = new Map(voiceDetails.map((detail) => [detail.voice_id, detail.sample_count]));
-        const uniqueVoices = [...new Set(["default", ...voices])];
-        els.voiceSelect.replaceChildren(
-          ...uniqueVoices.map((voiceId) => {
-            const option = document.createElement("option");
-            const sampleCount = sampleCounts.get(voiceId) || 0;
-            option.value = voiceId;
-            option.textContent = sampleCount ? `${voiceId} (${sampleCount} clips)` : voiceId;
-            option.selected = voiceId === current;
-            return option;
-          })
-        );
+      function setRealtimeStatus(text, isError = false) {
+        els.realtimeStatus.textContent = text;
+        els.realtimeStatus.classList.toggle("error", isError);
+        els.realtimeButton.textContent = state.realtime.connected || state.realtime.connecting ? "Disconnect" : "Connect";
       }
 
-      async function refreshVoices(selectedVoice = "") {
-        try {
-          const result = await getJson("/voices");
-          renderVoiceOptions(result.voices || [], selectedVoice || result.default_voice_id, result.voice_details || []);
-          els.voiceUploadStatus.textContent = "Ready";
-          els.voiceUploadStatus.classList.remove("error");
-        } catch (error) {
-          renderVoiceOptions(["default"], "default");
-          els.voiceUploadStatus.textContent = error instanceof Error ? error.message : String(error);
-          els.voiceUploadStatus.classList.add("error");
+      function bytesToBase64(bytes) {
+        let binary = "";
+        const chunkSize = 0x8000;
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+          binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
         }
+        return btoa(binary);
       }
 
-      async function uploadVoice() {
-        const voiceId = els.newVoiceId.value.trim();
-        const samples = [...els.voiceSample.files];
-        if (!voiceId || !samples.length) return;
-        els.uploadVoiceButton.disabled = true;
-        try {
-          let uploadedVoiceId = voiceId;
-          for (const [index, sample] of samples.entries()) {
-            els.voiceUploadStatus.textContent = `Uploading ${index + 1} of ${samples.length}`;
-            const formData = new FormData();
-            formData.append("voice_id", voiceId);
-            formData.append("sample", sample);
-            const result = await postForm("/voices", formData);
-            uploadedVoiceId = result.voice_id || uploadedVoiceId;
+      function base64ToBytes(base64) {
+        const binary = atob(base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
+        return bytes;
+      }
+
+      function pcm16ToFloat32(bytes) {
+        const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+        const samples = new Float32Array(bytes.byteLength / 2);
+        for (let i = 0; i < samples.length; i += 1) {
+          const sample = view.getInt16(i * 2, true);
+          samples[i] = sample < 0 ? sample / 0x8000 : sample / 0x7fff;
+        }
+        return samples;
+      }
+
+      function clearRealtimePlayback() {
+        for (const source of state.realtime.playbackSources.splice(0)) {
+          try {
+            source.stop();
+          } catch {
+            // Already stopped.
           }
-          els.newVoiceId.value = "";
-          els.voiceSample.value = "";
-          await refreshVoices(uploadedVoiceId);
-          els.voiceSelect.value = uploadedVoiceId;
-          addLog("voice uploaded", uploadedVoiceId);
-        } catch (error) {
-          els.voiceUploadStatus.textContent = error instanceof Error ? error.message : String(error);
-          els.voiceUploadStatus.classList.add("error");
-        } finally {
-          els.uploadVoiceButton.disabled = false;
+        }
+        if (state.realtime.audioContext) {
+          state.realtime.nextPlaybackTime = state.realtime.audioContext.currentTime;
         }
       }
 
-      function stopCurrentAudio() {
-        if (!state.currentAudio) return;
-        state.currentAudio.pause();
-        state.currentAudio.currentTime = 0;
-        state.currentAudio = null;
+      function playRealtimeAudioDelta(base64Audio) {
+        const ctx = state.realtime.audioContext;
+        if (!ctx || !base64Audio) return;
+        const samples = pcm16ToFloat32(base64ToBytes(base64Audio));
+        const buffer = ctx.createBuffer(1, samples.length, 16000);
+        buffer.copyToChannel(samples, 0);
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+        source.connect(ctx.destination);
+        const startAt = Math.max(ctx.currentTime + 0.02, state.realtime.nextPlaybackTime || ctx.currentTime);
+        source.start(startAt);
+        state.realtime.nextPlaybackTime = startAt + buffer.duration;
+        state.realtime.playbackSources.push(source);
+        source.addEventListener("ended", () => {
+          state.realtime.playbackSources = state.realtime.playbackSources.filter((item) => item !== source);
+        });
+        setPlaybackStatus("Speaking");
       }
 
-      async function playAudioQueue(audioUrls) {
-        if (!audioUrls.length) return;
-        stopCurrentAudio();
-        state.latestAudioUrls = audioUrls;
-        els.replayButton.hidden = true;
-        setPlaybackStatus("Speaking");
-        for (const audioPath of audioUrls) {
-          const audio = new Audio(brainUrl(audioPath));
-          state.currentAudio = audio;
-          await new Promise((resolve, reject) => {
-            audio.addEventListener("ended", resolve, { once: true });
-            audio.addEventListener("error", () => reject(new Error("Audio playback failed")), { once: true });
-            audio.play().catch(reject);
+      function setRealtimeTranscript(role, text, partial = true) {
+        const key = role === "user" ? "userTranscript" : "assistantTranscript";
+        if (!state.realtime[key]) {
+          state.realtime[key] = addMessage(role === "user" ? "user" : "robit", text, role === "user" ? "You" : "Robit");
+        } else {
+          state.realtime[key].textContent = text;
+          els.transcript.scrollTop = els.transcript.scrollHeight;
+        }
+        if (!partial) state.realtime[key] = null;
+      }
+
+      function realtimeToolDefinitions() {
+        return [
+          {
+            type: "function",
+            name: "robot_action",
+            description: "Execute one bounded Robit action through the PC safety layer.",
+            parameters: {
+              type: "object",
+              properties: {
+                movement: {
+                  type: "object",
+                  properties: {
+                    direction: { type: "string", enum: ["forward", "reverse", "left", "right", "stop"] },
+                    speed: { type: "integer", minimum: 0, maximum: 255 },
+                    duration_ms: { type: "integer", minimum: 0 }
+                  },
+                  additionalProperties: false
+                },
+                head: {
+                  type: "object",
+                  properties: {
+                    pan: { type: "integer", minimum: 55, maximum: 135 },
+                    tilt: { type: "integer", minimum: 35, maximum: 115 },
+                    pan_delta: { type: "integer", minimum: -80, maximum: 80 },
+                    tilt_delta: { type: "integer", minimum: -80, maximum: 80 }
+                  },
+                  additionalProperties: false
+                },
+                eyes: {
+                  type: "object",
+                  properties: {
+                    expression: { type: "string" },
+                    duration_ms: { type: "integer", minimum: 0, maximum: 10000 }
+                  },
+                  required: ["expression"],
+                  additionalProperties: false
+                },
+                emergency_stop: { type: "boolean" }
+              },
+              additionalProperties: false
+            }
+          }
+        ];
+      }
+
+      function sendRealtime(payload) {
+        const ws = state.realtime.ws;
+        if (!ws || ws.readyState !== WebSocket.OPEN) return false;
+        ws.send(JSON.stringify(payload));
+        return true;
+      }
+
+      function sendRealtimeSessionUpdate() {
+        sendRealtime({
+          type: "session.update",
+          session: {
+            type: "realtime",
+            instructions: state.realtime.instructions,
+            audio: { output: { voice: els.realtimeVoice.value.trim() || "serena" } },
+            tools: realtimeToolDefinitions(),
+            tool_choice: "auto"
+          }
+        });
+      }
+
+      async function setupRealtimeAudio() {
+        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+        const ctx = state.realtime.audioContext || new AudioContextClass();
+        state.realtime.audioContext = ctx;
+        await ctx.resume();
+        if (!state.realtime.micStream) {
+          state.realtime.micStream = await navigator.mediaDevices.getUserMedia({
+            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
           });
         }
-        state.currentAudio = null;
-        els.replayButton.hidden = false;
-        setPlaybackStatus("Ready");
+        if (state.realtime.captureNode) return;
+
+        const workletCode = `
+          class RobitMicCapture extends AudioWorkletProcessor {
+            constructor() {
+              super();
+              this.buffer = [];
+              this.frameSize = Math.max(1, Math.round(sampleRate * 0.04));
+            }
+            process(inputs) {
+              const input = inputs[0]?.[0];
+              if (!input) return true;
+              for (let i = 0; i < input.length; i += 1) this.buffer.push(input[i]);
+              while (this.buffer.length >= this.frameSize) {
+                const frame = this.buffer.splice(0, this.frameSize);
+                const outLength = Math.max(1, Math.round(frame.length * 16000 / sampleRate));
+                const pcm = new Int16Array(outLength);
+                for (let i = 0; i < outLength; i += 1) {
+                  const src = Math.min(frame.length - 1, Math.round(i * sampleRate / 16000));
+                  const sample = Math.max(-1, Math.min(1, frame[src]));
+                  pcm[i] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
+                }
+                this.port.postMessage(pcm.buffer, [pcm.buffer]);
+              }
+              return true;
+            }
+          }
+          registerProcessor("robit-mic-capture", RobitMicCapture);
+        `;
+        const url = URL.createObjectURL(new Blob([workletCode], { type: "application/javascript" }));
+        await ctx.audioWorklet.addModule(url);
+        URL.revokeObjectURL(url);
+        state.realtime.micSource = ctx.createMediaStreamSource(state.realtime.micStream);
+        state.realtime.captureNode = new AudioWorkletNode(ctx, "robit-mic-capture");
+        state.realtime.captureSink = ctx.createGain();
+        state.realtime.captureSink.gain.value = 0;
+        state.realtime.captureNode.port.onmessage = (event) => {
+          if (!state.realtime.connected) return;
+          sendRealtime({ type: "input_audio_buffer.append", audio: bytesToBase64(new Uint8Array(event.data)) });
+        };
+        state.realtime.micSource.connect(state.realtime.captureNode);
+        state.realtime.captureNode.connect(state.realtime.captureSink);
+        state.realtime.captureSink.connect(ctx.destination);
       }
 
-      async function synthesizeAndPlay(text) {
-        if (!text) return;
-        const response = await fetch(brainUrl("/voice/synthesize"), {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ text, voice_id: els.voiceSelect.value || "default" })
+      async function loadRealtimeConfig() {
+        const health = await getJson("/health");
+        if (!health.realtime) return;
+        els.realtimeUrl.value = health.realtime.ws_url || els.realtimeUrl.value;
+        els.realtimeVoice.value = health.realtime.voice || els.realtimeVoice.value;
+        state.realtime.instructions = health.realtime.instructions || state.realtime.instructions;
+      }
+
+      async function connectRealtime() {
+        if (state.realtime.connected || state.realtime.connecting) return;
+        state.realtime.connecting = true;
+        setRealtimeStatus("Connecting");
+        let ws;
+        try {
+          await loadRealtimeConfig();
+          await setupRealtimeAudio();
+          ws = new WebSocket(els.realtimeUrl.value.trim());
+        } catch (error) {
+          state.realtime.connecting = false;
+          setRealtimeStatus(error instanceof Error ? error.message : String(error), true);
+          throw error;
+        }
+        state.realtime.ws = ws;
+        ws.addEventListener("open", () => {
+          state.realtime.connected = true;
+          state.realtime.connecting = false;
+          state.realtime.nextPlaybackTime = state.realtime.audioContext.currentTime;
+          sendRealtimeSessionUpdate();
+          setRealtimeStatus("Connected");
+          setPlaybackStatus("Listening");
+          setPill(els.connectionStatus, els.connectionText, "ready", "Voice connected");
         });
-        if (!response.ok) throw new Error(await response.text());
-        const reader = response.body.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-        let finalEvent = null;
-        while (true) {
-          const { value, done } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-          const lines = buffer.split("\n");
-          buffer = lines.pop() || "";
-          for (const line of lines) {
-            if (!line.trim()) continue;
-            const event = JSON.parse(line);
-            if (event.type === "final") finalEvent = event;
+        ws.addEventListener("message", (event) => handleRealtimeEvent(JSON.parse(event.data)));
+        ws.addEventListener("close", () => {
+          state.realtime.connected = false;
+          state.realtime.connecting = false;
+          state.realtime.ws = null;
+          setRealtimeStatus("Disconnected");
+          setPlaybackStatus(state.mode === "voice" ? "Voice disconnected" : "Ready", state.mode === "voice");
+        });
+        ws.addEventListener("error", () => {
+          state.realtime.connecting = false;
+          setRealtimeStatus("Realtime connection error", true);
+          setPill(els.connectionStatus, els.connectionText, "error", "Voice error");
+        });
+      }
+
+      async function waitForRealtimeOpen() {
+        if (state.realtime.connected) return;
+        await new Promise((resolve, reject) => {
+          const startedAt = Date.now();
+          const timer = window.setInterval(() => {
+            if (state.realtime.connected) {
+              window.clearInterval(timer);
+              resolve();
+            } else if (Date.now() - startedAt > 8000) {
+              window.clearInterval(timer);
+              reject(new Error("Realtime connection timed out"));
+            }
+          }, 50);
+        });
+      }
+
+      function disconnectRealtime() {
+        clearRealtimePlayback();
+        state.realtime.connected = false;
+        state.realtime.connecting = false;
+        if (state.realtime.ws) state.realtime.ws.close(1000);
+        state.realtime.ws = null;
+        for (const node of [state.realtime.captureNode, state.realtime.micSource, state.realtime.captureSink]) {
+          try {
+            node?.disconnect();
+          } catch {
+            // already disconnected
           }
         }
-        if (buffer.trim()) {
-          const event = JSON.parse(buffer);
-          if (event.type === "final") finalEvent = event;
+        if (state.realtime.micStream) {
+          state.realtime.micStream.getTracks().forEach((track) => track.stop());
         }
-        const urls = finalEvent?.audio_urls?.length ? finalEvent.audio_urls : finalEvent?.audio_url ? [finalEvent.audio_url] : [];
-        await playAudioQueue(urls);
+        state.realtime.micStream = null;
+        state.realtime.captureNode = null;
+        state.realtime.micSource = null;
+        state.realtime.captureSink = null;
+        setRealtimeStatus("Disconnected");
+      }
+
+      async function executeRealtimeTool(event) {
+        const callId = event.call_id || event.callId || event.item?.call_id || event.item?.id;
+        const name = event.name || event.item?.name;
+        const argsText = event.arguments || event.item?.arguments || "{}";
+        if (name !== "robot_action" || !callId) return;
+        let args;
+        try {
+          args = JSON.parse(argsText || "{}");
+        } catch {
+          args = {};
+        }
+        const result = await postJson("/robot/action", args);
+        addLog("voice action", result);
+        sendRealtime({
+          type: "conversation.item.create",
+          item: {
+            type: "function_call_output",
+            call_id: callId,
+            output: JSON.stringify(result)
+          }
+        });
+        sendRealtime({ type: "response.create" });
+      }
+
+      function appendFunctionArgs(event) {
+        const callId = event.call_id || event.item_id;
+        if (!callId) return;
+        const current = state.realtime.functionArgs.get(callId) || "";
+        state.realtime.functionArgs.set(callId, current + (event.delta || ""));
+      }
+
+      function handleRealtimeEvent(event) {
+        const type = event.type || "";
+        if (type === "session.created") {
+          sendRealtimeSessionUpdate();
+          return;
+        }
+        if (type === "input_audio_buffer.speech_started") {
+          clearRealtimePlayback();
+          setPlaybackStatus("Listening");
+          return;
+        }
+        if (type === "input_audio_buffer.speech_stopped") {
+          setPlaybackStatus("Thinking");
+          return;
+        }
+        if (type === "response.output_audio.delta") {
+          playRealtimeAudioDelta(event.delta);
+          return;
+        }
+        if (type.includes("function_call_arguments.delta")) {
+          appendFunctionArgs(event);
+          return;
+        }
+        if (type.includes("function_call_arguments.done")) {
+          const callId = event.call_id || event.item_id;
+          if (!event.arguments && callId && state.realtime.functionArgs.has(callId)) {
+            event.arguments = state.realtime.functionArgs.get(callId);
+          }
+          executeRealtimeTool(event).catch((error) => addLog("voice action error", error instanceof Error ? error.message : String(error)));
+          return;
+        }
+        if (type === "response.output_item.done" && event.item?.type === "function_call") {
+          executeRealtimeTool(event).catch((error) => addLog("voice action error", error instanceof Error ? error.message : String(error)));
+          return;
+        }
+        if (type.includes("input_audio_transcription") && (event.delta || event.transcript)) {
+          if (type.endsWith(".delta")) {
+            state.realtime.userTranscriptText += event.delta || "";
+            setRealtimeTranscript("user", state.realtime.userTranscriptText, true);
+          } else {
+            setRealtimeTranscript("user", event.transcript || state.realtime.userTranscriptText, false);
+            state.realtime.userTranscriptText = "";
+          }
+          return;
+        }
+        if (type.includes("transcript") && (event.delta || event.transcript)) {
+          if (type.endsWith(".delta")) {
+            state.realtime.assistantTranscriptText += event.delta || "";
+            setRealtimeTranscript("assistant", state.realtime.assistantTranscriptText, true);
+          } else {
+            setRealtimeTranscript("assistant", event.transcript || state.realtime.assistantTranscriptText, false);
+            state.realtime.assistantTranscriptText = "";
+          }
+          return;
+        }
+        if (type === "response.done") {
+          setPlaybackStatus("Listening");
+        }
+        if (type === "error") {
+          addLog("voice error", event.error || event);
+          setRealtimeStatus(event.error?.message || "Realtime error", true);
+        }
+      }
+
+      async function sendRealtimeText(text) {
+        await connectRealtime();
+        await waitForRealtimeOpen();
+        sendRealtime({
+          type: "conversation.item.create",
+          item: {
+            type: "message",
+            role: "user",
+            content: [{ type: "input_text", text }]
+          }
+        });
+        sendRealtime({ type: "response.create" });
       }
 
       async function sendMessage(messageText) {
@@ -1004,17 +1288,21 @@
         setPlaybackStatus("Thinking");
         addMessage("user", messageText);
         try {
+          if (isVoice) {
+            await sendRealtimeText(messageText);
+            setPill(els.connectionStatus, els.connectionText, "ready", "Voice connected");
+            setPlaybackStatus("Listening");
+            return;
+          }
           const result = await postJson("/chat/action", {
             text: messageText,
-            conversation_id: "default",
-            voice_id: els.voiceSelect.value || "default"
+            conversation_id: "default"
           });
           const metadata = result.model ? `Robit - ${result.model}` : "Robit";
           const responseText = result.response || result.parse_error || "Done.";
           addMessage("robit", responseText, metadata);
           if (result.action_result) addLog("llm action", result.action_result);
           if (result.parse_error) addLog("llm parse fallback", result.parse_error);
-          if (isVoice && result.response) await synthesizeAndPlay(result.response);
           setPill(els.connectionStatus, els.connectionText, "ready", "Ready");
           setPlaybackStatus("Ready");
         } catch (error) {
@@ -1153,15 +1441,15 @@
       els.voiceModeButton.addEventListener("click", () => setMode("voice"));
       els.controlsEnabled.addEventListener("change", () => setControlsEnabled(els.controlsEnabled.checked));
       document.getElementById("stopButton").addEventListener("click", emergencyStop);
-      els.refreshVoicesButton.addEventListener("click", () => refreshVoices());
-      els.voiceUploadForm.addEventListener("submit", (event) => {
-        event.preventDefault();
-        uploadVoice();
+      els.realtimeButton.addEventListener("click", () => {
+        if (state.realtime.connected || state.realtime.connecting) {
+          disconnectRealtime();
+        } else {
+          connectRealtime().catch((error) => setRealtimeStatus(error instanceof Error ? error.message : String(error), true));
+        }
       });
 
-      els.replayButton.addEventListener("click", () => playAudioQueue(state.latestAudioUrls).catch((error) => {
-        setPlaybackStatus(error instanceof Error ? error.message : String(error), true);
-      }));
+      els.replayButton.hidden = true;
 
       els.cameraStream.addEventListener("error", () => {
         if (state.camera && !state.cameraFallbackTried) {
@@ -1227,7 +1515,7 @@
       setMode("text");
       setControlsEnabled(false);
       setPill(els.connectionStatus, els.connectionText, "ready", "Ready");
-      refreshVoices();
+      loadRealtimeConfig().catch(() => {});
       refreshCamera();
     </script>
   </body>

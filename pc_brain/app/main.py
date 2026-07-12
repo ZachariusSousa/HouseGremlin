@@ -3,37 +3,24 @@ import json
 import logging
 import time
 from contextlib import asynccontextmanager
-from collections.abc import Iterable
 from pathlib import Path
 from typing import Literal
 from urllib.parse import urlparse, urlunparse
 
 import httpx
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
-from fastapi.responses import StreamingResponse
-from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, Field, ValidationError
 
-from .cuda_paths import configure_windows_cuda_dll_paths
-
-configure_windows_cuda_dll_paths()
-
-from .audio_utils import ensure_data_dirs, save_upload
+from .audio_utils import ensure_data_dirs
 from .config import settings
-from .llm import OllamaChatClient
-from .stt import FasterWhisperTranscriber
+from .llm import OpenAICompatibleChatClient
 from .timing import timed
-from .tts import ChatterboxSynthesizer, SynthesisStreamEvent
-from .voices import VoiceStore
 
 
 logger = logging.getLogger("uvicorn.error")
-llm_client = OllamaChatClient(settings)
-transcriber = FasterWhisperTranscriber(settings)
-tts = ChatterboxSynthesizer(settings)
-voice_store = VoiceStore(settings)
+llm_client = OpenAICompatibleChatClient(settings)
 robot_request_lock = asyncio.Lock()
 robot_http_client: httpx.AsyncClient | None = None
 robot_status_cache: dict | None = None
@@ -44,13 +31,10 @@ ROBOT_STATUS_CACHE_SECONDS = 3.0
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global robot_http_client
-    ensure_data_dirs(settings.data_dir, settings.voices_dir, settings.audio_dir, settings.uploads_dir)
+    ensure_data_dirs(settings.data_dir)
     robot_http_client = httpx.AsyncClient(timeout=settings.request_timeout)
     if settings.warm_models:
-        await asyncio.gather(
-            llm_client.warmup(),
-            asyncio.to_thread(tts.warmup, False),
-        )
+        await llm_client.warmup()
     try:
         yield
     finally:
@@ -66,8 +50,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-ensure_data_dirs(settings.audio_dir)
-app.mount("/audio", StaticFiles(directory=settings.audio_dir), name="audio")
 WEB_CONTROL_INDEX = Path(__file__).resolve().parents[2] / "web_control" / "index.html"
 
 
@@ -111,56 +93,8 @@ class ChatRequest(BaseModel):
     conversation_id: str = "default"
 
 
-class ChatSpeakRequest(ChatRequest):
-    voice_id: str | None = None
-
-
 class ChatActionRequest(ChatRequest):
-    voice_id: str | None = None
-
-
-class SynthesizeRequest(BaseModel):
-    text: str
-    voice_id: str | None = None
-
-
-def ndjson_stream(
-    events: Iterable[SynthesisStreamEvent],
-    final_extra: dict | None = None,
-):
-    for item in events:
-        event = dict(item.event)
-        if item.final_result and final_extra:
-            event.update(final_extra)
-        yield json.dumps(event) + "\n"
-
-
-def chat_speak_stream(chat_result, voice_id: str, conversation_id: str):
-    yield json.dumps(
-        {
-            "type": "response",
-            "response": chat_result.response,
-            "model": chat_result.model,
-            "conversation_id": conversation_id,
-            "voice_id": voice_id,
-        }
-    ) + "\n"
-
-    result = tts.synthesize(chat_result.response, voice_id)
-    yield json.dumps(
-        {
-            "type": "final",
-            "audio_url": result.audio_url,
-            "audio_urls": result.audio_urls,
-            "voice_id": result.voice_id,
-            "spoken_text": result.spoken_text,
-            "tts_input_chars": result.tts_input_chars,
-            "active_reference_count": result.active_reference_count,
-            "response": chat_result.response,
-            "model": chat_result.model,
-            "conversation_id": conversation_id,
-        }
-    ) + "\n"
+    pass
 
 
 def robot_client() -> httpx.AsyncClient:
@@ -241,7 +175,7 @@ async def robot_fetch_bytes(path: str):
 
 def camera_urls() -> dict:
     parsed = urlparse(settings.robot_base_url)
-    hostname = parsed.hostname or "192.168.4.1"
+    hostname = parsed.hostname or "robit.local"
     scheme = parsed.scheme or "http"
     stream_url = urlunparse((scheme, f"{hostname}:81", "/stream", "", "", ""))
     return {
@@ -348,10 +282,14 @@ async def health():
     return {
         "ok": True,
         "robot_base_url": settings.robot_base_url,
+        "llm_provider": settings.llm_provider,
+        "llm_base_url": settings.llm_base_url,
         "llm_model": settings.llm_model,
-        "stt_model": settings.stt_model,
-        "tts_model": settings.tts_model,
-        "tts_runtime": tts.runtime_info(),
+        "realtime": {
+            "ws_url": settings.realtime_ws_url,
+            "voice": settings.realtime_voice,
+            "instructions": settings.realtime_instructions,
+        },
     }
 
 
@@ -379,10 +317,7 @@ async def robot_camera():
 @app.get("/robot/camera/capture")
 async def robot_camera_capture():
     content, media_type = await robot_fetch_bytes("/camera/capture")
-    return StreamingResponse(
-        iter([content]),
-        media_type=media_type,
-    )
+    return StreamingResponse(iter([content]), media_type=media_type)
 
 
 @app.post("/robot/drive")
@@ -418,54 +353,6 @@ async def robot_action(action: RobotActionRequest):
     return await execute_robot_action(action)
 
 
-@app.get("/voices")
-async def list_voices():
-    voice_ids = voice_store.list_voice_ids()
-    if settings.voice_id not in voice_ids:
-        voice_ids.insert(0, settings.voice_id)
-    return {
-        "voices": voice_ids,
-        "voice_details": [
-            {"voice_id": voice_id, "sample_count": voice_store.sample_count(voice_id)}
-            for voice_id in voice_ids
-        ],
-        "default_voice_id": settings.voice_id,
-    }
-
-
-@app.post("/voices")
-async def upload_voice(
-    voice_id: str = Form(default=settings.voice_id),
-    sample: UploadFile = File(...),
-):
-    with timed("endpoint.voices.upload", voice_id=voice_id, filename=sample.filename or "unknown"):
-        with timed("upload.save", kind="voice", filename=sample.filename or "unknown"):
-            uploaded = await save_upload(sample, settings.uploads_dir, "voice")
-        cleaned_voice_id, reference, references = voice_store.save_reference(voice_id, uploaded)
-        with timed("tts.register_voice", voice_id=cleaned_voice_id, reference_count=len(references)):
-            tts.register_voice(cleaned_voice_id, references)
-    return {
-        "voice_id": cleaned_voice_id,
-        "reference_path": str(reference),
-        "sample_count": len(references),
-        "ok": True,
-    }
-
-
-@app.post("/voice/transcribe")
-async def voice_transcribe(audio: UploadFile = File(...)):
-    with timed("endpoint.voice.transcribe", filename=audio.filename or "unknown"):
-        with timed("upload.save", kind="stt", filename=audio.filename or "unknown"):
-            uploaded = await save_upload(audio, settings.uploads_dir, "stt")
-        with timed("stt.transcribe"):
-            result = await asyncio.to_thread(transcriber.transcribe, uploaded)
-    return {
-        "text": result.text,
-        "language": result.language,
-        "duration_seconds": result.duration_seconds,
-    }
-
-
 @app.post("/chat")
 async def chat(request: ChatRequest):
     with timed("endpoint.chat", prompt_chars=len(request.text)):
@@ -475,18 +362,6 @@ async def chat(request: ChatRequest):
         "model": result.model,
         "conversation_id": request.conversation_id,
     }
-
-
-@app.post("/chat/speak")
-async def chat_speak(request: ChatSpeakRequest):
-    voice_id = request.voice_id or settings.voice_id
-    with timed("endpoint.chat_speak", voice_id=voice_id, prompt_chars=len(request.text)):
-        with timed("stage.chat_speak.llm", prompt_chars=len(request.text)):
-            chat_result = await llm_client.chat(request.text)
-    return StreamingResponse(
-        chat_speak_stream(chat_result, voice_id, request.conversation_id),
-        media_type="application/x-ndjson",
-    )
 
 
 @app.post("/chat/action")
@@ -530,42 +405,6 @@ async def chat_action(request: ChatActionRequest):
         "action_result": action_result,
         "parse_error": None,
     }
-
-
-@app.post("/voice/synthesize")
-async def voice_synthesize(request: SynthesizeRequest):
-    voice_id = request.voice_id or settings.voice_id
-    with timed("endpoint.voice.synthesize", voice_id=voice_id, text_chars=len(request.text)):
-        events = tts.synthesize_stream(request.text, voice_id)
-    return StreamingResponse(ndjson_stream(events), media_type="application/x-ndjson")
-
-
-@app.post("/voice/roundtrip")
-async def voice_roundtrip(
-    audio: UploadFile = File(...),
-    voice_id: str = Form(default=settings.voice_id),
-    conversation_id: str = Form(default="default"),
-):
-    with timed("endpoint.voice.roundtrip", voice_id=voice_id, filename=audio.filename or "unknown"):
-        with timed("upload.save", kind="roundtrip", filename=audio.filename or "unknown"):
-            uploaded = await save_upload(audio, settings.uploads_dir, "roundtrip")
-        with timed("stage.roundtrip.stt"):
-            transcript = await asyncio.to_thread(transcriber.transcribe, uploaded)
-        with timed("stage.roundtrip.llm", transcript_chars=len(transcript.text)):
-            chat_result = await llm_client.chat(transcript.text)
-    events = tts.synthesize_stream(chat_result.response, voice_id)
-    return StreamingResponse(
-        ndjson_stream(
-            events,
-            {
-                "conversation_id": conversation_id,
-                "transcript": transcript.text,
-                "response": chat_result.response,
-                "model": chat_result.model,
-            },
-        ),
-        media_type="application/x-ndjson",
-    )
 
 
 @app.get("/tools")

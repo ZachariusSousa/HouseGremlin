@@ -4,9 +4,7 @@ setlocal EnableExtensions
 set "ROOT=%~dp0.."
 set "PC_BRAIN=%ROOT%\pc_brain"
 set "VENV=%PC_BRAIN%\.venv"
-set "DEFAULT_ROBOT_HOST=robit.local"
 set "REALTIME_PORT=7861"
-set "TEXT_MODEL=gemma4:e4b"
 set "LLAMA_SERVER_PORT=8081"
 set "LLAMA_SERVER_EXE=llama-server"
 set "REALTIME_MODEL=ggml-org/gemma-4-E4B-it-GGUF"
@@ -21,21 +19,19 @@ if "%ROBIT_REALTIME_VOICE%"=="" (
 set "RUN_ID=%RANDOM%%RANDOM%"
 set "S2S_LOG=%TEMP%\robit-realtime-voice-%RUN_ID%.log"
 set "S2S_RUNNER=%TEMP%\robit-realtime-voice-%RUN_ID%.bat"
-set "PORT=%~2"
-if "%PORT%"=="" set "PORT=8080"
 
 cd /d "%PC_BRAIN%" || exit /b 1
 
 if not exist "%VENV%\Scripts\python.exe" (
-  echo [run][error] pc_brain\.venv was not found.
+  echo [voice-test][error] pc_brain\.venv was not found.
   echo Run Scripts\setup.bat first.
   exit /b 1
 )
 
 "%VENV%\Scripts\python.exe" --version >nul 2>&1
 if errorlevel 1 (
-  echo [run][error] pc_brain\.venv exists but its Python executable is broken.
-  echo Run Scripts\setup.bat after deleting or repairing pc_brain\.venv.
+  echo [voice-test][error] pc_brain\.venv exists but its Python executable is broken.
+  echo Run Scripts\setup.bat to recreate it.
   exit /b 1
 )
 
@@ -43,55 +39,27 @@ call "%VENV%\Scripts\activate.bat" || exit /b 1
 
 if exist "C:\Tools\llama.cpp\llama-server.exe" set "LLAMA_SERVER_EXE=C:\Tools\llama.cpp\llama-server.exe"
 
-echo [run] Stopping stale realtime voice processes
+echo [voice-test] Stopping stale realtime voice processes
 python "%ROOT%\Scripts\stop_voice_stack.py" --ports %REALTIME_PORT% %LLAMA_SERVER_PORT% || exit /b 1
 
 python "%ROOT%\Scripts\patch_speech_to_speech_timeout.py" || exit /b 1
 
 python -c "import pkg_resources" >nul 2>&1
 if errorlevel 1 (
-  echo [run] Installing setuptools with pkg_resources for Qwen/librosa
+  echo [voice-test] Installing setuptools with pkg_resources for Qwen/librosa
   python -m pip install "setuptools>=70,<81" || exit /b 1
 )
 
 python -c "import huggingface_hub, sys; from packaging.version import Version; v=Version(huggingface_hub.__version__); sys.exit(0 if Version('0.34.0') <= v < Version('1.0') else 1)" >nul 2>&1
 if errorlevel 1 (
-  echo [run] Installing transformers-compatible huggingface_hub
+  echo [voice-test] Installing transformers-compatible huggingface_hub
   python -m pip install "huggingface_hub>=0.34.0,<1.0" || exit /b 1
-)
-
-if "%~1"=="" (
-  set "ROBOT_ARG=%DEFAULT_ROBOT_HOST%"
-) else (
-  set "ROBOT_ARG=%~1"
-)
-
-if not "%ROBOT_ARG%"=="" (
-  echo %ROBOT_ARG% | findstr /b /i "http:// https://" >nul
-  if errorlevel 1 (
-    set "ROBIT_BASE_URL=http://%ROBOT_ARG%"
-  ) else (
-    set "ROBIT_BASE_URL=%ROBOT_ARG%"
-  )
-)
-
-echo [run] ROBIT_BASE_URL=%ROBIT_BASE_URL%
-
-where ollama >nul 2>&1
-if not errorlevel 1 (
-  echo [run] Starting Ollama in a background window if it is not already running
-  start "Ollama" /min cmd /c "ollama serve"
-  timeout /t 3 /nobreak >nul
-  echo [run] Prewarming typed Text mode model %TEXT_MODEL%
-  ollama run %TEXT_MODEL% "Reply with the word ready." || exit /b 1
-) else (
-  echo [run] Ollama was not found on PATH. Chat will fail until Ollama is running.
 )
 
 if "%LLAMA_SERVER_EXE%"=="llama-server" (
   where llama-server >nul 2>&1
   if errorlevel 1 (
-    echo [run][error] llama-server was not found on PATH.
+    echo [voice-test][error] llama-server was not found on PATH.
     echo Install llama.cpp, make sure llama-server.exe is on PATH, then run this again.
     echo Download: https://github.com/ggml-org/llama.cpp/releases
     exit /b 1
@@ -99,26 +67,26 @@ if "%LLAMA_SERVER_EXE%"=="llama-server" (
 )
 
 if not "%LLAMA_SERVER_EXE%"=="llama-server" if not exist "%LLAMA_SERVER_EXE%" (
-  echo [run][error] llama-server was not found at %LLAMA_SERVER_EXE%.
+  echo [voice-test][error] llama-server was not found at %LLAMA_SERVER_EXE%.
   echo Install llama.cpp, make sure llama-server.exe is on PATH, then run this again.
   echo Download: https://github.com/ggml-org/llama.cpp/releases
   exit /b 1
 )
 
-echo [run] Starting llama-server for realtime voice on %REALTIME_LLM_BASE_URL%
-echo [run] Model: %REALTIME_MODEL%
-echo [run] llama-server: %LLAMA_SERVER_EXE%
+echo [voice-test] Starting llama-server for realtime LLM on %REALTIME_LLM_BASE_URL%
+echo [voice-test] Model: %REALTIME_MODEL%
+echo [voice-test] llama-server: %LLAMA_SERVER_EXE%
 start "Robit llama-server" /min cmd /c ""%LLAMA_SERVER_EXE%" -hf %REALTIME_MODEL% --host 127.0.0.1 --port %LLAMA_SERVER_PORT% -np 2 -c 65536 -fa on --swa-full"
-echo [run] Waiting for llama-server /v1/responses
+echo [voice-test] Waiting for llama-server /v1/responses
 python "%ROOT%\Scripts\prewarm_responses.py" --base-url "%REALTIME_LLM_BASE_URL%" --model "%REALTIME_MODEL%" --attempts 90 --sleep 2 --target-seconds 180 || exit /b 1
 
-echo [run] Downloading voice sidecar models if needed
+echo [voice-test] Downloading voice sidecar models if needed
 python "%ROOT%\Scripts\download_voice_models.py" "%REALTIME_STT_MODEL%" "%REALTIME_TTS_MODEL%" || exit /b 1
 
-echo [run] Starting realtime voice sidecar on ws://localhost:%REALTIME_PORT%/v1/realtime
-echo [run] Pipeline: silero-vad to %REALTIME_STT_MODEL% to %REALTIME_MODEL% to %REALTIME_TTS_MODEL% (%REALTIME_VOICE%)
-echo [run] Sidecar log: %S2S_LOG%
-echo [run] Watch log: Get-Content "%S2S_LOG%" -Wait
+echo [voice-test] Starting realtime voice sidecar on ws://localhost:%REALTIME_PORT%/v1/realtime
+echo [voice-test] Pipeline: silero-vad to %REALTIME_STT_MODEL% to %REALTIME_MODEL% to %REALTIME_TTS_MODEL% (%REALTIME_VOICE%)
+echo [voice-test] Sidecar log: %S2S_LOG%
+echo [voice-test] Watch log: Get-Content "%S2S_LOG%" -Wait
 (
   echo @echo off
   echo cd /d "%PC_BRAIN%"
@@ -134,8 +102,5 @@ echo [run] Watch log: Get-Content "%S2S_LOG%" -Wait
 ) > "%S2S_RUNNER%"
 start "Robit Realtime Voice" /min cmd /k call "%S2S_RUNNER%"
 
-echo [run] Opening http://localhost:%PORT%
-start "" cmd /c "timeout /t 3 /nobreak >nul && start http://localhost:%PORT%"
-
-echo [run] Starting PC brain. Press Ctrl+C in this window to stop.
-python -m uvicorn app.main:app --reload --host 0.0.0.0 --port %PORT%
+echo [voice-test] Starting standalone voice client. Press Ctrl+C to stop.
+python "%ROOT%\Scripts\voice_test.py" --sidecar-log "%S2S_LOG%" %*

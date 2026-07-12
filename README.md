@@ -35,11 +35,11 @@ From PowerShell:
 .\Scripts\run.bat
 ```
 
-By default, `run.bat` uses `http://robit.local`. To override it with a current IP
-printed by the robot Serial Monitor:
+By default, `run.bat` uses Robit's mDNS name, `http://robit.local`.
+To override it with a direct IP printed by the robot Serial Monitor:
 
 ```powershell
-.\Scripts\run.bat 172.22.1.176
+.\Scripts\run.bat 172.22.1.126
 ```
 
 ## Robot HTTP API
