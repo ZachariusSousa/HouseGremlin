@@ -2,6 +2,7 @@ import json
 from dataclasses import dataclass
 from types import SimpleNamespace
 
+import httpx
 from fastapi.testclient import TestClient
 
 from app import main
@@ -159,6 +160,69 @@ def test_robot_camera_urls_derive_from_configured_robot_base_url(monkeypatch):
         "capture_url": "http://172.22.1.126/camera/capture",
         "stream_url": "http://172.22.1.126:81/stream",
     }
+
+
+def test_robot_drive_uses_single_api_move_call(monkeypatch):
+    calls = []
+
+    async def fake_robot_post(path, body=None):
+        calls.append((path, body))
+        return {"ok": True, "movement": body["direction"], "speed": body["speed"]}
+
+    monkeypatch.setattr(main, "robot_post", fake_robot_post)
+
+    response = TestClient(main.app).post("/robot/drive", json={"move": "left", "speed": 90})
+
+    assert response.status_code == 200
+    assert calls == [("/api/move", {"direction": "left", "speed": 90})]
+    assert response.json()["movement"] == "left"
+
+
+def test_robot_head_uses_json_api_head_call(monkeypatch):
+    calls = []
+
+    async def fake_robot_post(path, body=None):
+        calls.append((path, body))
+        return {"ok": True, "pan": body["pan"], "tilt": body["tilt"]}
+
+    monkeypatch.setattr(main, "robot_post", fake_robot_post)
+
+    response = TestClient(main.app).post("/robot/head", json={"pan": 110, "tilt": 80})
+
+    assert response.status_code == 200
+    assert calls == [("/api/head", {"pan": 110, "tilt": 80})]
+    assert response.json()["pan"] == 110
+    assert response.json()["tilt"] == 80
+
+
+def test_robot_request_retries_transient_http_errors(monkeypatch):
+    calls = 0
+
+    class FlakyRobotClient:
+        async def request(self, method, url, params=None, json=None):
+            nonlocal calls
+            calls += 1
+            if calls == 1:
+                raise httpx.ConnectError("temporary robot connection drop")
+            return httpx.Response(200, json={"ok": True}, request=httpx.Request(method, url))
+
+    monkeypatch.setattr(
+        main,
+        "settings",
+        SimpleNamespace(
+            robot_base_url="http://robot",
+            request_timeout=2.0,
+            robot_request_retries=1,
+            robot_retry_backoff_seconds=0.0,
+        ),
+    )
+    monkeypatch.setattr(main, "robot_http_client", FlakyRobotClient())
+
+    response = TestClient(main.app).get("/robot/status")
+
+    assert response.status_code == 200
+    assert response.json() == {"ok": True}
+    assert calls == 2
 
 
 def test_robot_action_clamps_movement_speed_and_duration(monkeypatch):

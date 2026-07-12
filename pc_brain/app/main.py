@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import time
 from contextlib import asynccontextmanager
 from collections.abc import Iterable
 from pathlib import Path
@@ -33,17 +34,28 @@ llm_client = OllamaChatClient(settings)
 transcriber = FasterWhisperTranscriber(settings)
 tts = ChatterboxSynthesizer(settings)
 voice_store = VoiceStore(settings)
+robot_request_lock = asyncio.Lock()
+robot_http_client: httpx.AsyncClient | None = None
+robot_status_cache: dict | None = None
+robot_status_cache_at = 0.0
+ROBOT_STATUS_CACHE_SECONDS = 3.0
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    global robot_http_client
     ensure_data_dirs(settings.data_dir, settings.voices_dir, settings.audio_dir, settings.uploads_dir)
+    robot_http_client = httpx.AsyncClient(timeout=settings.request_timeout)
     if settings.warm_models:
         await asyncio.gather(
             llm_client.warmup(),
             asyncio.to_thread(tts.warmup, False),
         )
-    yield
+    try:
+        yield
+    finally:
+        await robot_http_client.aclose()
+        robot_http_client = None
 
 
 app = FastAPI(title="Robit PC Brain", version="0.1.0", lifespan=lifespan)
@@ -151,32 +163,80 @@ def chat_speak_stream(chat_result, voice_id: str, conversation_id: str):
     ) + "\n"
 
 
-async def robot_get(path: str, params: dict | None = None):
+def robot_client() -> httpx.AsyncClient:
+    global robot_http_client
+    if robot_http_client is None or getattr(robot_http_client, "is_closed", False):
+        robot_http_client = httpx.AsyncClient(timeout=settings.request_timeout)
+    return robot_http_client
+
+
+def parse_robot_response(response: httpx.Response) -> dict:
+    content_type = response.headers.get("content-type", "")
+    if "application/json" in content_type:
+        return response.json()
+    return {"ok": True, "body": response.text}
+
+
+def cache_robot_status(path: str, payload: dict) -> None:
+    global robot_status_cache, robot_status_cache_at
+    if path in {"/status", "/api/move", "/api/head", "/api/emergency-stop"} and payload.get("ok") is True:
+        robot_status_cache = payload
+        robot_status_cache_at = time.monotonic()
+
+
+async def robot_request(method: str, path: str, params: dict | None = None, body: dict | None = None):
     url = f"{settings.robot_base_url}{path}"
-    try:
-        async with httpx.AsyncClient(timeout=settings.request_timeout) as client:
-            response = await client.get(url, params=params)
-            response.raise_for_status()
-            content_type = response.headers.get("content-type", "")
-            if "application/json" in content_type:
-                return response.json()
-            return {"ok": True, "body": response.text}
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"Robot request failed: {exc}") from exc
+    retries = max(0, getattr(settings, "robot_request_retries", 2))
+    backoff = max(0.0, getattr(settings, "robot_retry_backoff_seconds", 0.15))
+    last_error: httpx.HTTPError | None = None
+
+    async with robot_request_lock:
+        for attempt in range(retries + 1):
+            try:
+                response = await robot_client().request(method, url, params=params, json=body)
+                response.raise_for_status()
+                payload = parse_robot_response(response)
+                cache_robot_status(path, payload)
+                return payload
+            except httpx.HTTPError as exc:
+                last_error = exc
+                logger.warning(
+                    "robot.proxy_retry method=%s path=%s attempt=%s/%s error=%r",
+                    method,
+                    path,
+                    attempt + 1,
+                    retries + 1,
+                    exc,
+                )
+                if attempt < retries:
+                    await asyncio.sleep(backoff * (attempt + 1))
+
+    raise HTTPException(status_code=502, detail=f"Robot request failed: {last_error}") from last_error
+
+
+async def robot_get(path: str, params: dict | None = None):
+    return await robot_request("GET", path, params=params)
 
 
 async def robot_post(path: str, body: dict | None = None):
+    return await robot_request("POST", path, body=body or {})
+
+
+def cached_robot_status() -> dict | None:
+    if robot_status_cache and time.monotonic() - robot_status_cache_at <= ROBOT_STATUS_CACHE_SECONDS:
+        return robot_status_cache
+    return None
+
+
+async def robot_fetch_bytes(path: str):
     url = f"{settings.robot_base_url}{path}"
     try:
-        async with httpx.AsyncClient(timeout=settings.request_timeout) as client:
-            response = await client.post(url, json=body or {})
+        async with robot_request_lock:
+            response = await robot_client().get(url)
             response.raise_for_status()
-            content_type = response.headers.get("content-type", "")
-            if "application/json" in content_type:
-                return response.json()
-            return {"ok": True, "body": response.text}
     except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"Robot request failed: {exc}") from exc
+        raise HTTPException(status_code=502, detail=f"Robot camera request failed: {exc}") from exc
+    return response.content, response.headers.get("content-type", "image/jpeg")
 
 
 def camera_urls() -> dict:
@@ -304,6 +364,10 @@ async def web_control():
 
 @app.get("/robot/status")
 async def robot_status():
+    if cached := cached_robot_status():
+        return cached
+    if robot_request_lock.locked() and robot_status_cache:
+        return robot_status_cache
     return await robot_get("/status")
 
 
@@ -314,36 +378,31 @@ async def robot_camera():
 
 @app.get("/robot/camera/capture")
 async def robot_camera_capture():
-    url = f"{settings.robot_base_url}/camera/capture"
-    try:
-        async with httpx.AsyncClient(timeout=settings.request_timeout) as client:
-            response = await client.get(url)
-            response.raise_for_status()
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"Robot camera request failed: {exc}") from exc
+    content, media_type = await robot_fetch_bytes("/camera/capture")
     return StreamingResponse(
-        iter([response.content]),
-        media_type=response.headers.get("content-type", "image/jpeg"),
+        iter([content]),
+        media_type=media_type,
     )
 
 
 @app.post("/robot/drive")
 async def robot_drive(command: DriveCommand):
+    body = {"direction": command.move}
     if command.speed is not None:
-        await robot_get("/speed", {"value": command.speed})
-    return await robot_get("/cmd", {"move": command.move})
+        body["speed"] = command.speed
+    return await robot_post("/api/move", body)
 
 
 @app.post("/robot/head")
 async def robot_head(command: HeadCommand):
-    params = {}
+    body = {}
     if command.pan is not None:
-        params["pan"] = command.pan
+        body["pan"] = command.pan
     if command.tilt is not None:
-        params["tilt"] = command.tilt
-    if not params:
+        body["tilt"] = command.tilt
+    if not body:
         raise HTTPException(status_code=400, detail="pan or tilt is required")
-    return await robot_get("/servo", params)
+    return await robot_post("/api/head", body)
 
 
 @app.post("/robot/stop")

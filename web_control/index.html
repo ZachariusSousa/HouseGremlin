@@ -263,6 +263,10 @@
         object-fit: contain;
       }
 
+      .camera-frame img.camera-rotated {
+        transform: rotate(180deg);
+      }
+
       .camera-empty {
         max-width: 380px;
         padding: 20px;
@@ -598,7 +602,7 @@
               </div>
             </div>
             <div class="camera-frame">
-              <img id="cameraStream" alt="Robit live camera feed">
+              <img id="cameraStream" class="camera-rotated" alt="Robit live camera feed">
               <div id="cameraEmpty" class="camera-empty">
                 Camera feed will appear here when the firmware stream is available.
               </div>
@@ -700,7 +704,6 @@
             <section class="action-log" aria-label="LLM action log">
               <div class="button-row">
                 <h2>Action Log</h2>
-                <button id="refreshStatusButton" class="secondary-button" type="button">Refresh</button>
               </div>
               <div id="actionLog" class="log-list"></div>
             </section>
@@ -716,7 +719,15 @@
         controlsEnabled: false,
         latestAudioUrls: [],
         currentAudio: null,
-        camera: null
+        camera: null,
+        activeMove: null,
+        activeSpeed: null,
+        driveInFlight: false,
+        pendingDrive: null,
+        headInFlight: false,
+        headUpdateTimer: null,
+        pendingHead: {},
+        activeHead: { pan: null, tilt: null }
       };
 
       const els = {
@@ -846,20 +857,11 @@
         els.voiceModeButton.disabled = isSending;
       }
 
-      async function refreshRobotStatus() {
-        try {
-          const status = await getJson("/robot/status");
-          els.metricMode.textContent = status.mode || "-";
-          els.metricMove.textContent = status.movement || status.move || "-";
-          els.metricSpeed.textContent = String(status.speed ?? "-");
-          els.metricHead.textContent = `${status.pan ?? "-"}, ${status.tilt ?? "-"}`;
-          setPill(els.connectionStatus, els.connectionText, "ready", "Robot online");
-          return status;
-        } catch (error) {
-          setPill(els.connectionStatus, els.connectionText, "error", "Robot error");
-          addLog("status error", error instanceof Error ? error.message : String(error));
-          throw error;
-        }
+      function applyRobotStatus(status) {
+        els.metricMode.textContent = status.mode || "-";
+        els.metricMove.textContent = status.movement || status.move || "-";
+        els.metricSpeed.textContent = String(status.speed ?? "-");
+        els.metricHead.textContent = `${status.pan ?? "-"}, ${status.tilt ?? "-"}`;
       }
 
       async function refreshCamera() {
@@ -1015,7 +1017,6 @@
           if (isVoice && result.response) await synthesizeAndPlay(result.response);
           setPill(els.connectionStatus, els.connectionText, "ready", "Ready");
           setPlaybackStatus("Ready");
-          await refreshRobotStatus().catch(() => {});
         } catch (error) {
           const message = error instanceof Error ? error.message : String(error);
           setPill(els.connectionStatus, els.connectionText, "error", "Error");
@@ -1028,38 +1029,106 @@
         }
       }
 
-      async function drive(move) {
-        if (!state.controlsEnabled) {
-          els.controlStatus.textContent = "Manual controls disabled";
-          return;
-        }
+      function sameDriveCommand(left, right) {
+        return left && right && left.move === right.move && left.speed === right.speed;
+      }
+
+      async function flushDriveQueue() {
+        if (state.driveInFlight) return;
+        state.driveInFlight = true;
         try {
-          await postJson("/robot/drive", { move, speed: Number(els.speedInput.value) });
-          els.controlStatus.textContent = `move=${move}`;
-          await refreshRobotStatus().catch(() => {});
-        } catch (error) {
-          els.controlStatus.textContent = error instanceof Error ? error.message : String(error);
+          while (state.pendingDrive) {
+            const command = state.pendingDrive;
+            state.pendingDrive = null;
+            const activeCommand = { move: state.activeMove, speed: state.activeSpeed };
+            if (sameDriveCommand(command, activeCommand)) continue;
+
+            try {
+              const result = await postJson("/robot/drive", command);
+              state.activeMove = command.move;
+              state.activeSpeed = command.speed;
+              els.controlStatus.textContent = `move=${command.move}`;
+              applyRobotStatus(result);
+              setPill(els.connectionStatus, els.connectionText, "ready", "Robot online");
+            } catch (error) {
+              els.controlStatus.textContent = error instanceof Error ? error.message : String(error);
+            }
+          }
+        } finally {
+          state.driveInFlight = false;
+          if (state.pendingDrive) flushDriveQueue();
         }
       }
 
-      async function setHead(update) {
+      function drive(move) {
         if (!state.controlsEnabled) {
           els.controlStatus.textContent = "Manual controls disabled";
           return;
         }
+        const speed = Number(els.speedInput.value);
+        const command = { move, speed };
+        const activeCommand = { move: state.activeMove, speed: state.activeSpeed };
+        if (sameDriveCommand(command, activeCommand) || sameDriveCommand(command, state.pendingDrive)) return;
+
+        state.pendingDrive = command;
+        els.controlStatus.textContent = state.driveInFlight ? `queued ${move}` : `move=${move}`;
+        flushDriveQueue();
+      }
+
+      function queueHead(update) {
+        if (!state.controlsEnabled) {
+          els.controlStatus.textContent = "Manual controls disabled";
+          return;
+        }
+        state.pendingHead = { ...state.pendingHead, ...update };
+        window.clearTimeout(state.headUpdateTimer);
+        state.headUpdateTimer = window.setTimeout(() => {
+          flushHeadQueue();
+        }, 80);
+      }
+
+      async function flushHeadQueue() {
+        if (state.headInFlight) return;
+        state.headInFlight = true;
         try {
-          await postJson("/robot/head", update);
-          await refreshRobotStatus().catch(() => {});
-        } catch (error) {
-          els.controlStatus.textContent = error instanceof Error ? error.message : String(error);
+          while (Object.keys(state.pendingHead).length) {
+            const command = state.pendingHead;
+            state.pendingHead = {};
+            const activePan = state.activeHead.pan;
+            const activeTilt = state.activeHead.tilt;
+            if (
+              (command.pan === undefined || command.pan === activePan) &&
+              (command.tilt === undefined || command.tilt === activeTilt)
+            ) {
+              continue;
+            }
+
+            try {
+              const result = await postJson("/robot/head", command);
+              state.activeHead = {
+                pan: result.pan ?? command.pan ?? state.activeHead.pan,
+                tilt: result.tilt ?? command.tilt ?? state.activeHead.tilt
+              };
+              els.metricHead.textContent = `${state.activeHead.pan ?? "-"}, ${state.activeHead.tilt ?? "-"}`;
+              els.controlStatus.textContent = `head=${els.metricHead.textContent}`;
+              if (result.ok) setPill(els.connectionStatus, els.connectionText, "ready", "Robot online");
+            } catch (error) {
+              els.controlStatus.textContent = error instanceof Error ? error.message : String(error);
+            }
+          }
+        } finally {
+          state.headInFlight = false;
+          if (Object.keys(state.pendingHead).length) flushHeadQueue();
         }
       }
 
       async function emergencyStop() {
         try {
           const result = await postJson("/robot/stop", {});
+          state.activeMove = "stop";
+          state.activeSpeed = null;
           addLog("emergency stop", result);
-          await refreshRobotStatus().catch(() => {});
+          applyRobotStatus(result);
         } catch (error) {
           addLog("emergency stop error", error instanceof Error ? error.message : String(error));
         }
@@ -1083,7 +1152,6 @@
       els.textModeButton.addEventListener("click", () => setMode("text"));
       els.voiceModeButton.addEventListener("click", () => setMode("voice"));
       els.controlsEnabled.addEventListener("change", () => setControlsEnabled(els.controlsEnabled.checked));
-      document.getElementById("refreshStatusButton").addEventListener("click", () => refreshRobotStatus());
       document.getElementById("stopButton").addEventListener("click", emergencyStop);
       els.refreshVoicesButton.addEventListener("click", () => refreshVoices());
       els.voiceUploadForm.addEventListener("submit", (event) => {
@@ -1124,18 +1192,18 @@
       });
       els.panInput.addEventListener("input", () => {
         els.panValue.textContent = els.panInput.value;
-        setHead({ pan: Number(els.panInput.value) });
+        queueHead({ pan: Number(els.panInput.value) });
       });
       els.tiltInput.addEventListener("input", () => {
         els.tiltValue.textContent = els.tiltInput.value;
-        setHead({ tilt: Number(els.tiltInput.value) });
+        queueHead({ tilt: Number(els.tiltInput.value) });
       });
       document.getElementById("centerButton").addEventListener("click", () => {
         els.panInput.value = 90;
         els.tiltInput.value = 90;
         els.panValue.textContent = "90";
         els.tiltValue.textContent = "90";
-        setHead({ pan: 90, tilt: 90 });
+        queueHead({ pan: 90, tilt: 90 });
       });
 
       document.addEventListener("keydown", (event) => {
@@ -1161,8 +1229,6 @@
       setPill(els.connectionStatus, els.connectionText, "ready", "Ready");
       refreshVoices();
       refreshCamera();
-      refreshRobotStatus().catch(() => {});
-      setInterval(() => refreshRobotStatus().catch(() => {}), 3000);
     </script>
   </body>
 </html>

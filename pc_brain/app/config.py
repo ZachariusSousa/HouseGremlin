@@ -34,6 +34,8 @@ def _int_env(name: str, default: int) -> int:
 class Settings:
     robot_base_url: str
     request_timeout: float
+    robot_request_retries: int
+    robot_retry_backoff_seconds: float
     llm_provider: str
     llm_base_url: str
     llm_model: str
@@ -81,6 +83,8 @@ def load_settings() -> Settings:
     return Settings(
         robot_base_url=os.getenv("ROBIT_BASE_URL", "http://192.168.4.1").rstrip("/"),
         request_timeout=_float_env("ROBIT_REQUEST_TIMEOUT", 2.0),
+        robot_request_retries=_int_env("ROBIT_REQUEST_RETRIES", 2),
+        robot_retry_backoff_seconds=_float_env("ROBIT_RETRY_BACKOFF_SECONDS", 0.15),
         llm_provider=os.getenv("ROBIT_LLM_PROVIDER", "ollama"),
         llm_base_url=os.getenv("ROBIT_LLM_BASE_URL", "http://localhost:11434").rstrip("/"),
         llm_model=os.getenv("ROBIT_LLM_MODEL", "gemma4:e4b"),
