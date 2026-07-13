@@ -13,7 +13,8 @@ Do not put vision or LLM work on the motor controller. Keep the robot firmware b
 firmware/robit_controller/    ESP/Arduino firmware for movement and head control
 pc_brain/                     FastAPI service that talks to the robot and owns future AI features
 web_control/                  Browser control panel for manual driving
-docs/architecture.md          System design and build roadmap
+docs/architecture.md          Current system architecture and initial build roadmap
+DESIGN.md                     Long-term brain, memory, vision, tools, and autonomy roadmap
 Maindesign.stl                Current printable model
 ```
 
@@ -88,4 +89,5 @@ The PC service is intentionally a thin scaffold right now. It gives you a clean 
 - scripted behaviors
 - telemetry logging
 
-See [docs/architecture.md](docs/architecture.md) for the design.
+See [docs/architecture.md](docs/architecture.md) for the current architecture and
+[DESIGN.md](DESIGN.md) for the long-term Robit design roadmap.
