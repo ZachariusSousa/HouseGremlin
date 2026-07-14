@@ -58,7 +58,8 @@ def test_health_reports_realtime_config(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["realtime"] == {
-        "ws_url": "ws://localhost:7861/v1/realtime",
+        "ws_url": "ws://testserver/v1/realtime",
+        "gateway_path": "/v1/realtime",
         "voice": "serena",
         "instructions": "test instructions",
     }
@@ -193,6 +194,12 @@ def test_robot_action_rejects_invalid_movement_direction():
     )
 
     assert response.status_code == 422
+
+
+def test_robot_action_rejects_empty_and_unknown_fields():
+    client = TestClient(main.app)
+    assert client.post("/robot/action", json={}).status_code == 422
+    assert client.post("/robot/action", json={"movement": {"direction": "left", "surprise": True}}).status_code == 422
 
 
 def test_chat_action_executes_strict_json_action(monkeypatch):

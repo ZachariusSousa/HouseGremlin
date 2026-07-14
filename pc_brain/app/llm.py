@@ -35,14 +35,20 @@ class OpenAICompatibleChatClient:
     def __init__(self, settings: Settings):
         self.settings = settings
 
-    def _payload(self, text: str, system_prompt: str = SYSTEM_PROMPT, num_predict: int = 60) -> dict:
+    def _payload(
+        self,
+        text: str,
+        system_prompt: str = SYSTEM_PROMPT,
+        num_predict: int = 60,
+        history: list[dict[str, str]] | None = None,
+    ) -> dict:
+        messages = [{"role": "system", "content": system_prompt}]
+        messages.extend(history or [])
+        messages.append({"role": "user", "content": text})
         payload = {
             "model": self.settings.llm_model,
             "stream": False,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": text},
-            ],
+            "messages": messages,
             "max_tokens": num_predict,
             "temperature": 0.4,
         }
@@ -75,7 +81,13 @@ class OpenAICompatibleChatClient:
                     parts.append(content.get("text", ""))
         return " ".join(parts).strip()
 
-    async def _chat_with_prompt(self, text: str, system_prompt: str, num_predict: int) -> ChatResult:
+    async def _chat_with_prompt(
+        self,
+        text: str,
+        system_prompt: str,
+        num_predict: int,
+        history: list[dict[str, str]] | None = None,
+    ) -> ChatResult:
         stripped = text.strip()
         if not stripped:
             raise HTTPException(status_code=400, detail="text cannot be empty")
@@ -88,7 +100,7 @@ class OpenAICompatibleChatClient:
                     response = await client.post(
                         f"{self.settings.llm_base_url}/chat/completions",
                         headers={"authorization": "Bearer local"},
-                        json=self._payload(stripped, system_prompt, num_predict),
+                        json=self._payload(stripped, system_prompt, num_predict, history),
                     )
                 response.raise_for_status()
         except httpx.HTTPError as exc:
@@ -99,11 +111,11 @@ class OpenAICompatibleChatClient:
             raise HTTPException(status_code=502, detail="OpenAI-compatible chat returned an empty response.")
         return ChatResult(response=content, model=self.settings.llm_model)
 
-    async def chat(self, text: str) -> ChatResult:
-        return await self._chat_with_prompt(text, SYSTEM_PROMPT, 60)
+    async def chat(self, text: str, history: list[dict[str, str]] | None = None) -> ChatResult:
+        return await self._chat_with_prompt(text, SYSTEM_PROMPT, 60, history)
 
-    async def action_chat(self, text: str) -> ChatResult:
-        return await self._chat_with_prompt(text, ACTION_SYSTEM_PROMPT, 220)
+    async def action_chat(self, text: str, history: list[dict[str, str]] | None = None) -> ChatResult:
+        return await self._chat_with_prompt(text, ACTION_SYSTEM_PROMPT, 220, history)
 
     async def warmup(self) -> None:
         try:

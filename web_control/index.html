@@ -567,6 +567,571 @@
           grid-template-columns: 1fr;
         }
       }
+
+      /* Dark operator-console theme. Keep the control surface calm and readable
+         while giving critical state and emergency actions unmistakable weight. */
+      :root {
+        color-scheme: dark;
+        background: #070a0f;
+        color: #edf4f6;
+        --panel: #10151d;
+        --panel-raised: #151c26;
+        --panel-deep: #0a0e14;
+        --soft: #121923;
+        --line: rgba(222, 241, 244, 0.1);
+        --line-strong: rgba(222, 241, 244, 0.18);
+        --muted: #8c9aa8;
+        --ink: #edf4f6;
+        --accent: #52d6c3;
+        --accent-dark: #071713;
+        --accent-soft: rgba(82, 214, 195, 0.12);
+        --danger: #ff655f;
+        --warn: #f4b65d;
+        --shadow: 0 28px 80px rgba(0, 0, 0, 0.46);
+      }
+
+      body {
+        background:
+          radial-gradient(circle at 12% -10%, rgba(49, 166, 155, 0.16), transparent 32rem),
+          radial-gradient(circle at 90% 110%, rgba(57, 89, 148, 0.12), transparent 34rem),
+          #070a0f;
+      }
+
+      body::before {
+        position: fixed;
+        z-index: -1;
+        inset: 0;
+        background-image:
+          linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
+        background-size: 32px 32px;
+        content: "";
+        mask-image: linear-gradient(to bottom, black, transparent 78%);
+      }
+
+      ::selection {
+        background: rgba(82, 214, 195, 0.32);
+      }
+
+      * {
+        scrollbar-color: #34414e transparent;
+        scrollbar-width: thin;
+      }
+
+      button {
+        min-height: 40px;
+        border-color: var(--line-strong);
+        border-radius: 10px;
+        background: #18202b;
+        color: var(--ink);
+        transition:
+          border-color 150ms ease,
+          background 150ms ease,
+          box-shadow 150ms ease,
+          transform 100ms ease;
+      }
+
+      button:hover:not(:disabled) {
+        border-color: rgba(82, 214, 195, 0.5);
+        background: #1d2834;
+        box-shadow: 0 0 0 3px rgba(82, 214, 195, 0.07);
+      }
+
+      button:focus-visible,
+      input:focus-visible,
+      textarea:focus-visible,
+      summary:focus-visible {
+        outline: 2px solid var(--accent);
+        outline-offset: 2px;
+      }
+
+      button:disabled {
+        opacity: 0.38;
+      }
+
+      input,
+      select,
+      textarea {
+        border-color: var(--line-strong);
+        border-radius: 10px;
+        background: #0d131b;
+        color: var(--ink);
+      }
+
+      input::placeholder,
+      textarea::placeholder {
+        color: #647281;
+      }
+
+      input:focus,
+      select:focus,
+      textarea:focus {
+        border-color: var(--accent);
+        box-shadow: 0 0 0 3px rgba(82, 214, 195, 0.12);
+      }
+
+      input[type="checkbox"] {
+        accent-color: var(--accent);
+      }
+
+      input[type="range"] {
+        accent-color: var(--accent);
+      }
+
+      label {
+        color: #aebbc6;
+        letter-spacing: 0.01em;
+      }
+
+      h1 {
+        color: #f5fbfc;
+        font-size: 21px;
+        letter-spacing: -0.025em;
+      }
+
+      h2,
+      h3 {
+        color: #e8f0f2;
+        letter-spacing: -0.01em;
+      }
+
+      main {
+        width: min(1540px, 100%);
+        padding: 20px;
+      }
+
+      .console {
+        grid-template-rows: auto minmax(650px, calc(100vh - 126px));
+        border-color: var(--line-strong);
+        border-radius: 18px;
+        background: var(--panel);
+        box-shadow: var(--shadow);
+      }
+
+      .topbar {
+        grid-template-columns: 1fr minmax(270px, 430px) auto;
+        gap: 18px;
+        min-height: 76px;
+        padding: 14px 18px;
+        border-bottom-color: var(--line);
+        background: rgba(16, 21, 29, 0.94);
+        backdrop-filter: blur(16px);
+      }
+
+      .brand {
+        gap: 13px;
+      }
+
+      .avatar {
+        position: relative;
+        width: 46px;
+        height: 46px;
+        overflow: hidden;
+        border: 1px solid rgba(82, 214, 195, 0.24);
+        border-radius: 13px;
+        background:
+          radial-gradient(circle at 35% 40%, #8ef5e4 0 2px, transparent 3px),
+          radial-gradient(circle at 65% 40%, #8ef5e4 0 2px, transparent 3px),
+          linear-gradient(145deg, rgba(82, 214, 195, 0.18), rgba(82, 214, 195, 0.05));
+        color: transparent;
+        box-shadow: inset 0 0 24px rgba(82, 214, 195, 0.08);
+      }
+
+      .avatar::after {
+        position: absolute;
+        width: 17px;
+        height: 5px;
+        border: 2px solid var(--accent);
+        border-top: 0;
+        border-radius: 0 0 10px 10px;
+        content: "";
+      }
+
+      .subtitle {
+        margin-top: 4px;
+        color: var(--muted);
+      }
+
+      .connection {
+        gap: 10px;
+      }
+
+      .pill {
+        min-height: 34px;
+        border-color: var(--line-strong);
+        background: rgba(255, 255, 255, 0.035);
+        color: #a8b4bf;
+        font-weight: 700;
+      }
+
+      .dot {
+        background: #65717c;
+        box-shadow: 0 0 0 4px rgba(101, 113, 124, 0.1);
+      }
+
+      .pill.ready {
+        border-color: rgba(82, 214, 195, 0.22);
+        background: rgba(82, 214, 195, 0.08);
+        color: #b6f3e8;
+      }
+
+      .pill.ready .dot {
+        background: var(--accent);
+        box-shadow: 0 0 10px rgba(82, 214, 195, 0.7);
+      }
+
+      .pill.error {
+        border-color: rgba(255, 101, 95, 0.28);
+        background: rgba(255, 101, 95, 0.08);
+        color: #ffaaa6;
+      }
+
+      .pill.error .dot {
+        background: var(--danger);
+        box-shadow: 0 0 10px rgba(255, 101, 95, 0.68);
+      }
+
+      .stop-button {
+        min-height: 44px;
+        padding: 0 17px;
+        border-color: rgba(255, 101, 95, 0.45);
+        background: rgba(255, 101, 95, 0.12);
+        color: #ffaaa6;
+        box-shadow: inset 0 0 0 1px rgba(255, 101, 95, 0.05);
+      }
+
+      .stop-button:hover:not(:disabled) {
+        border-color: var(--danger);
+        background: var(--danger);
+        color: #170606;
+        box-shadow: 0 0 24px rgba(255, 101, 95, 0.25);
+      }
+
+      .workspace {
+        grid-template-columns: minmax(360px, 1.18fr) minmax(420px, 1fr) 340px;
+        background: var(--panel-deep);
+      }
+
+      .camera-pane {
+        border-right-color: var(--line);
+        background: #080c12;
+        color: var(--ink);
+      }
+
+      .panel-head {
+        min-height: 56px;
+        padding: 0 17px;
+        border-bottom-color: var(--line);
+        background: rgba(14, 20, 28, 0.86);
+      }
+
+      .panel-head h2,
+      .action-log h2 {
+        font-size: 13px;
+        letter-spacing: 0.075em;
+        text-transform: uppercase;
+      }
+
+      .camera-frame {
+        position: relative;
+        overflow: hidden;
+        background:
+          radial-gradient(circle at center, rgba(64, 83, 102, 0.12), transparent 52%),
+          #06090e;
+      }
+
+      .camera-frame::after {
+        position: absolute;
+        pointer-events: none;
+        inset: 0;
+        border: 1px solid rgba(255, 255, 255, 0.025);
+        content: "";
+        box-shadow: inset 0 0 80px rgba(0, 0, 0, 0.42);
+      }
+
+      .camera-empty {
+        color: #73818e;
+      }
+
+      .telemetry {
+        border-top-color: var(--line);
+        background: var(--line);
+      }
+
+      .metric {
+        padding: 12px 13px;
+        background: #101721;
+      }
+
+      .metric span {
+        color: #6f7e8c;
+        font-size: 10px;
+        letter-spacing: 0.1em;
+      }
+
+      .metric strong {
+        margin-top: 5px;
+        color: #dff8f3;
+        font-size: 14px;
+        font-variant-numeric: tabular-nums;
+      }
+
+      .chat-pane {
+        background: #0e141c;
+      }
+
+      .transcript {
+        gap: 14px;
+        padding: 22px 18px;
+        background:
+          linear-gradient(180deg, rgba(255, 255, 255, 0.012), transparent 14rem),
+          #0e141c;
+      }
+
+      .empty-state {
+        color: var(--muted);
+      }
+
+      .empty-state strong {
+        color: var(--ink);
+      }
+
+      .message {
+        max-width: min(680px, 88%);
+        border-color: var(--line);
+        border-radius: 14px 14px 14px 4px;
+        padding: 12px 14px;
+        background: #171f2a;
+        box-shadow: 0 5px 18px rgba(0, 0, 0, 0.14);
+      }
+
+      .message-row.user .message {
+        border-color: rgba(82, 214, 195, 0.22);
+        border-radius: 14px 14px 4px 14px;
+        background: linear-gradient(145deg, #1d8176, #176a63);
+        color: #f3fffd;
+      }
+
+      .message-meta {
+        color: #7f91a0;
+        font-size: 11px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+
+      .message-row.user .message-meta {
+        color: rgba(230, 255, 251, 0.7);
+      }
+
+      .message-body {
+        color: #dce5e9;
+        line-height: 1.55;
+      }
+
+      .message-row.user .message-body {
+        color: #ffffff;
+      }
+
+      .composer {
+        gap: 10px;
+        padding: 15px 16px 16px;
+        border-top-color: var(--line);
+        background: #121923;
+        box-shadow: 0 -14px 38px rgba(0, 0, 0, 0.14);
+      }
+
+      .composer textarea {
+        min-height: 82px;
+        background: #0b1118;
+      }
+
+      .composer-tools {
+        grid-template-columns: auto minmax(120px, 160px) 1fr auto;
+      }
+
+      .segmented {
+        border-color: var(--line-strong);
+        border-radius: 10px;
+        background: #0b1118;
+      }
+
+      .segmented button.active {
+        background: var(--accent);
+        color: #061412;
+        box-shadow: 0 0 18px rgba(82, 214, 195, 0.16);
+      }
+
+      .send-button {
+        border-color: var(--accent);
+        background: var(--accent);
+        color: #061412;
+      }
+
+      .send-button:hover:not(:disabled) {
+        border-color: #82eadb;
+        background: #82eadb;
+        color: #061412;
+      }
+
+      .secondary-button {
+        border-color: var(--line-strong);
+        background: #18202b;
+        color: var(--ink);
+      }
+
+      .status-text {
+        color: #7f8d9a;
+      }
+
+      .status-text.error {
+        color: #ff8b86;
+      }
+
+      .side-panel {
+        border-left-color: var(--line);
+        background: #10161f;
+      }
+
+      details {
+        border-bottom-color: var(--line);
+        background: #111821;
+      }
+
+      details[open] {
+        background: #121a24;
+      }
+
+      summary {
+        min-height: 54px;
+        padding: 0 16px;
+        color: #dfe9ec;
+        font-size: 13px;
+        letter-spacing: 0.02em;
+      }
+
+      summary span:last-child {
+        display: grid;
+        width: 24px;
+        height: 24px;
+        place-items: center;
+        border: 1px solid var(--line);
+        border-radius: 7px;
+        color: var(--muted);
+        transition: transform 160ms ease;
+      }
+
+      details[open] summary span:last-child {
+        transform: rotate(45deg);
+      }
+
+      .panel-content {
+        gap: 16px;
+        padding: 2px 16px 17px;
+      }
+
+      .check-row {
+        padding: 10px 11px;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        background: rgba(255, 255, 255, 0.025);
+      }
+
+      .check-row input {
+        flex: 0 0 auto;
+      }
+
+      .control-group {
+        gap: 10px;
+      }
+
+      .drive-grid {
+        gap: 7px;
+      }
+
+      .drive-grid button,
+      .center-button {
+        min-height: 46px;
+        border-color: var(--line);
+        background: #161f2a;
+      }
+
+      .drive-grid button[data-move="stop"] {
+        color: #ff9b96;
+      }
+
+      .action-log {
+        padding: 16px;
+        background: #0d131b;
+      }
+
+      .log-list {
+        gap: 9px;
+      }
+
+      .log-item {
+        border-color: var(--line);
+        border-radius: 10px;
+        background: #121a24;
+        color: #9fb1bd;
+      }
+
+      @media (max-width: 1120px) {
+        body {
+          background: #070a0f;
+        }
+
+        main {
+          padding: 0;
+        }
+
+        .console {
+          border-radius: 0;
+        }
+
+        .topbar {
+          grid-template-columns: 1fr;
+        }
+
+        .workspace {
+          grid-template-columns: 1fr;
+        }
+
+        .camera-pane {
+          border-right: 0;
+        }
+
+        .side-panel {
+          border-top-color: var(--line);
+        }
+      }
+
+      @media (max-width: 640px) {
+        .topbar {
+          padding: 14px;
+        }
+
+        .connection,
+        .composer-tools {
+          grid-template-columns: 1fr;
+        }
+
+        .camera-pane {
+          min-height: 360px;
+        }
+
+        .telemetry {
+          grid-template-columns: repeat(2, 1fr);
+        }
+
+        .message {
+          max-width: 94%;
+        }
+
+        .button-row .send-button,
+        .button-row .secondary-button {
+          flex: 1;
+        }
+      }
     </style>
   </head>
   <body>
@@ -686,8 +1251,8 @@
               <summary><span>Realtime Voice</span><span aria-hidden="true">+</span></summary>
               <div class="panel-content">
                 <div class="control-group">
-                  <label for="realtimeUrl">Server URL</label>
-                  <input id="realtimeUrl" type="text" value="ws://localhost:7861/v1/realtime" autocomplete="off">
+                  <label for="realtimeUrl">Brain gateway</label>
+                  <input id="realtimeUrl" type="text" value="ws://localhost:8080/v1/realtime" autocomplete="off" readonly>
                   <div class="button-row">
                     <button id="realtimeButton" class="send-button" type="button">Connect</button>
                   </div>
@@ -728,8 +1293,7 @@
           userTranscript: null,
           assistantTranscript: null,
           userTranscriptText: "",
-          assistantTranscriptText: "",
-          functionArgs: new Map()
+          assistantTranscriptText: ""
         },
         activeMove: null,
         activeSpeed: null,
@@ -838,6 +1402,7 @@
 
       function setMode(mode) {
         state.mode = mode;
+        window.localStorage.setItem("robitMode", mode);
         els.textModeButton.classList.toggle("active", mode === "text");
         els.voiceModeButton.classList.toggle("active", mode === "voice");
         els.realtimeVoice.disabled = mode !== "voice";
@@ -966,51 +1531,6 @@
         if (!partial) state.realtime[key] = null;
       }
 
-      function realtimeToolDefinitions() {
-        return [
-          {
-            type: "function",
-            name: "robot_action",
-            description: "Execute one bounded Robit action through the PC safety layer.",
-            parameters: {
-              type: "object",
-              properties: {
-                movement: {
-                  type: "object",
-                  properties: {
-                    direction: { type: "string", enum: ["forward", "reverse", "left", "right", "stop"] },
-                    speed: { type: "integer", minimum: 0, maximum: 255 },
-                    duration_ms: { type: "integer", minimum: 0 }
-                  },
-                  additionalProperties: false
-                },
-                head: {
-                  type: "object",
-                  properties: {
-                    pan: { type: "integer", minimum: 55, maximum: 135 },
-                    tilt: { type: "integer", minimum: 35, maximum: 115 },
-                    pan_delta: { type: "integer", minimum: -80, maximum: 80 },
-                    tilt_delta: { type: "integer", minimum: -80, maximum: 80 }
-                  },
-                  additionalProperties: false
-                },
-                eyes: {
-                  type: "object",
-                  properties: {
-                    expression: { type: "string" },
-                    duration_ms: { type: "integer", minimum: 0, maximum: 10000 }
-                  },
-                  required: ["expression"],
-                  additionalProperties: false
-                },
-                emergency_stop: { type: "boolean" }
-              },
-              additionalProperties: false
-            }
-          }
-        ];
-      }
-
       function sendRealtime(payload) {
         const ws = state.realtime.ws;
         if (!ws || ws.readyState !== WebSocket.OPEN) return false;
@@ -1023,10 +1543,7 @@
           type: "session.update",
           session: {
             type: "realtime",
-            instructions: state.realtime.instructions,
-            audio: { output: { voice: els.realtimeVoice.value.trim() || "serena" } },
-            tools: realtimeToolDefinitions(),
-            tool_choice: "auto"
+            audio: { output: { voice: els.realtimeVoice.value.trim() || "serena" } }
           }
         });
       }
@@ -1090,8 +1607,14 @@
         const health = await getJson("/health");
         if (!health.realtime) return;
         els.realtimeUrl.value = health.realtime.ws_url || els.realtimeUrl.value;
+        els.realtimeUrl.readOnly = true;
         els.realtimeVoice.value = health.realtime.voice || els.realtimeVoice.value;
         state.realtime.instructions = health.realtime.instructions || state.realtime.instructions;
+      }
+
+      async function loadBrainState() {
+        const snapshot = await getJson("/brain/state");
+        restoreConversation(snapshot);
       }
 
       async function connectRealtime() {
@@ -1172,41 +1695,36 @@
         setRealtimeStatus("Disconnected");
       }
 
-      async function executeRealtimeTool(event) {
-        const callId = event.call_id || event.callId || event.item?.call_id || event.item?.id;
-        const name = event.name || event.item?.name;
-        const argsText = event.arguments || event.item?.arguments || "{}";
-        if (name !== "robot_action" || !callId) return;
-        let args;
-        try {
-          args = JSON.parse(argsText || "{}");
-        } catch {
-          args = {};
+      function restoreConversation(snapshot) {
+        els.transcript.replaceChildren();
+        els.actionLog.replaceChildren();
+        state.realtime.userTranscript = null;
+        state.realtime.assistantTranscript = null;
+        for (const turn of snapshot.conversation || []) {
+          addMessage(turn.role === "user" ? "user" : "robit", turn.text, turn.role === "user" ? "You" : "Robit");
         }
-        const result = await postJson("/robot/action", args);
-        addLog("voice action", result);
-        sendRealtime({
-          type: "conversation.item.create",
-          item: {
-            type: "function_call_output",
-            call_id: callId,
-            output: JSON.stringify(result)
+        for (const event of snapshot.events || []) {
+          if (["action.completed", "action.failed", "action.rejected"].includes(event.event_type)) {
+            addLog(`${event.event_type} - ${event.correlation_id.slice(0, 8)}`, event.payload);
           }
-        });
-        sendRealtime({ type: "response.create" });
-      }
-
-      function appendFunctionArgs(event) {
-        const callId = event.call_id || event.item_id;
-        if (!callId) return;
-        const current = state.realtime.functionArgs.get(callId) || "";
-        state.realtime.functionArgs.set(callId, current + (event.delta || ""));
+        }
       }
 
       function handleRealtimeEvent(event) {
         const type = event.type || "";
+        if (type === "robit.session.snapshot") {
+          if (!state.isSending) restoreConversation(event);
+          addLog("session restored", {
+            conversation_id: event.state?.conversation_id || "default",
+            latest_sequence: event.latest_sequence || 0
+          });
+          return;
+        }
+        if (type === "robit.action") {
+          addLog(event.ok ? "voice action" : "voice action rejected", event);
+          return;
+        }
         if (type === "session.created") {
-          sendRealtimeSessionUpdate();
           return;
         }
         if (type === "input_audio_buffer.speech_started") {
@@ -1220,22 +1738,6 @@
         }
         if (type === "response.output_audio.delta") {
           playRealtimeAudioDelta(event.delta);
-          return;
-        }
-        if (type.includes("function_call_arguments.delta")) {
-          appendFunctionArgs(event);
-          return;
-        }
-        if (type.includes("function_call_arguments.done")) {
-          const callId = event.call_id || event.item_id;
-          if (!event.arguments && callId && state.realtime.functionArgs.has(callId)) {
-            event.arguments = state.realtime.functionArgs.get(callId);
-          }
-          executeRealtimeTool(event).catch((error) => addLog("voice action error", error instanceof Error ? error.message : String(error)));
-          return;
-        }
-        if (type === "response.output_item.done" && event.item?.type === "function_call") {
-          executeRealtimeTool(event).catch((error) => addLog("voice action error", error instanceof Error ? error.message : String(error)));
           return;
         }
         if (type.includes("input_audio_transcription") && (event.delta || event.transcript)) {
@@ -1298,7 +1800,8 @@
             text: messageText,
             conversation_id: "default"
           });
-          const metadata = result.model ? `Robit - ${result.model}` : "Robit";
+          const trace = result.correlation_id ? ` - trace ${result.correlation_id.slice(0, 8)}` : "";
+          const metadata = result.model ? `Robit - ${result.model}${trace}` : `Robit${trace}`;
           const responseText = result.response || result.parse_error || "Done.";
           addMessage("robit", responseText, metadata);
           if (result.action_result) addLog("llm action", result.action_result);
@@ -1512,7 +2015,8 @@
         if (["KeyW", "KeyA", "KeyS", "KeyD"].includes(event.code)) drive("stop");
       });
 
-      setMode("text");
+      loadBrainState().catch((error) => addLog("conversation restore error", error instanceof Error ? error.message : String(error)));
+      setMode(window.localStorage.getItem("robitMode") === "voice" ? "voice" : "text");
       setControlsEnabled(false);
       setPill(els.connectionStatus, els.connectionText, "ready", "Ready");
       loadRealtimeConfig().catch(() => {});

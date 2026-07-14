@@ -1,6 +1,6 @@
 # PC Brain
 
-This service runs on your computer and owns Robit's safety layer: camera proxying, robot commands, typed LLM actions, realtime voice configuration, autonomy, and logs.
+This service runs on your computer and owns Robit's coordinator and safety layer: conversation state, event journaling, camera proxying, robot commands, typed and realtime LLM actions, arbitration, and logs.
 
 The realtime speech server runs as a sidecar process, but it uses the same `pc_brain\.venv` as the rest of the project.
 
@@ -102,13 +102,16 @@ python -m pytest tests
 - `POST /robot/action`
 - `POST /chat`
 - `POST /chat/action`
+- `GET /brain/state`
+- `GET /brain/events`
+- `WS /v1/realtime`
 - `GET /tools`
 
-The realtime voice server is separate and is reached by the browser at `ROBIT_REALTIME_WS_URL`, defaulting to `ws://localhost:7861/v1/realtime`.
+The realtime voice sidecar remains separate at `ROBIT_REALTIME_WS_URL`, defaulting to `ws://localhost:7861/v1/realtime`, but it is private to `pc_brain`. The browser connects to the brain gateway at `WS /v1/realtime`.
 
 ## Operator Console
 
-The console shows the live robot camera, robot telemetry, silent Text mode, realtime Voice mode, manual controls, and an action log. Text mode calls `/chat/action`; Voice mode streams mic audio to the sidecar and calls `/robot/action` through the declared `robot_action` tool.
+The console shows the live robot camera, robot telemetry, silent Text mode, realtime Voice mode, manual controls, and an action log. Text mode calls `/chat/action`; Voice mode streams mic audio to `pc_brain`, which owns the sidecar session and executes the declared `robot_action` tool server-side.
 
 Quick endpoint checks:
 
@@ -116,6 +119,8 @@ Quick endpoint checks:
 Invoke-RestMethod http://localhost:8080/health
 Invoke-RestMethod http://localhost:8080/robot/status
 Invoke-RestMethod http://localhost:8080/robot/camera
+Invoke-RestMethod http://localhost:8080/brain/state
+Invoke-RestMethod "http://localhost:8080/brain/events?conversation_id=default&after_sequence=0&limit=100"
 Invoke-WebRequest http://localhost:8080/robot/camera/capture -OutFile $env:TEMP\robit.jpg
 Invoke-RestMethod http://localhost:8080/robot/action `
   -Method Post `
@@ -130,4 +135,11 @@ Invoke-RestMethod http://localhost:8080/chat/action `
   -Method Post `
   -ContentType "application/json" `
   -Body '{"text":"Say hello in one short sentence.","conversation_id":"default"}'
+```
+
+Capture Gate 1 realtime latency and GPU usage after the stack is ready:
+
+```powershell
+cd C:\Users\z1sou\HouseGremlin
+.\pc_brain\.venv\Scripts\python.exe .\Scripts\benchmark_gate1.py
 ```

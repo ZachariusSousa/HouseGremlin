@@ -307,6 +307,15 @@ the functional Gate 0 baseline.
 
 ### Gate 1: Make `pc_brain` authoritative
 
+**Status: software implementation complete on 2026-07-14; physical browser and
+robot acceptance pass pending.**
+
+The coordinator, SQLite WAL event journal, state planes, correlation tracing,
+priority arbitration, foreground resource lease, realtime gateway, reconnect
+replay, and server-owned voice tool execution are implemented. The automated
+suite passes 33 tests. Live gateway measurements reached first audio in 0.833
+seconds on the first session turn and 0.337 seconds warm using `serena`.
+
 - Add the event model, state planes, append-only journal, and priority arbiter.
 - Put realtime session ownership behind `pc_brain` while reusing the current
   VAD, STT, and TTS components.

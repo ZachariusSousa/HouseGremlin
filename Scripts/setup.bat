@@ -53,9 +53,9 @@ if not exist ".env" (
   echo [setup] Keeping existing pc_brain\.env
 )
 
-echo [setup] Running endpoint tests
+echo [setup] Running PC brain tests
 cd /d "%PC_BRAIN%" || exit /b 1
-python -m pytest tests\test_main_endpoints.py || exit /b 1
+python -m pytest tests || exit /b 1
 
 where ollama >nul 2>&1
 if not errorlevel 1 (

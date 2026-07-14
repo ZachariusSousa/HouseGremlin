@@ -3,10 +3,12 @@ httpx==0.28.1
 uvicorn[standard]==0.34.0
 pydantic==2.13.4
 python-dotenv==1.0.1
+pip-system-certs==5.3
 setuptools>=70,<81
 speech-to-speech==0.2.10
 huggingface_hub>=0.34.0,<1.0
 hf_xet
 sounddevice==0.5.2
 websocket-client==1.8.0
+websockets==16.1
 pytest==8.3.4

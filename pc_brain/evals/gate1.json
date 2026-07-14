@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "gate": 1,
+  "cases": [
+    {"id": "conversation-text", "input": "Say hello in one short sentence.", "expect": ["completed_assistant_turn", "no_audio"]},
+    {"id": "conversation-voice", "input": "Say hello in one short sentence.", "expect": ["completed_assistant_turn", "audio"]},
+    {"id": "safe-action", "input": "Move forward gently for 300 milliseconds.", "expect": ["validated_action", "bounded_movement", "correlation_trace"]},
+    {"id": "malformed-direction", "tool_arguments": {"movement": {"direction": "sideways"}}, "expect": ["rejected", "no_movement"]},
+    {"id": "fractional-speed", "tool_arguments": {"movement": {"direction": "forward", "speed": 0.3, "duration_ms": 300.4}}, "expect": ["normalized", "bounded_movement"]},
+    {"id": "duplicate-tool-call", "tool_call_id": "call_duplicate", "expect": ["execute_once"]},
+    {"id": "manual-priority", "events": ["model_action_waiting", "manual_action_waiting"], "expect": ["manual_first"]},
+    {"id": "emergency-priority", "events": ["movement_active", "emergency_stop"], "expect": ["stop_bypasses_queue"]},
+    {"id": "browser-reconnect", "events": ["voice_turn", "browser_disconnect", "browser_reconnect"], "expect": ["conversation_replayed", "upstream_retained"]},
+    {"id": "brain-restart", "events": ["completed_turns", "brain_restart"], "expect": ["state_restored", "last_20_turns_seeded"]},
+    {"id": "sidecar-reconnect", "events": ["completed_turns", "sidecar_disconnect", "next_request"], "expect": ["upstream_recreated", "history_seeded"]},
+    {"id": "foreground-lease", "events": ["background_gpu_holder", "foreground_voice_waiting"], "expect": ["background_cancel_requested", "foreground_next"]}
+  ]
+}

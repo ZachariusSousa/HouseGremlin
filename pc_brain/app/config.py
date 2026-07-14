@@ -54,7 +54,7 @@ def load_settings() -> Settings:
     load_dotenv()
     data_dir = Path(os.getenv("ROBIT_DATA_DIR", "./data")).expanduser()
     if not data_dir.is_absolute():
-        data_dir = Path.cwd() / data_dir
+        data_dir = Path(__file__).resolve().parents[1] / data_dir
 
     return Settings(
         robot_base_url=os.getenv("ROBIT_BASE_URL", "http://robit.local").rstrip("/"),

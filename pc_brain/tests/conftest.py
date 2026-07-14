@@ -1,0 +1,14 @@
+import pytest
+
+from app import main
+from app.coordinator import BrainCoordinator
+from app.journal import EventJournal
+
+
+@pytest.fixture(autouse=True)
+def isolated_main_brain(monkeypatch, tmp_path):
+    coordinator = BrainCoordinator(EventJournal(tmp_path / "main-brain.db"))
+    monkeypatch.setattr(main, "brain_journal", coordinator.journal)
+    monkeypatch.setattr(main, "brain_coordinator", coordinator)
+    monkeypatch.setattr(main, "realtime_gateway", None)
+    yield

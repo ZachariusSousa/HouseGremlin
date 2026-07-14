@@ -4,6 +4,7 @@ import argparse
 from pathlib import Path
 
 from huggingface_hub import snapshot_download
+from huggingface_hub.errors import LocalEntryNotFoundError
 
 
 def main() -> int:
@@ -12,7 +13,12 @@ def main() -> int:
     args = parser.parse_args()
 
     for repo_id in args.repo_ids:
-        print(f"[download-models] downloading {repo_id}")
+        try:
+            path = Path(snapshot_download(repo_id=repo_id, local_files_only=True))
+            print(f"[download-models] using cached {repo_id}: {path}")
+            continue
+        except LocalEntryNotFoundError:
+            print(f"[download-models] cached snapshot incomplete; downloading {repo_id}")
         path = Path(snapshot_download(repo_id=repo_id))
         print(f"[download-models] ready {repo_id}: {path}")
     return 0
