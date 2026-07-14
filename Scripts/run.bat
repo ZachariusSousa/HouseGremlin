@@ -60,6 +60,12 @@ if errorlevel 1 (
   python -m pip install "huggingface_hub>=0.34.0,<1.0" || exit /b 1
 )
 
+python -c "import pydantic, sys; sys.exit(0 if pydantic.__version__ == '2.13.4' else 1)" >nul 2>&1
+if errorlevel 1 (
+  echo [run] Installing OpenAI-compatible Pydantic
+  python -m pip install "pydantic==2.13.4" || exit /b 1
+)
+
 if "%~1"=="" (
   set "ROBOT_ARG=%DEFAULT_ROBOT_HOST%"
 ) else (
@@ -138,4 +144,4 @@ echo [run] Opening http://localhost:%PORT%
 start "" cmd /c "timeout /t 3 /nobreak >nul && start http://localhost:%PORT%"
 
 echo [run] Starting PC brain. Press Ctrl+C in this window to stop.
-python -m uvicorn app.main:app --reload --host 0.0.0.0 --port %PORT%
+python -m uvicorn app.main:app --host 0.0.0.0 --port %PORT%

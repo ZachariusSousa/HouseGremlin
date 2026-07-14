@@ -274,6 +274,20 @@ evolving external specification.
 
 ### Gate 0: Restore and measure the current baseline
 
+**Status: functionally closed on 2026-07-14.**
+
+The functional exit condition has been met: the repaired Python 3.11
+environment passes all 18 tests, and the real browser UI has completed realtime
+voice conversation plus bounded manual and model-requested robot actions. Camera,
+text chat, action parsing, and movement safety clamps are working in the current
+baseline.
+
+The pan axis has a known mechanical stall under load. Commands reach the shared
+manual/AI firmware path correctly, so this is accepted as a chassis or servo
+design limitation for Gate 0 rather than an unresolved brain-stack failure. A
+physical emergency-stop drill must be repeated after any motor, power, or chassis
+revision.
+
 - Recreate the stale Python 3.11 virtual environment with the existing setup
   script.
 - Verify camera, text chat, realtime voice, manual movement, action parsing,
@@ -285,6 +299,11 @@ evolving external specification.
 
 Exit when existing tests pass and the real browser UI completes one voice
 conversation and one bounded robot action.
+
+Carry the formal warm/cold latency, CPU, VRAM, failure-log capture, and permanent
+evaluation corpus into the opening Gate 1 baseline work. These artifacts remain
+required before making model or server sizing decisions, but they do not reopen
+the functional Gate 0 baseline.
 
 ### Gate 1: Make `pc_brain` authoritative
 
@@ -301,6 +320,11 @@ Exit when reconnecting the browser preserves the active conversation and every
 robot action can be traced to its originating request.
 
 ### Gate 2: Implement eyes and affect
+
+**Early hardware bring-up:** the firmware now has a minimal SSD1306 wiring test
+on the dedicated D5/D8 I2C bus. At boot it briefly illuminates every pixel and
+then displays a thick horizontal line. This verifies display wiring and power;
+it does not count as the Gate 2 animation, affect, or `/api/eyes` implementation.
 
 - Implement the fixed eye animations and firmware `/api/eyes` endpoint.
 - Add the affect schema, tiny classifier, mood decay, expression overlays, and

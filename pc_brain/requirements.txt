@@ -1,10 +1,10 @@
 fastapi==0.115.6
 httpx==0.28.1
 uvicorn[standard]==0.34.0
-pydantic==2.10.4
+pydantic==2.13.4
 python-dotenv==1.0.1
 setuptools>=70,<81
-speech-to-speech
+speech-to-speech==0.2.10
 huggingface_hub>=0.34.0,<1.0
 hf_xet
 sounddevice==0.5.2
