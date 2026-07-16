@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 
 import httpx
+import pytest
 from fastapi.testclient import TestClient
 
 from app import main
@@ -61,7 +62,7 @@ def test_health_reports_realtime_config(monkeypatch):
         "ws_url": "ws://testserver/v1/realtime",
         "gateway_path": "/v1/realtime",
         "voice": "serena",
-        "instructions": "test instructions",
+        "instructions": f"test instructions {main.REALTIME_EYE_POLICY}",
     }
     assert "tts_runtime" not in response.json()
 
@@ -194,6 +195,65 @@ def test_robot_action_rejects_invalid_movement_direction():
     )
 
     assert response.status_code == 422
+
+
+def test_robot_action_executes_supported_eye_expression(monkeypatch):
+    calls = []
+
+    async def fake_robot_post(path, body=None):
+        calls.append((path, body))
+        return {"ok": True, "path": path, "body": body}
+
+    monkeypatch.setattr(main, "robot_post", fake_robot_post)
+
+    response = TestClient(main.app).post(
+        "/robot/action",
+        json={"eyes": {"expression": "cute", "duration_ms": 1500}},
+    )
+
+    assert response.status_code == 200
+    assert calls == [("/api/eyes", {"expression": "cute", "duration_ms": 1500})]
+
+
+def test_robot_action_rejects_unknown_eye_expression():
+    response = TestClient(main.app).post(
+        "/robot/action",
+        json={"eyes": {"expression": "laser_beams"}},
+    )
+
+    assert response.status_code == 422
+
+
+def test_model_eye_policy_rejects_operational_expressions():
+    with pytest.raises(ValueError, match="operational"):
+        main.validate_action_payload({"eyes": {"expression": "fault"}})
+
+    assert main.validate_action_payload({"eyes": {"expression": "happy"}}) == {
+        "eyes": {"expression": "happy"},
+        "emergency_stop": False,
+    }
+
+
+@pytest.mark.anyio
+async def test_model_eye_action_queues_mood_without_waiting_for_firmware(monkeypatch):
+    selected = []
+
+    class FakeEyeController:
+        coordinator = main.get_brain_coordinator()
+
+        def select_mood(self, expression, duration_ms, source, correlation_id):
+            selected.append((expression, duration_ms, source, correlation_id))
+            return self.coordinator.state.eyes
+
+    monkeypatch.setattr(main, "eye_controller", FakeEyeController())
+
+    result = await main.execute_voice_model_action_payload(
+        {"eyes": {"expression": "cute", "duration_ms": 1200}}
+    )
+
+    assert result["executed"][0]["type"] == "eyes.mood"
+    assert result["executed"][0]["queued"] is True
+    assert selected[0][:3] == ("cute", 1200, main.EventSource.voice_model)
 
 
 def test_robot_action_rejects_empty_and_unknown_fields():

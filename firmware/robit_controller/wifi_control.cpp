@@ -11,6 +11,7 @@
 #endif
 
 #include "camera.h"
+#include "eyes.h"
 #include "motors.h"
 #include "robot_state.h"
 #include "servos.h"
@@ -46,6 +47,8 @@ String statusJson() {
   json += "\"pan\":" + String(robotState.panAngle) + ",";
   json += "\"tilt\":" + String(robotState.tiltAngle) + ",";
   json += "\"eyes\":\"" + jsonEscape(robotState.eyeExpression) + "\",";
+  json += "\"brain_heartbeat_armed\":" + String(isBrainHeartbeatArmed() ? "true" : "false") + ",";
+  json += "\"brain_heartbeat_fault\":" + String(isBrainHeartbeatFaultActive() ? "true" : "false") + ",";
   json += "\"camera\":" + String(robotState.cameraEnabled ? "true" : "false");
   json += "}";
   return json;
@@ -156,6 +159,37 @@ void handleApiHead() {
   sendJson(200, statusJson());
 }
 
+void handleApiEyes() {
+  const String payload = body();
+  const String expression = server.hasArg("expression")
+    ? server.arg("expression")
+    : jsonStringValue(payload, "expression", "");
+  const int durationMs = queryInt("duration_ms", jsonIntValue(payload, "duration_ms", 0));
+
+  if (!isEyeExpressionSupported(expression)) {
+    sendJson(400, "{\"ok\":false,\"error\":\"unknown eye expression\"}");
+    return;
+  }
+  if (durationMs < 0 || durationMs > 10000) {
+    sendJson(400, "{\"ok\":false,\"error\":\"duration_ms must be between 0 and 10000\"}");
+    return;
+  }
+  if (!setEyeExpression(expression, static_cast<unsigned long>(durationMs))) {
+    sendJson(503, "{\"ok\":false,\"error\":\"eye displays unavailable\"}");
+    return;
+  }
+
+  sendJson(200, statusJson());
+}
+
+void handleBrainHeartbeat() {
+  const bool recovered = recordBrainHeartbeat();
+  String json = statusJson();
+  json.remove(json.length() - 1);
+  json += ",\"heartbeat_recovered\":" + String(recovered ? "true" : "false") + "}";
+  sendJson(200, json);
+}
+
 void handleEmergencyStop() {
   emergencyStopMotors();
   sendJson(200, statusJson());
@@ -222,6 +256,8 @@ void initializeHttpServer() {
   server.on("/api/status", HTTP_GET, handleStatus);
   server.on("/api/move", HTTP_ANY, handleApiMove);
   server.on("/api/head", HTTP_ANY, handleApiHead);
+  server.on("/api/eyes", HTTP_ANY, handleApiEyes);
+  server.on("/api/brain-heartbeat", HTTP_ANY, handleBrainHeartbeat);
   server.on("/api/emergency-stop", HTTP_ANY, handleEmergencyStop);
   server.on("/camera", HTTP_GET, []() { handleCameraPage(server); });
   server.on("/camera/capture", HTTP_GET, []() { handleCameraCapture(server); });

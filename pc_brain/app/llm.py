@@ -21,6 +21,12 @@ ACTION_SYSTEM_PROMPT = (
     "movement:{direction,speed,duration_ms}, head:{pan,tilt,pan_delta,tilt_delta}, "
     "eyes:{expression,duration_ms}, emergency_stop:true. "
     "Allowed movement directions are forward, reverse, left, right, stop. "
+    "You may optionally select a temporary emotional eye expression when the message warrants it. "
+    "When the user explicitly asks you to show, make, try, or change an eye expression, you must include "
+    "the eyes action and must not claim it changed unless that action is present. "
+    "Allowed eye expressions are neutral, angry, cute, concerned, content, happy, startled, "
+    "sleepy, curious, confused, suspicious, and wink. Listening, thinking, speaking, and fault "
+    "are automatic system states and must never be requested by the model. "
     "Prefer short gentle movement and concise responses."
 )
 

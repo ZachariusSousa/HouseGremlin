@@ -1289,6 +1289,8 @@
           nextPlaybackTime: 0,
           connected: false,
           connecting: false,
+          manualClose: false,
+          reconnectTimer: null,
           instructions: "",
           userTranscript: null,
           assistantTranscript: null,
@@ -1619,6 +1621,11 @@
 
       async function connectRealtime() {
         if (state.realtime.connected || state.realtime.connecting) return;
+        if (state.realtime.reconnectTimer) {
+          window.clearTimeout(state.realtime.reconnectTimer);
+          state.realtime.reconnectTimer = null;
+        }
+        state.realtime.manualClose = false;
         state.realtime.connecting = true;
         setRealtimeStatus("Connecting");
         let ws;
@@ -1642,12 +1649,28 @@
           setPill(els.connectionStatus, els.connectionText, "ready", "Voice connected");
         });
         ws.addEventListener("message", (event) => handleRealtimeEvent(JSON.parse(event.data)));
-        ws.addEventListener("close", () => {
+        ws.addEventListener("close", (event) => {
           state.realtime.connected = false;
           state.realtime.connecting = false;
-          state.realtime.ws = null;
-          setRealtimeStatus("Disconnected");
-          setPlaybackStatus(state.mode === "voice" ? "Voice disconnected" : "Ready", state.mode === "voice");
+          if (state.realtime.ws === ws) state.realtime.ws = null;
+          const reason = event.reason || `code ${event.code}`;
+          addLog("voice disconnected", { code: event.code, reason });
+          if (event.code === 4001) {
+            setRealtimeStatus("Voice active in another tab", true);
+            setPlaybackStatus("Voice active in another tab", true);
+            return;
+          }
+          const shouldReconnect = state.mode === "voice" && !state.realtime.manualClose;
+          setRealtimeStatus(shouldReconnect ? "Reconnecting" : "Disconnected", shouldReconnect);
+          setPlaybackStatus(shouldReconnect ? "Voice reconnecting" : state.mode === "voice" ? "Voice disconnected" : "Ready", shouldReconnect);
+          if (shouldReconnect && !state.realtime.reconnectTimer) {
+            state.realtime.reconnectTimer = window.setTimeout(() => {
+              state.realtime.reconnectTimer = null;
+              connectRealtime().catch((error) => {
+                setRealtimeStatus(error instanceof Error ? error.message : String(error), true);
+              });
+            }, 1000);
+          }
         });
         ws.addEventListener("error", () => {
           state.realtime.connecting = false;
@@ -1674,6 +1697,11 @@
 
       function disconnectRealtime() {
         clearRealtimePlayback();
+        state.realtime.manualClose = true;
+        if (state.realtime.reconnectTimer) {
+          window.clearTimeout(state.realtime.reconnectTimer);
+          state.realtime.reconnectTimer = null;
+        }
         state.realtime.connected = false;
         state.realtime.connecting = false;
         if (state.realtime.ws) state.realtime.ws.close(1000);

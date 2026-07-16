@@ -16,7 +16,9 @@ constexpr uint8_t SERVO_PCA9685_ADDRESS = 0x40;
 constexpr uint8_t SERVO_PAN_CHANNEL = 0;
 constexpr uint8_t SERVO_TILT_CHANNEL = 1;
 
-// Reserved for the eye OLED bus in the next milestone.
-constexpr uint8_t EYES_SDA_PIN = D5;
-constexpr uint8_t EYES_SCL_PIN = D8;
-constexpr uint8_t EYES_OLED_ADDRESS = 0x3C;
+// Eye OLEDs share the PCA9685 I2C bus. Their addresses do not conflict with
+// each other or with the servo controller at 0x40.
+constexpr uint8_t EYES_SDA_PIN = SERVO_SDA_PIN;
+constexpr uint8_t EYES_SCL_PIN = SERVO_SCL_PIN;
+constexpr uint8_t EYES_LEFT_OLED_ADDRESS = 0x3C;
+constexpr uint8_t EYES_RIGHT_OLED_ADDRESS = 0x3D;

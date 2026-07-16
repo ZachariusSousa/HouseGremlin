@@ -48,12 +48,55 @@ class BodyState(str, Enum):
     fault = "fault"
 
 
+EmotionalEyeExpression = Literal[
+    "neutral",
+    "angry",
+    "cute",
+    "concerned",
+    "content",
+    "happy",
+    "startled",
+    "sleepy",
+    "curious",
+    "confused",
+    "suspicious",
+    "wink",
+]
+
+EyeExpression = Literal[
+    "neutral",
+    "angry",
+    "cute",
+    "concerned",
+    "content",
+    "happy",
+    "startled",
+    "sleepy",
+    "curious",
+    "confused",
+    "suspicious",
+    "wink",
+    "fault",
+    "listening",
+    "thinking",
+    "speaking",
+]
+
+
+class EyeState(BaseModel):
+    base_expression: EmotionalEyeExpression = "neutral"
+    effective_expression: EyeExpression = "neutral"
+    base_duration_ms: int = 0
+    base_expires_at: datetime | None = None
+
+
 class CognitiveState(BaseModel):
     conversation: ConversationState = ConversationState.idle
     body: BodyState = BodyState.stationary
     active_goal: str | None = None
     connectivity: Literal["online", "degraded", "offline"] = "online"
     safety: Literal["normal", "stopped", "fault"] = "normal"
+    eyes: EyeState = Field(default_factory=EyeState)
     active_correlation_id: str | None = None
     conversation_id: str = "default"
     updated_at: datetime = Field(default_factory=utc_now)
@@ -87,4 +130,3 @@ class ConversationTurn(BaseModel):
     text: str
     correlation_id: str
     sequence: int
-

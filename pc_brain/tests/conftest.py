@@ -11,4 +11,5 @@ def isolated_main_brain(monkeypatch, tmp_path):
     monkeypatch.setattr(main, "brain_journal", coordinator.journal)
     monkeypatch.setattr(main, "brain_coordinator", coordinator)
     monkeypatch.setattr(main, "realtime_gateway", None)
+    monkeypatch.setattr(main, "eye_controller", None)
     yield

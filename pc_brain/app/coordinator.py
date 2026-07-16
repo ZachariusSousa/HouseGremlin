@@ -11,6 +11,7 @@ from .brain_models import (
     BrainEvent,
     CognitiveState,
     ConversationState,
+    EyeState,
     EventSource,
     WorkPriority,
     utc_now,
@@ -21,15 +22,22 @@ from .resource_lease import PriorityResourceLease
 
 
 ActionExecutor = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
+StateListener = Callable[[CognitiveState, BrainEvent], None]
 
 
 class BrainCoordinator:
     def __init__(self, journal: EventJournal, conversation_id: str = "default"):
         self.journal = journal
         self.conversation_id = conversation_id
-        self.state = journal.restore_state(conversation_id)
+        restored_state = journal.restore_state(conversation_id)
+        self.state = restored_state.model_copy(update={"eyes": EyeState()})
         self.resource_lease = PriorityResourceLease()
         self._action_lease = PriorityResourceLease()
+        self._state_listeners: list[StateListener] = []
+
+    def subscribe_state(self, listener: StateListener) -> None:
+        if listener not in self._state_listeners:
+            self._state_listeners.append(listener)
 
     @staticmethod
     def new_correlation_id() -> str:
@@ -73,11 +81,41 @@ class BrainCoordinator:
         if safety is not None:
             update["safety"] = safety
         self.state = self.state.model_copy(update=update)
-        return self.record(
+        event = self.record(
             "state.changed",
             source,
             correlation_id,
             {"state": self.state.model_dump(mode="json")},
+            WorkPriority.foreground,
+        )
+        for listener in tuple(self._state_listeners):
+            try:
+                listener(self.state, event)
+            except Exception as exc:
+                self.record(
+                    "state.listener.failed",
+                    EventSource.system,
+                    correlation_id,
+                    {"error": str(exc)},
+                    WorkPriority.foreground,
+                    event.event_id,
+                )
+        return event
+
+    def update_eye_state(
+        self,
+        eyes: EyeState,
+        event_type: str,
+        source: EventSource,
+        correlation_id: str,
+        payload: dict[str, Any] | None = None,
+    ) -> BrainEvent:
+        self.state = self.state.model_copy(update={"eyes": eyes, "updated_at": utc_now()})
+        return self.record(
+            event_type,
+            source,
+            correlation_id,
+            {"eyes": eyes.model_dump(mode="json"), **(payload or {})},
             WorkPriority.foreground,
         )
 

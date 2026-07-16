@@ -9,7 +9,7 @@ void initializeState() {
   robotState.motorSpeed = 180;
   robotState.panAngle = 90;
   robotState.tiltAngle = 90;
-  robotState.eyeExpression = "forward";
+  robotState.eyeExpression = "neutral";
   robotState.cameraEnabled = false;
   robotState.wifiConnected = false;
   robotState.apFallback = false;

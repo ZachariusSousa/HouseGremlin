@@ -15,10 +15,11 @@ from fastapi.responses import FileResponse, StreamingResponse
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from .audio_utils import ensure_data_dirs
-from .brain_models import ActionIntent, ConversationState, EventSource, WorkPriority
+from .brain_models import ActionIntent, ConversationState, EventSource, EyeExpression, WorkPriority
 from .config import settings
 from .coordinator import BrainCoordinator
 from .correlation import current_correlation_id
+from .eye_controller import EMOTIONAL_EYE_EXPRESSIONS, EyeController
 from .journal import EventJournal
 from .llm import OpenAICompatibleChatClient
 from .realtime_gateway import RealtimeGateway
@@ -35,6 +36,7 @@ ROBOT_STATUS_CACHE_SECONDS = 3.0
 brain_journal: EventJournal | None = None
 brain_coordinator: BrainCoordinator | None = None
 realtime_gateway: RealtimeGateway | None = None
+eye_controller: EyeController | None = None
 
 
 @asynccontextmanager
@@ -43,6 +45,8 @@ async def lifespan(app: FastAPI):
     ensure_data_dirs(settings.data_dir)
     get_brain_coordinator()
     robot_http_client = httpx.AsyncClient(timeout=settings.request_timeout)
+    controller = get_eye_controller()
+    await controller.start()
     if settings.warm_models:
         await llm_client.warmup()
     try:
@@ -50,6 +54,7 @@ async def lifespan(app: FastAPI):
     finally:
         if realtime_gateway is not None:
             await realtime_gateway.shutdown()
+        await controller.shutdown()
         await robot_http_client.aclose()
         robot_http_client = None
 
@@ -63,6 +68,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 WEB_CONTROL_INDEX = Path(__file__).resolve().parents[2] / "web_control" / "index.html"
+REALTIME_EYE_POLICY = (
+    "You may optionally select a temporary emotional eye expression when a message genuinely warrants it. "
+    "When the user explicitly asks you to show, make, try, or change an eye expression, you MUST call "
+    "robot_action with the eyes field. Never claim an eye expression changed unless you made that tool call. "
+    "Allowed emotional expressions are neutral, angry, cute, concerned, content, happy, startled, sleepy, "
+    "curious, confused, suspicious, and wink. Operational listening, thinking, speaking, and fault eye states "
+    "are automatic and must never be requested."
+)
+
+
+def effective_realtime_instructions() -> str:
+    instructions = settings.realtime_instructions.strip()
+    if "Operational listening, thinking, speaking, and fault eye states are automatic" in instructions:
+        return instructions
+    return f"{instructions} {REALTIME_EYE_POLICY}".strip()
 
 
 class StrictRequest(BaseModel):
@@ -99,7 +119,7 @@ class HeadAction(StrictRequest):
 
 
 class EyeAction(StrictRequest):
-    expression: str
+    expression: EyeExpression
     duration_ms: int | None = Field(default=None, ge=0, le=10000)
 
 
@@ -133,8 +153,36 @@ def get_brain_coordinator() -> BrainCoordinator:
     return brain_coordinator
 
 
+def get_eye_controller() -> EyeController:
+    global eye_controller
+    if eye_controller is None or eye_controller.coordinator is not get_brain_coordinator():
+        eye_controller = EyeController(
+            get_brain_coordinator(),
+            robot_post,
+            heartbeat_post=robot_heartbeat_post,
+        )
+    return eye_controller
+
+
+def require_model_eye_expression(action: RobotActionRequest) -> None:
+    if action.eyes and action.eyes.expression not in EMOTIONAL_EYE_EXPRESSIONS:
+        correlation_id = (
+            current_correlation_id.get()
+            or get_brain_coordinator().state.active_correlation_id
+            or get_brain_coordinator().new_correlation_id()
+        )
+        get_brain_coordinator().record(
+            "eyes.mood.rejected",
+            EventSource.policy,
+            correlation_id,
+            {"expression": action.eyes.expression, "reason": "operational expressions are coordinator-owned"},
+        )
+        raise ValueError(f"Model cannot select operational eye expression: {action.eyes.expression}")
+
+
 def validate_action_payload(payload: dict) -> dict:
     action = RobotActionRequest.model_validate(normalize_llm_action_body(payload))
+    require_model_eye_expression(action)
     return action.model_dump(exclude_none=True)
 
 
@@ -144,10 +192,12 @@ def get_realtime_gateway() -> RealtimeGateway:
         realtime_gateway = RealtimeGateway(
             settings.realtime_ws_url,
             settings.realtime_voice,
-            settings.realtime_instructions,
+            effective_realtime_instructions(),
             get_brain_coordinator(),
             validate_action_payload,
-            execute_action_payload,
+            execute_voice_model_action_payload,
+            server_fault_handler=get_eye_controller().set_server_fault,
+            voice_session_handler=get_eye_controller().set_voice_session_active,
         )
     return realtime_gateway
 
@@ -214,6 +264,14 @@ async def robot_get(path: str, params: dict | None = None):
 
 async def robot_post(path: str, body: dict | None = None):
     return await robot_request("POST", path, body=body or {})
+
+
+async def robot_heartbeat_post(path: str, body: dict | None = None):
+    """Heartbeat traffic bypasses the serialized action queue and never retries."""
+    url = f"{settings.robot_base_url}{path}"
+    response = await robot_client().post(url, json=body or {}, timeout=min(settings.request_timeout, 1.0))
+    response.raise_for_status()
+    return parse_robot_response(response)
 
 
 async def robot_emergency_stop_request() -> dict:
@@ -314,7 +372,7 @@ def normalize_llm_action_body(action_body: dict) -> dict:
     return normalized
 
 
-async def execute_robot_action(action: RobotActionRequest) -> dict:
+async def execute_robot_action(action: RobotActionRequest, mood_source: EventSource | None = None) -> dict:
     payload = sanitized_action_payload(action)
     executed: list[dict] = []
     skipped: list[dict] = []
@@ -325,6 +383,17 @@ async def execute_robot_action(action: RobotActionRequest) -> dict:
         logger.info("robot.llm_action emergency_stop")
         return {"ok": True, "action": payload, "executed": executed, "skipped": skipped}
 
+    model_eyes = payload.get("eyes") if mood_source is not None else None
+    if model_eyes:
+        correlation_id = current_correlation_id.get() or get_brain_coordinator().new_correlation_id()
+        state = get_eye_controller().select_mood(
+            model_eyes["expression"],
+            model_eyes.get("duration_ms"),
+            mood_source,
+            correlation_id,
+        )
+        executed.append({"type": "eyes.mood", "request": model_eyes, "queued": True, "state": state.model_dump(mode="json")})
+
     if movement := payload.get("movement"):
         result = await robot_post("/api/move", movement)
         executed.append({"type": "movement", "request": movement, "result": result})
@@ -333,7 +402,7 @@ async def execute_robot_action(action: RobotActionRequest) -> dict:
         result = await robot_post("/api/head", head)
         executed.append({"type": "head", "request": head, "result": result})
 
-    if eyes := payload.get("eyes"):
+    if mood_source is None and (eyes := payload.get("eyes")):
         try:
             result = await robot_post("/api/eyes", eyes)
             executed.append({"type": "eyes", "request": eyes, "result": result})
@@ -347,6 +416,18 @@ async def execute_robot_action(action: RobotActionRequest) -> dict:
 async def execute_action_payload(payload: dict) -> dict:
     action = RobotActionRequest.model_validate(payload)
     return await execute_robot_action(action)
+
+
+async def execute_voice_model_action_payload(payload: dict) -> dict:
+    action = RobotActionRequest.model_validate(payload)
+    require_model_eye_expression(action)
+    return await execute_robot_action(action, EventSource.voice_model)
+
+
+async def execute_text_model_action_payload(payload: dict) -> dict:
+    action = RobotActionRequest.model_validate(payload)
+    require_model_eye_expression(action)
+    return await execute_robot_action(action, EventSource.text_model)
 
 
 def correlation_from_request(request: Request) -> str:
@@ -424,7 +505,7 @@ async def health(request: Request):
             "ws_url": gateway_url,
             "gateway_path": "/v1/realtime",
             "voice": settings.realtime_voice,
-            "instructions": settings.realtime_instructions,
+            "instructions": effective_realtime_instructions(),
         },
     }
 
@@ -558,7 +639,8 @@ async def chat_action(chat_request: ChatActionRequest, request: Request):
     if isinstance(action_body, dict) and action_body:
         try:
             action = RobotActionRequest.model_validate(normalize_llm_action_body(action_body))
-        except ValidationError as exc:
+            require_model_eye_expression(action)
+        except (ValidationError, ValueError) as exc:
             coordinator.record_turn("assistant", response_text, EventSource.text_model, correlation_id)
             coordinator.transition(correlation_id, EventSource.text_model, conversation=ConversationState.idle)
             return {
@@ -568,7 +650,7 @@ async def chat_action(chat_request: ChatActionRequest, request: Request):
                 "correlation_id": correlation_id,
                 "action": action_body,
                 "action_result": None,
-                "parse_error": f"LLM returned an invalid robot action; no robot action was executed: {exc.errors()[0]['msg']}",
+                "parse_error": f"LLM returned an invalid robot action; no robot action was executed: {exc}",
             }
         action_result = await coordinated_action(
             action,
@@ -576,6 +658,7 @@ async def chat_action(chat_request: ChatActionRequest, request: Request):
             correlation_id,
             "Text model action",
             WorkPriority.model_action,
+            execute_text_model_action_payload,
         )
 
     coordinator.record_turn("assistant", response_text, EventSource.text_model, correlation_id)

@@ -307,14 +307,18 @@ the functional Gate 0 baseline.
 
 ### Gate 1: Make `pc_brain` authoritative
 
-**Status: software implementation complete on 2026-07-14; physical browser and
-robot acceptance pass pending.**
+**Status: functionally closed on 2026-07-15.**
 
 The coordinator, SQLite WAL event journal, state planes, correlation tracing,
 priority arbitration, foreground resource lease, realtime gateway, reconnect
 replay, and server-owned voice tool execution are implemented. The automated
-suite passes 33 tests. Live gateway measurements reached first audio in 0.833
+suite passes 49 tests. Live gateway measurements reached first audio in 0.833
 seconds on the first session turn and 0.337 seconds warm using `serena`.
+
+The physical acceptance pass is complete. The real browser preserves the active
+conversation across reconnects, bounded actions execute on the robot, and each
+action can be traced back to its originating request through the shared event
+and correlation flow.
 
 - Add the event model, state planes, append-only journal, and priority arbiter.
 - Put realtime session ownership behind `pc_brain` while reusing the current
@@ -330,10 +334,20 @@ robot action can be traced to its originating request.
 
 ### Gate 2: Implement eyes and affect
 
-**Early hardware bring-up:** the firmware now has a minimal SSD1306 wiring test
-on the dedicated D5/D8 I2C bus. At boot it briefly illuminates every pixel and
-then displays a thick horizontal line. This verifies display wiring and power;
-it does not count as the Gate 2 animation, affect, or `/api/eyes` implementation.
+**Status: eye expression and automatic-state software complete on 2026-07-15;
+heartbeat and end-to-end voice latency acceptance pending.**
+
+**Early hardware bring-up:** the firmware began with a minimal SSD1306 wiring
+test on the shared D6/D7 I2C bus at addresses `0x3C` and `0x3D`. At boot it
+briefly illuminated every pixel and then displayed a thick horizontal line.
+That test established display wiring and power before the Gate 2 renderer was
+implemented.
+
+The fixed expression renderer and firmware `/api/eyes` endpoint are implemented
+and physically validated. `pc_brain` now maintains a temporary LLM-selected base
+mood beneath deterministic listening, thinking, speaking, and fault overlays.
+Eye commands use a latest-value asynchronous queue, and an armed firmware
+heartbeat watchdog displays `fault` after twelve seconds without the PC brain.
 
 - Implement the fixed eye animations and firmware `/api/eyes` endpoint.
 - Add the affect schema, tiny classifier, mood decay, expression overlays, and

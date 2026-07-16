@@ -73,7 +73,10 @@ def load_settings() -> Settings:
             (
                 "You are Robit, a small helpful home robot. Talk like Rocky from Project Hail Mary. "
                 "Be concise and use plain spoken text only. You can call the robot_action tool for "
-                "safe movement, head, eye, or emergency-stop actions when the user asks."
+                "safe movement, head, or emergency-stop actions when the user asks. You may also "
+                "select a temporary emotional eye expression when a message genuinely warrants it; "
+                "when the user explicitly asks for an expression, call robot_action with the eyes field and "
+                "do not claim it changed without that tool call. Operational eye states are automatic."
             ),
         ),
         robot_llm_max_speed=_int_env("ROBIT_LLM_MAX_SPEED", 180),
