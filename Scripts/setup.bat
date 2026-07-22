@@ -43,8 +43,20 @@ if exist "C:\Tools\llama.cpp\llama-server.exe" set "LLAMA_SERVER_EXE=C:\Tools\ll
 echo [setup] Upgrading packaging tools
 python -m pip install --upgrade pip "setuptools>=70,<81" wheel || exit /b 1
 
+python -c "import torch, torchaudio, sys; sys.exit(0 if torch.__version__ == '2.6.0+cu124' and torchaudio.__version__ == '2.6.0+cu124' else 1)" >nul 2>&1
+if errorlevel 1 (
+  echo [setup] Installing validated CUDA Torch and Torchaudio pair
+  python -m pip install --force-reinstall "torch==2.6.0+cu124" "torchaudio==2.6.0+cu124" --index-url https://download.pytorch.org/whl/cu124 || exit /b 1
+)
+
 echo [setup] Installing PC brain requirements
 python -m pip install -r requirements.txt || exit /b 1
+
+python -c "import huggingface_hub, numpy, pydantic, torch, torchaudio, transformers, sys; from packaging.version import Version; ok = transformers.__version__ == '4.57.3' and Version('0.34.0') <= Version(huggingface_hub.__version__) < Version('1.0') and numpy.__version__ == '1.26.4' and pydantic.__version__ == '2.13.4' and torch.__version__ == '2.6.0+cu124' and torchaudio.__version__ == '2.6.0+cu124'; sys.exit(0 if ok else 1)" >nul 2>&1
+if errorlevel 1 (
+  echo [setup][error] Package installation did not produce the validated voice and vision environment.
+  exit /b 1
+)
 
 if not exist ".env" (
   echo [setup] Creating pc_brain\.env from .env.example

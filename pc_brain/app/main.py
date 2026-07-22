@@ -2,6 +2,7 @@ import asyncio
 import inspect
 import json
 import logging
+import re
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -11,7 +12,7 @@ from urllib.parse import urlparse, urlunparse
 import httpx
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 from .audio_utils import ensure_data_dirs
@@ -20,10 +21,12 @@ from .config import settings
 from .coordinator import BrainCoordinator
 from .correlation import current_correlation_id
 from .eye_controller import EMOTIONAL_EYE_EXPRESSIONS, EyeController
+from .frame_broker import FrameBroker
 from .journal import EventJournal
 from .llm import OpenAICompatibleChatClient
 from .realtime_gateway import RealtimeGateway
 from .timing import timed
+from .vision import VisionService, VisionUnavailable
 
 
 logger = logging.getLogger("uvicorn.error")
@@ -37,6 +40,8 @@ brain_journal: EventJournal | None = None
 brain_coordinator: BrainCoordinator | None = None
 realtime_gateway: RealtimeGateway | None = None
 eye_controller: EyeController | None = None
+frame_broker: FrameBroker | None = None
+vision_service: VisionService | None = None
 
 
 @asynccontextmanager
@@ -46,7 +51,11 @@ async def lifespan(app: FastAPI):
     get_brain_coordinator()
     robot_http_client = httpx.AsyncClient(timeout=settings.request_timeout)
     controller = get_eye_controller()
+    broker = get_frame_broker()
+    vision = get_vision_service()
     await controller.start()
+    await broker.start()
+    await vision.start()
     if settings.warm_models:
         await llm_client.warmup()
     try:
@@ -54,6 +63,8 @@ async def lifespan(app: FastAPI):
     finally:
         if realtime_gateway is not None:
             await realtime_gateway.shutdown()
+        await vision.shutdown()
+        await broker.shutdown()
         await controller.shutdown()
         await robot_http_client.aclose()
         robot_http_client = None
@@ -69,12 +80,15 @@ app.add_middleware(
 )
 WEB_CONTROL_INDEX = Path(__file__).resolve().parents[2] / "web_control" / "index.html"
 REALTIME_EYE_POLICY = (
+    "When the user explicitly asks Robit to move, stop, pan, or tilt its head, you MUST call robot_action. "
+    "Never say that a physical action happened unless you made that tool call and received a successful result. "
     "You may optionally select a temporary emotional eye expression when a message genuinely warrants it. "
     "When the user explicitly asks you to show, make, try, or change an eye expression, you MUST call "
     "robot_action with the eyes field. Never claim an eye expression changed unless you made that tool call. "
     "Allowed emotional expressions are neutral, angry, cute, concerned, content, happy, startled, sleepy, "
     "curious, confused, suspicious, and wink. Operational listening, thinking, speaking, and fault eye states "
-    "are automatic and must never be requested."
+    "are automatic and must never be requested. When asked about the current view, call inspect_scene and use "
+    "only its result. Never call movement or head actions in the same user turn after inspect_scene."
 )
 
 
@@ -145,6 +159,11 @@ class ChatActionRequest(ChatRequest):
     pass
 
 
+class PerceptionQueryRequest(StrictRequest):
+    question: str = Field(min_length=1, max_length=500)
+    fresh: bool = True
+
+
 def get_brain_coordinator() -> BrainCoordinator:
     global brain_journal, brain_coordinator
     if brain_coordinator is None:
@@ -162,6 +181,30 @@ def get_eye_controller() -> EyeController:
             heartbeat_post=robot_heartbeat_post,
         )
     return eye_controller
+
+
+def get_frame_broker() -> FrameBroker:
+    global frame_broker
+    if frame_broker is None:
+        frame_broker = FrameBroker(fetch_robot_camera_frame, settings.camera_frame_interval_seconds)
+    return frame_broker
+
+
+def get_vision_service() -> VisionService:
+    global vision_service
+    coordinator = get_brain_coordinator()
+    if vision_service is None or getattr(vision_service, "coordinator", coordinator) is not coordinator:
+        vision_service = VisionService(settings, coordinator, get_frame_broker())
+    return vision_service
+
+
+async def inspect_scene(question: str) -> dict:
+    result = await get_vision_service().query(question, fresh=True)
+    return {
+        "fresh": result.fresh,
+        "warning": result.warning,
+        "snapshot": result.snapshot.model_dump(mode="json"),
+    }
 
 
 def require_model_eye_expression(action: RobotActionRequest) -> None:
@@ -189,6 +232,12 @@ def validate_action_payload(payload: dict) -> dict:
 def get_realtime_gateway() -> RealtimeGateway:
     global realtime_gateway
     if realtime_gateway is None:
+        vision = get_vision_service()
+
+        def current_scene_context() -> dict | None:
+            snapshot = vision.current_snapshot()
+            return snapshot.model_dump(mode="json") if snapshot is not None else None
+
         realtime_gateway = RealtimeGateway(
             settings.realtime_ws_url,
             settings.realtime_voice,
@@ -198,7 +247,10 @@ def get_realtime_gateway() -> RealtimeGateway:
             execute_voice_model_action_payload,
             server_fault_handler=get_eye_controller().set_server_fault,
             voice_session_handler=get_eye_controller().set_voice_session_active,
+            inspect_scene=inspect_scene,
+            scene_context=current_scene_context,
         )
+        vision.subscribe_snapshot(realtime_gateway.refresh_scene_context)
     return realtime_gateway
 
 
@@ -267,11 +319,12 @@ async def robot_post(path: str, body: dict | None = None):
 
 
 async def robot_heartbeat_post(path: str, body: dict | None = None):
-    """Heartbeat traffic bypasses the serialized action queue and never retries."""
+    """Heartbeat traffic shares the ESP control queue and never retries."""
     url = f"{settings.robot_base_url}{path}"
-    response = await robot_client().post(url, json=body or {}, timeout=min(settings.request_timeout, 1.0))
-    response.raise_for_status()
-    return parse_robot_response(response)
+    async with robot_request_lock:
+        response = await robot_client().post(url, json=body or {}, timeout=settings.request_timeout)
+        response.raise_for_status()
+        return parse_robot_response(response)
 
 
 async def robot_emergency_stop_request() -> dict:
@@ -295,28 +348,39 @@ def cached_robot_status() -> dict | None:
     return None
 
 
-async def robot_fetch_bytes(path: str):
-    url = f"{settings.robot_base_url}{path}"
+async def robot_fetch_bytes(path: str, base_url: str | None = None):
+    url = f"{base_url or settings.robot_base_url}{path}"
     try:
         async with robot_request_lock:
             response = await robot_client().get(url)
             response.raise_for_status()
     except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"Robot camera request failed: {exc}") from exc
+        message = str(exc) or type(exc).__name__
+        raise HTTPException(status_code=502, detail=f"Robot camera request failed: {message}") from exc
     return response.content, response.headers.get("content-type", "image/jpeg")
+
+
+async def fetch_robot_camera_frame():
+    parsed = urlparse(settings.robot_base_url)
+    hostname = parsed.hostname or "robit.local"
+    scheme = parsed.scheme or "http"
+    camera_base_url = urlunparse((scheme, f"{hostname}:81", "", "", "", ""))
+    return await robot_fetch_bytes("/capture", camera_base_url)
 
 
 def camera_urls() -> dict:
     parsed = urlparse(settings.robot_base_url)
     hostname = parsed.hostname or "robit.local"
     scheme = parsed.scheme or "http"
+    capture_url = urlunparse((scheme, f"{hostname}:81", "/capture", "", "", ""))
     stream_url = urlunparse((scheme, f"{hostname}:81", "/stream", "", "", ""))
     return {
         "ok": True,
         "robot_base_url": settings.robot_base_url,
         "page_url": f"{settings.robot_base_url}/camera",
-        "capture_url": f"{settings.robot_base_url}/camera/capture",
+        "capture_url": capture_url,
         "stream_url": stream_url,
+        "frame_interval_seconds": settings.camera_frame_interval_seconds,
     }
 
 
@@ -476,11 +540,43 @@ async def execute_manual_stop(payload: dict) -> dict:
         return await robot_get("/cmd", {"move": "stop"})
 
 
-async def call_llm(method_name: str, text: str, history: list[dict[str, str]]):
+def prompt_with_live_scene(text: str) -> str:
+    service = vision_service
+    snapshot = service.current_snapshot() if service is not None and hasattr(service, "current_snapshot") else None
+    if snapshot is None:
+        context = "LIVE VISUAL CONTEXT: unavailable or expired. Do not claim to currently see specific objects."
+    else:
+        context = "LIVE VISUAL CONTEXT: " + json.dumps(
+            {
+                "frame_id": snapshot.frame_id,
+                "observed_at": snapshot.observed_at.isoformat(),
+                "summary": snapshot.summary,
+                "entities": [
+                    {"label": entity.label, "confidence": entity.confidence}
+                    for entity in snapshot.entities
+                ],
+                "uncertainty": snapshot.uncertainty,
+            },
+            separators=(",", ":"),
+        )
+    return (
+        f"{context}\nUse this validated scene as Robit's current visual awareness when relevant, "
+        "without inventing additional details.\nUser request: " + text
+    )
+
+
+async def call_llm(
+    method_name: str,
+    text: str,
+    history: list[dict[str, str]],
+    include_live_scene: bool = True,
+):
     method = getattr(llm_client, method_name)
-    if "history" in inspect.signature(method).parameters:
-        return await method(text, history=history)
-    return await method(text)
+    prompt = prompt_with_live_scene(text) if include_live_scene else text
+    async with get_brain_coordinator().resource_lease.acquire(WorkPriority.foreground):
+        if "history" in inspect.signature(method).parameters:
+            return await method(prompt, history=history)
+        return await method(prompt)
 
 
 def parse_action_response(content: str) -> dict | None:
@@ -489,6 +585,50 @@ def parse_action_response(content: str) -> dict | None:
     except json.JSONDecodeError:
         return None
     return parsed if isinstance(parsed, dict) else None
+
+
+VISUAL_QUESTION_MARKERS = re.compile(
+    r"\b(what do you see|what can you see|can you see|look at|camera|in front of you|around you|visible)\b",
+    re.IGNORECASE,
+)
+
+
+def explicit_visual_question(text: str) -> str | None:
+    stripped = text.strip()
+    return stripped if stripped and VISUAL_QUESTION_MARKERS.search(stripped) else None
+
+
+async def answer_visual_question(
+    question: str,
+    history: list[dict[str, str]],
+    correlation_id: str,
+) -> tuple[str, str, dict]:
+    result = await get_vision_service().query(question, fresh=True)
+    snapshot = result.snapshot.model_dump(mode="json")
+    freshness_instruction = (
+        "If it is cached, use past-tense wording such as 'my last image showed' and say you cannot confirm what is there now. "
+        if not result.fresh
+        else ""
+    )
+    grounded_prompt = (
+        "Answer the user's visual question using only this validated SceneSnapshot. "
+        "Be concise, say when uncertainty is high, and do not propose or claim any physical action. "
+        f"The observation is {'fresh' if result.fresh else 'cached and not current'}. "
+        f"{freshness_instruction}"
+        f"User question: {question}\nSceneSnapshot: {json.dumps(snapshot, separators=(',', ':'))}"
+    )
+    response = await call_llm("chat", grounded_prompt, history, include_live_scene=False)
+    get_brain_coordinator().record(
+        "perception.query.answered",
+        EventSource.text_model,
+        correlation_id,
+        {"frame_id": result.snapshot.frame_id, "fresh": result.fresh, "warning": result.warning},
+    )
+    return response.response, response.model, {
+        "fresh": result.fresh,
+        "warning": result.warning,
+        "snapshot": snapshot,
+    }
 
 
 @app.get("/health")
@@ -514,7 +654,7 @@ async def health(request: Request):
 async def web_control():
     if not WEB_CONTROL_INDEX.exists():
         raise HTTPException(status_code=404, detail="web_control/index.html was not found")
-    return FileResponse(WEB_CONTROL_INDEX)
+    return FileResponse(WEB_CONTROL_INDEX, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/robot/status")
@@ -533,8 +673,35 @@ async def robot_camera():
 
 @app.get("/robot/camera/capture")
 async def robot_camera_capture():
-    content, media_type = await robot_fetch_bytes("/camera/capture")
-    return StreamingResponse(iter([content]), media_type=media_type)
+    frame = await get_frame_broker().get_frame()
+    return Response(
+        content=frame.content,
+        media_type=frame.media_type,
+        headers={
+            "X-Robit-Frame-Id": frame.frame_id,
+            "X-Robit-Captured-At": frame.captured_at.isoformat(),
+            "Cache-Control": "no-store",
+        },
+    )
+
+
+@app.get("/perception/latest")
+async def perception_latest():
+    return get_vision_service().latest_payload()
+
+
+@app.post("/perception/query")
+async def perception_query(query: PerceptionQueryRequest):
+    try:
+        result = await get_vision_service().query(query.question, query.fresh)
+    except VisionUnavailable as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return {
+        "fresh": result.fresh,
+        "warning": result.warning,
+        "snapshot": result.snapshot.model_dump(mode="json"),
+        "world_state": get_vision_service().world_state().model_dump(mode="json"),
+    }
 
 
 @app.post("/robot/drive")
@@ -620,6 +787,28 @@ async def chat_action(chat_request: ChatActionRequest, request: Request):
         chat_result = await call_llm("action_chat", chat_request.text, history)
 
     parsed = parse_action_response(chat_result.response)
+    vision_question = explicit_visual_question(chat_request.text)
+    if parsed is not None and isinstance(parsed.get("vision_question"), str):
+        vision_question = parsed["vision_question"].strip() or vision_question
+    if vision_question:
+        try:
+            response_text, model, vision = await answer_visual_question(vision_question, history, correlation_id)
+        except VisionUnavailable as exc:
+            response_text = f"I cannot inspect the camera right now: {exc}"
+            model = chat_result.model
+            vision = {"fresh": False, "warning": str(exc), "snapshot": None}
+        coordinator.record_turn("assistant", response_text, EventSource.text_model, correlation_id)
+        coordinator.transition(correlation_id, EventSource.text_model, conversation=ConversationState.idle)
+        return {
+            "response": response_text,
+            "model": model,
+            "conversation_id": chat_request.conversation_id,
+            "correlation_id": correlation_id,
+            "action": None,
+            "action_result": None,
+            "vision": vision,
+            "parse_error": None,
+        }
     if parsed is None:
         coordinator.record_turn("assistant", chat_result.response, EventSource.text_model, correlation_id)
         coordinator.transition(correlation_id, EventSource.text_model, conversation=ConversationState.idle)
@@ -630,6 +819,7 @@ async def chat_action(chat_request: ChatActionRequest, request: Request):
             "correlation_id": correlation_id,
             "action": None,
             "action_result": None,
+            "vision": None,
             "parse_error": "LLM did not return strict JSON; no robot action was executed.",
         }
 
@@ -650,6 +840,7 @@ async def chat_action(chat_request: ChatActionRequest, request: Request):
                 "correlation_id": correlation_id,
                 "action": action_body,
                 "action_result": None,
+                "vision": None,
                 "parse_error": f"LLM returned an invalid robot action; no robot action was executed: {exc}",
             }
         action_result = await coordinated_action(
@@ -671,6 +862,7 @@ async def chat_action(chat_request: ChatActionRequest, request: Request):
         "correlation_id": correlation_id,
         "action": action_body if isinstance(action_body, dict) else None,
         "action_result": action_result,
+        "vision": None,
         "parse_error": None,
     }
 

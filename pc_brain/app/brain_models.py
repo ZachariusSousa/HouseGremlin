@@ -5,7 +5,7 @@ from enum import Enum, IntEnum
 from typing import Any, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 def utc_now() -> datetime:
@@ -113,6 +113,39 @@ class BrainEvent(BaseModel):
     conversation_id: str = "default"
     priority: WorkPriority = WorkPriority.foreground
     payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class SceneEntity(BaseModel):
+    label: str = Field(min_length=1, max_length=80)
+    confidence: float = Field(ge=0.0, le=1.0)
+    bounding_box: tuple[float, float, float, float] | None = None
+
+    @field_validator("bounding_box")
+    @classmethod
+    def _validate_box(cls, box: tuple[float, float, float, float] | None):
+        if box is not None and any(value < 0.0 or value > 1.0 for value in box):
+            raise ValueError("bounding_box coordinates must be normalized between 0 and 1")
+        return box
+
+
+class SceneSnapshot(BaseModel):
+    frame_id: str
+    observed_at: datetime
+    trigger: Literal["awareness", "explicit"]
+    summary: str = Field(min_length=1, max_length=600)
+    entities: list[SceneEntity] = Field(default_factory=list, max_length=30)
+    novelty: float = Field(ge=0.0, le=1.0)
+    uncertainty: float = Field(ge=0.0, le=1.0)
+    model: str
+    latency_ms: float = Field(ge=0.0)
+    expires_at: datetime
+
+
+class WorldState(BaseModel):
+    generated_at: datetime = Field(default_factory=utc_now)
+    snapshot_ids: list[str] = Field(default_factory=list)
+    summary: str = "unknown"
+    entities: list[SceneEntity] = Field(default_factory=list)
 
 
 class ActionIntent(BaseModel):

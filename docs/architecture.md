@@ -67,7 +67,44 @@ Later, if you need lower latency, add WebSocket or UDP commands. Start with HTTP
 
 ## Camera
 
-The camera being used is the built in esp32 xiao seeed sense camera.
+The camera is the built-in XIAO ESP32S3 Sense camera. Firmware serializes all
+`/capture` and `/stream` acquisition through one mutex and enforces a five-second
+minimum capture interval (0.2 FPS). The PC brain's in-memory `FrameBroker`
+fetches that frame once and shares it with both the browser and perception pipeline.
+Routine frames are never written to disk.
+
+## Structured Vision
+
+`VisionService` rotates camera frames into their displayed orientation, rejects
+blurred or unchanged 160x120 previews, and runs background awareness no more
+than once every five seconds while conversation is idle. Valid VLM JSON becomes
+a short-lived `SceneSnapshot`; snapshots from the last minute form `WorldState`.
+The service sends selected frames to the existing Gemma 4 E4B llama.cpp server,
+requests JSON-schema output, and disables itself cleanly if `/v1/models` does
+not advertise multimodal image support. The shared server runs with reasoning
+disabled so short voice and scene responses do not spend their latency budget
+on hidden reasoning tokens.
+
+Text and Voice can request a fresh read-only inspection through the PC brain.
+The latest unexpired validated snapshot is also injected into every Text and
+Voice model turn as live visual context. Awareness refreshes that context when
+the scene changes and carries it forward across pixel-equivalent frames without
+rerunning the VLM.
+The same turn cannot use a vision result for movement or head control, and the
+emergency stop remains available. `GET /perception/latest` is the browser's
+scene-state feed and `POST /perception/query` forces an explicit inspection.
+
+Gate 5 is functionally available but not accepted as complete. Live testing has
+shown roughly 2.6-second fresh-inference latency, generic scene descriptions,
+occasional truncated structured output, and stale visual claims from realtime
+dialogue history. The gateway now removes superseded visual dialogue when it
+restores a session, makes current snapshots override earlier descriptions, and
+cancels speculative speech before answering an explicit visual question from a
+fresh validated result. These mitigations preserve correctness but do not solve
+the remaining latency and description-quality limits. The 0.2 FPS camera cap
+also intentionally permits up to five seconds of ambient-view delay. Corpus,
+schema-validity, voice-concurrency, physical traffic, and retention acceptance
+tests remain required before the gate is closed.
 
 ## LLM Tool Calling
 
@@ -112,9 +149,9 @@ The PC brain should:
    - Confirm drive/head controls work
 
 3. **Vision**
-   - Add a USB/IP camera stream to the PC brain
-   - Display the stream in the web UI
-   - Add snapshot capture endpoint
+   - Validate shared E4B p95 latency, schema compliance, and grounding
+   - Verify that two llama.cpp slots preserve foreground voice responsiveness
+   - Fall back from 140 to 70 visual tokens before considering another model
 
 4. **Voice**
    - Add push-to-talk or wake-word later

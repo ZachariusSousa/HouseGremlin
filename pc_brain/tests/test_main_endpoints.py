@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import httpx
@@ -6,6 +7,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app import main
+from app.brain_models import SceneSnapshot, WorldState
+from app.frame_broker import CameraFrame
+from app.vision import VisionQueryResult
 
 
 @dataclass
@@ -16,7 +20,8 @@ class FakeChatResult:
 
 class FakeLlmClient:
     async def chat(self, text: str):
-        return FakeChatResult(response=f"reply to {text}", model="gemma4:e4b")
+        user_text = text.rsplit("User request: ", 1)[-1]
+        return FakeChatResult(response=f"reply to {user_text}", model="gemma4:e4b")
 
     async def action_chat(self, text: str):
         return FakeChatResult(response='{"response":"ok","action":null}', model="gemma4:e4b")
@@ -28,6 +33,63 @@ class FakeActionLlmClient:
 
     async def action_chat(self, text: str):
         return FakeChatResult(response=self.response, model="gemma4:e4b")
+
+
+class FakeVisionService:
+    enabled = True
+    unavailable_reason = None
+
+    def __init__(self):
+        now = datetime.now(timezone.utc)
+        self.snapshot = SceneSnapshot(
+            frame_id="frame-vision",
+            observed_at=now,
+            trigger="explicit",
+            summary="A chair is visible.",
+            entities=[],
+            novelty=1.0,
+            uncertainty=0.1,
+            model="fake/vision",
+            latency_ms=10.0,
+            expires_at=now + timedelta(seconds=30),
+        )
+
+    async def query(self, question, fresh=True):
+        return VisionQueryResult(self.snapshot, fresh)
+
+    def current_snapshot(self):
+        return self.snapshot
+
+    def world_state(self):
+        return WorldState(snapshot_ids=[self.snapshot.frame_id], summary=self.snapshot.summary)
+
+    def latest_payload(self):
+        return {
+            "available": True,
+            "enabled": True,
+            "reason": None,
+            "stale": False,
+            "snapshot": self.snapshot.model_dump(mode="json"),
+            "world_state": self.world_state().model_dump(mode="json"),
+        }
+
+
+def test_operator_console_is_not_browser_cached():
+    response = TestClient(main.app).get("/")
+
+    assert response.status_code == 200
+    assert response.headers["cache-control"] == "no-store"
+
+
+def test_text_model_prompt_always_contains_live_visual_context(monkeypatch):
+    vision = FakeVisionService()
+    monkeypatch.setattr(main, "vision_service", vision)
+
+    prompt = main.prompt_with_live_scene("Hello Robit")
+
+    assert "LIVE VISUAL CONTEXT" in prompt
+    assert "A chair is visible." in prompt
+    assert "User request: Hello Robit" in prompt
 
 
 def test_chat_endpoint_uses_configured_model(monkeypatch):
@@ -82,7 +144,11 @@ def test_robot_camera_urls_derive_from_configured_robot_base_url(monkeypatch):
     monkeypatch.setattr(
         main,
         "settings",
-        SimpleNamespace(robot_base_url="http://172.22.1.126", request_timeout=2.0),
+        SimpleNamespace(
+            robot_base_url="http://172.22.1.126",
+            request_timeout=2.0,
+            camera_frame_interval_seconds=5.0,
+        ),
     )
 
     response = TestClient(main.app).get("/robot/camera")
@@ -92,9 +158,95 @@ def test_robot_camera_urls_derive_from_configured_robot_base_url(monkeypatch):
         "ok": True,
         "robot_base_url": "http://172.22.1.126",
         "page_url": "http://172.22.1.126/camera",
-        "capture_url": "http://172.22.1.126/camera/capture",
+        "capture_url": "http://172.22.1.126:81/capture",
         "stream_url": "http://172.22.1.126:81/stream",
+        "frame_interval_seconds": 5.0,
     }
+
+
+def test_camera_capture_returns_shared_frame_headers(monkeypatch):
+    frame = CameraFrame("frame-1", datetime.now(timezone.utc), b"jpeg-data")
+
+    class FakeBroker:
+        async def get_frame(self, force_fresh=False):
+            return frame
+
+    monkeypatch.setattr(main, "frame_broker", FakeBroker())
+    response = TestClient(main.app).get("/robot/camera/capture")
+
+    assert response.status_code == 200
+    assert response.content == b"jpeg-data"
+    assert response.headers["x-robit-frame-id"] == "frame-1"
+
+
+@pytest.mark.anyio
+async def test_frame_broker_fetches_from_dedicated_camera_server(monkeypatch):
+    calls = []
+
+    async def fake_fetch(path, base_url=None):
+        calls.append((path, base_url))
+        return b"jpeg", "image/jpeg"
+
+    monkeypatch.setattr(main, "robot_fetch_bytes", fake_fetch)
+
+    content, media_type = await main.fetch_robot_camera_frame()
+
+    assert content == b"jpeg"
+    assert media_type == "image/jpeg"
+    expected_base = main.camera_urls()["capture_url"].removesuffix("/capture")
+    assert calls == [("/capture", expected_base)]
+
+
+def test_perception_endpoints_return_typed_snapshot(monkeypatch):
+    fake = FakeVisionService()
+    monkeypatch.setattr(main, "vision_service", fake)
+
+    latest = TestClient(main.app).get("/perception/latest")
+    query = TestClient(main.app).post("/perception/query", json={"question": "What do you see?", "fresh": True})
+
+    assert latest.status_code == 200
+    assert latest.json()["snapshot"]["summary"] == "A chair is visible."
+    assert query.status_code == 200
+    assert query.json()["fresh"] is True
+
+
+def test_perception_query_returns_503_when_vision_has_no_result(monkeypatch):
+    class UnavailableVisionService(FakeVisionService):
+        async def query(self, question, fresh=True):
+            from app.vision import VisionUnavailable
+
+            raise VisionUnavailable("multimodal projector unavailable")
+
+    monkeypatch.setattr(main, "vision_service", UnavailableVisionService())
+
+    response = TestClient(main.app).post(
+        "/perception/query",
+        json={"question": "What do you see?", "fresh": True},
+    )
+
+    assert response.status_code == 503
+    assert "multimodal projector unavailable" in response.json()["detail"]
+
+
+def test_text_visual_question_never_executes_action(monkeypatch):
+    fake_vision = FakeVisionService()
+    fake_llm = FakeActionLlmClient(
+        '{"response":"I will look.","vision_question":"What do you see?",'
+        '"action":{"movement":{"direction":"forward"}}}'
+    )
+
+    async def grounded_chat(text):
+        return FakeChatResult(response="I can see a chair.", model="gemma4:e4b")
+
+    fake_llm.chat = grounded_chat
+    monkeypatch.setattr(main, "vision_service", fake_vision)
+    monkeypatch.setattr(main, "llm_client", fake_llm)
+    response = TestClient(main.app).post("/chat/action", json={"text": "What do you see?"})
+
+    assert response.status_code == 200
+    assert response.json()["response"] == "I can see a chair."
+    assert response.json()["action"] is None
+    assert response.json()["vision"]["snapshot"]["frame_id"] == "frame-vision"
 
 
 def test_robot_drive_uses_single_api_move_call(monkeypatch):

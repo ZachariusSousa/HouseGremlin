@@ -5,3 +5,4 @@ __pycache__/
 .pytest_cache/
 data/
 pc_brain/data/
+pc_brain/evals/vision_frames/

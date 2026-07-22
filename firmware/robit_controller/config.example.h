@@ -12,6 +12,10 @@
 // Station-mode mDNS name. Try http://robit.local after the robot joins Wi-Fi.
 #define ROBIT_HOSTNAME "robit"
 
+// Minimum delay between camera acquisitions across /capture and /stream.
+// 5000 ms is one frame every five seconds (0.2 FPS).
+#define ROBIT_CAMERA_FRAME_INTERVAL_MS 5000
+
 // Servo calibration. Copy these to config.h and tune per physical servo.
 // If pan struggles or does not land on exact angles, tune pan first and leave tilt alone.
 #define PAN_SERVO_MIN_PULSE 80

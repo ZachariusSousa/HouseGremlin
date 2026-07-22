@@ -2,6 +2,7 @@
 
 #include <WiFi.h>
 #include "esp_camera.h"
+#include "freertos/semphr.h"
 #if __has_include(<esp_arduino_version.h>)
 #include <esp_arduino_version.h>
 #endif
@@ -11,10 +12,21 @@
 #endif
 
 #include "robot_state.h"
+#include "config.h"
+
+#ifndef ROBIT_CAMERA_FRAME_INTERVAL_MS
+#define ROBIT_CAMERA_FRAME_INTERVAL_MS 5000
+#endif
+#if ROBIT_CAMERA_FRAME_INTERVAL_MS < 1000
+#error "ROBIT_CAMERA_FRAME_INTERVAL_MS must be at least 1000"
+#endif
 
 namespace {
 WebServer cameraServer(81);
 TaskHandle_t cameraServerTaskHandle = nullptr;
+SemaphoreHandle_t cameraCaptureMutex = nullptr;
+unsigned long lastFrameCapturedAt = 0;
+constexpr unsigned long CAMERA_FRAME_INTERVAL_MS = ROBIT_CAMERA_FRAME_INTERVAL_MS;
 
 // Seeed Studio XIAO ESP32S3 Sense OV2640 camera pin map.
 constexpr int PWDN_GPIO_NUM = -1;
@@ -36,6 +48,38 @@ constexpr int PCLK_GPIO_NUM = 13;
 
 constexpr char STREAM_BOUNDARY[] = "123456789000000000000987654321";
 
+camera_fb_t* acquireCameraFrame() {
+  if (cameraCaptureMutex == nullptr) {
+    cameraCaptureMutex = xSemaphoreCreateMutex();
+  }
+  if (cameraCaptureMutex == nullptr || xSemaphoreTake(cameraCaptureMutex, portMAX_DELAY) != pdTRUE) {
+    return nullptr;
+  }
+
+  const unsigned long now = millis();
+  const unsigned long elapsed = now - lastFrameCapturedAt;
+  if (lastFrameCapturedAt != 0 && elapsed < CAMERA_FRAME_INTERVAL_MS) {
+    vTaskDelay(pdMS_TO_TICKS(CAMERA_FRAME_INTERVAL_MS - elapsed));
+  }
+
+  camera_fb_t* frame = esp_camera_fb_get();
+  if (frame == nullptr) {
+    xSemaphoreGive(cameraCaptureMutex);
+    return nullptr;
+  }
+  lastFrameCapturedAt = millis();
+  return frame;
+}
+
+void releaseCameraFrame(camera_fb_t* frame) {
+  if (frame != nullptr) {
+    esp_camera_fb_return(frame);
+  }
+  if (cameraCaptureMutex != nullptr) {
+    xSemaphoreGive(cameraCaptureMutex);
+  }
+}
+
 void handleStream() {
   WiFiClient client = cameraServer.client();
   client.print(
@@ -45,7 +89,7 @@ void handleStream() {
   );
 
   while (client.connected()) {
-    camera_fb_t* fb = esp_camera_fb_get();
+    camera_fb_t* fb = acquireCameraFrame();
     if (!fb) {
       Serial.println("[CAMERA][ERROR] Frame capture failed");
       delay(50);
@@ -59,9 +103,7 @@ void handleStream() {
     client.print("\r\n\r\n");
     client.write(fb->buf, fb->len);
     client.print("\r\n");
-    esp_camera_fb_return(fb);
-
-    vTaskDelay(pdMS_TO_TICKS(30));
+    releaseCameraFrame(fb);
   }
 }
 
@@ -78,6 +120,13 @@ void cameraServerTask(void*) {
 }
 
 bool initializeCamera() {
+  cameraCaptureMutex = xSemaphoreCreateMutex();
+  if (cameraCaptureMutex == nullptr) {
+    robotState.cameraEnabled = false;
+    Serial.println("[CAMERA][ERROR] Capture mutex allocation failed");
+    return false;
+  }
+
   camera_config_t config = {};
   config.ledc_channel = LEDC_CHANNEL_0;
   config.ledc_timer = LEDC_TIMER_0;
@@ -105,10 +154,10 @@ bool initializeCamera() {
   config.xclk_freq_hz = 20000000;
   config.frame_size = FRAMESIZE_QVGA;
   config.pixel_format = PIXFORMAT_JPEG;
-  config.grab_mode = CAMERA_GRAB_LATEST;
+  config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
   config.fb_location = psramFound() ? CAMERA_FB_IN_PSRAM : CAMERA_FB_IN_DRAM;
   config.jpeg_quality = 14;
-  config.fb_count = psramFound() ? 2 : 1;
+  config.fb_count = 1;
 
   esp_err_t error = esp_camera_init(&config);
   if (error != ESP_OK) {
@@ -137,6 +186,7 @@ void initializeCameraServer() {
   }
 
   cameraServer.on("/", HTTP_GET, handleStreamStatus);
+  cameraServer.on("/capture", HTTP_GET, []() { handleCameraCapture(cameraServer); });
   cameraServer.on("/stream", HTTP_GET, handleStream);
   cameraServer.begin();
   Serial.println("[CAMERA] Stream server started on port 81");
@@ -173,7 +223,7 @@ void handleCameraCapture(WebServer& server) {
     return;
   }
 
-  camera_fb_t* fb = esp_camera_fb_get();
+  camera_fb_t* fb = acquireCameraFrame();
   if (!fb) {
     server.send(503, "application/json", "{\"ok\":false,\"error\":\"capture failed\"}");
     return;
@@ -187,5 +237,5 @@ void handleCameraCapture(WebServer& server) {
   client.print(fb->len);
   client.print("\r\n\r\n");
   client.write(fb->buf, fb->len);
-  esp_camera_fb_return(fb);
+  releaseCameraFrame(fb);
 }

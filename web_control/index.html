@@ -436,7 +436,7 @@
 
       .side-panel {
         display: grid;
-        grid-template-rows: auto auto minmax(0, 1fr);
+        grid-template-rows: auto auto auto minmax(0, 1fr);
         border-left: 1px solid var(--line);
         background: #ffffff;
       }
@@ -480,6 +480,18 @@
       .control-group {
         display: grid;
         gap: 9px;
+      }
+
+      .scene-summary {
+        color: var(--ink);
+        line-height: 1.45;
+      }
+
+      .scene-meta,
+      .scene-entities {
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.45;
       }
 
       .drive-grid {
@@ -1261,6 +1273,15 @@
               </div>
             </details>
 
+            <details open>
+              <summary><span>Scene Awareness</span><span aria-hidden="true">+</span></summary>
+              <div class="panel-content">
+                <p id="sceneSummary" class="scene-summary">No scene snapshot yet.</p>
+                <p id="sceneEntities" class="scene-entities">Entities: none</p>
+                <p id="sceneMeta" class="scene-meta">Vision waiting</p>
+              </div>
+            </details>
+
             <section class="action-log" aria-label="LLM action log">
               <div class="button-row">
                 <h2>Action Log</h2>
@@ -1278,6 +1299,10 @@
         isSending: false,
         controlsEnabled: false,
         camera: null,
+        cameraStillTimer: null,
+        cameraFrameInFlight: false,
+        cameraFrameStartedAt: 0,
+        cameraDirectFailed: false,
         realtime: {
           ws: null,
           audioContext: null,
@@ -1343,6 +1368,9 @@
         tiltValue: document.getElementById("tiltValue"),
         actionLog: document.getElementById("actionLog")
       };
+      els.sceneSummary = document.getElementById("sceneSummary");
+      els.sceneEntities = document.getElementById("sceneEntities");
+      els.sceneMeta = document.getElementById("sceneMeta");
 
       function brainUrl(path) {
         return els.brainUrl.value.replace(/\/$/, "") + path;
@@ -1445,16 +1473,57 @@
         try {
           const camera = await getJson("/robot/camera");
           state.camera = camera;
-          state.cameraFallbackTried = false;
-          els.cameraStream.src = `${camera.stream_url}?t=${Date.now()}`;
-          els.cameraStream.hidden = false;
-          els.cameraEmpty.hidden = true;
-          setPill(els.cameraStatus, els.cameraText, "ready", "Streaming");
+          state.cameraDirectFailed = false;
+          state.cameraFrameInFlight = false;
+          window.clearTimeout(state.cameraStillTimer);
+          showCameraStillFrame();
         } catch (error) {
           els.cameraStream.hidden = true;
           els.cameraEmpty.hidden = false;
           setPill(els.cameraStatus, els.cameraText, "error", "Unavailable");
           addLog("camera error", error instanceof Error ? error.message : String(error));
+        }
+      }
+
+      function showCameraStillFrame() {
+        if (!state.camera || state.cameraFrameInFlight || document.hidden) return;
+        window.clearTimeout(state.cameraStillTimer);
+        state.cameraFrameInFlight = true;
+        state.cameraFrameStartedAt = Date.now();
+        const captureUrl = brainUrl(`/robot/camera/capture?t=${Date.now()}`);
+        els.cameraStream.src = captureUrl;
+        els.cameraStream.hidden = false;
+        els.cameraEmpty.hidden = true;
+        setPill(
+          els.cameraStatus,
+          els.cameraText,
+          "ready",
+          `Camera every ${state.camera.frame_interval_seconds || 5}s`
+        );
+      }
+
+      function updateScenePanel(payload) {
+        const snapshot = payload?.snapshot || null;
+        if (!snapshot) {
+          els.sceneSummary.textContent = payload?.reason || payload?.warning || "No scene snapshot yet.";
+          els.sceneEntities.textContent = "Entities: none";
+          els.sceneMeta.textContent = payload?.enabled === false ? "Vision unavailable" : "Vision waiting";
+          return;
+        }
+        const entities = (snapshot.entities || []).map((entity) => `${entity.label} ${Math.round((entity.confidence || 0) * 100)}%`);
+        const observed = new Date(snapshot.observed_at);
+        const ageSeconds = Number.isNaN(observed.getTime()) ? "?" : Math.max(0, Math.round((Date.now() - observed.getTime()) / 1000));
+        const stalePrefix = payload.stale ? "Last seen: " : "";
+        els.sceneSummary.textContent = `${stalePrefix}${snapshot.summary || "unknown"}`;
+        els.sceneEntities.textContent = `${payload.stale ? "Last seen entities" : "Entities"}: ${entities.join(", ") || "none"}`;
+        els.sceneMeta.textContent = `${payload.fresh === true ? "Fresh" : payload.stale ? "Stale" : "Cached"} - ${ageSeconds}s old - uncertainty ${Math.round((snapshot.uncertainty || 0) * 100)}%`;
+      }
+
+      async function refreshPerception() {
+        try {
+          updateScenePanel(await getJson("/perception/latest"));
+        } catch (error) {
+          updateScenePanel({ warning: error instanceof Error ? error.message : String(error) });
         }
       }
 
@@ -1752,6 +1821,11 @@
           addLog(event.ok ? "voice action" : "voice action rejected", event);
           return;
         }
+        if (type === "robit.perception") {
+          updateScenePanel(event);
+          addLog(event.ok ? "voice perception" : "voice perception failed", event);
+          return;
+        }
         if (type === "session.created") {
           return;
         }
@@ -1833,6 +1907,7 @@
           const responseText = result.response || result.parse_error || "Done.";
           addMessage("robit", responseText, metadata);
           if (result.action_result) addLog("llm action", result.action_result);
+          if (result.vision) updateScenePanel(result.vision);
           if (result.parse_error) addLog("llm parse fallback", result.parse_error);
           setPill(els.connectionStatus, els.connectionText, "ready", "Ready");
           setPlaybackStatus("Ready");
@@ -1983,15 +2058,25 @@
       els.replayButton.hidden = true;
 
       els.cameraStream.addEventListener("error", () => {
-        if (state.camera && !state.cameraFallbackTried) {
-          state.cameraFallbackTried = true;
-          els.cameraStream.src = brainUrl(`/robot/camera/capture?t=${Date.now()}`);
-          setPill(els.cameraStatus, els.cameraText, "ready", "Still frame");
-          return;
-        }
+        state.cameraFrameInFlight = false;
         els.cameraStream.hidden = true;
         els.cameraEmpty.hidden = false;
         setPill(els.cameraStatus, els.cameraText, "error", "Unavailable");
+        state.cameraStillTimer = window.setTimeout(showCameraStillFrame, 3000);
+      });
+
+      els.cameraStream.addEventListener("load", () => {
+        state.cameraFrameInFlight = false;
+        if (document.hidden) return;
+        const elapsed = Date.now() - state.cameraFrameStartedAt;
+        const targetInterval = Math.max(1000, Number(state.camera?.frame_interval_seconds || 5) * 1000);
+        setPill(
+          els.cameraStatus,
+          els.cameraText,
+          "ready",
+          `Camera every ${state.camera?.frame_interval_seconds || 5}s`
+        );
+        state.cameraStillTimer = window.setTimeout(showCameraStillFrame, Math.max(0, targetInterval - elapsed));
       });
 
       document.querySelectorAll("[data-move]").forEach((button) => {
@@ -2042,6 +2127,13 @@
         if (!state.controlsEnabled) return;
         if (["KeyW", "KeyA", "KeyS", "KeyD"].includes(event.code)) drive("stop");
       });
+      document.addEventListener("visibilitychange", () => {
+        window.clearTimeout(state.cameraStillTimer);
+        if (!document.hidden) {
+          refreshCamera();
+          refreshPerception();
+        }
+      });
 
       loadBrainState().catch((error) => addLog("conversation restore error", error instanceof Error ? error.message : String(error)));
       setMode(window.localStorage.getItem("robitMode") === "voice" ? "voice" : "text");
@@ -2049,6 +2141,8 @@
       setPill(els.connectionStatus, els.connectionText, "ready", "Ready");
       loadRealtimeConfig().catch(() => {});
       refreshCamera();
+      refreshPerception();
+      window.setInterval(refreshPerception, 5000);
     </script>
   </body>
 </html>

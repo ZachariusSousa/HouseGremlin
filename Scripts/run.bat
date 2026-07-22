@@ -9,10 +9,17 @@ set "REALTIME_PORT=7861"
 set "TEXT_MODEL=gemma4:e4b"
 set "LLAMA_SERVER_PORT=8081"
 set "LLAMA_SERVER_EXE=llama-server"
-set "REALTIME_MODEL=ggml-org/gemma-4-E4B-it-GGUF"
+set "REALTIME_MODEL=ggml-org/gemma-4-E4B-it-GGUF:Q4_0"
 set "REALTIME_LLM_BASE_URL=http://127.0.0.1:%LLAMA_SERVER_PORT%/v1"
+set "ROBIT_REALTIME_MODEL=%REALTIME_MODEL%"
+set "ROBIT_VISION_BASE_URL=%REALTIME_LLM_BASE_URL%"
+set "ROBIT_VISION_MODEL=%REALTIME_MODEL%"
+set "ROBIT_VISION_IMAGE_TOKENS=140"
 set "REALTIME_STT_MODEL=nvidia/parakeet-tdt-0.6b-v3"
 set "REALTIME_TTS_MODEL=Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"
+rem These voice models are public. Ignore a stale saved Hugging Face token so
+rem metadata fallbacks do not fail with an unrelated 401 during sidecar startup.
+set "HF_HUB_DISABLE_IMPLICIT_TOKEN=1"
 if "%ROBIT_REALTIME_VOICE%"=="" (
   set "REALTIME_VOICE=serena"
 ) else (
@@ -48,22 +55,11 @@ python "%ROOT%\Scripts\stop_voice_stack.py" --ports %REALTIME_PORT% %LLAMA_SERVE
 
 python "%ROOT%\Scripts\patch_speech_to_speech_timeout.py" || exit /b 1
 
-python -c "import pkg_resources" >nul 2>&1
+python -c "import huggingface_hub, numpy, pydantic, torch, torchaudio, transformers, sys; from packaging.version import Version; ok = transformers.__version__ == '4.57.3' and Version('0.34.0') <= Version(huggingface_hub.__version__) < Version('1.0') and numpy.__version__ == '1.26.4' and pydantic.__version__ == '2.13.4' and torch.__version__ == '2.6.0+cu124' and torchaudio.__version__ == '2.6.0+cu124'; sys.exit(0 if ok else 1)" >nul 2>&1
 if errorlevel 1 (
-  echo [run] Installing setuptools with pkg_resources for Qwen/librosa
-  python -m pip install "setuptools>=70,<81" || exit /b 1
-)
-
-python -c "import huggingface_hub, sys; from packaging.version import Version; v=Version(huggingface_hub.__version__); sys.exit(0 if Version('0.34.0') <= v < Version('1.0') else 1)" >nul 2>&1
-if errorlevel 1 (
-  echo [run] Installing transformers-compatible huggingface_hub
-  python -m pip install "huggingface_hub>=0.34.0,<1.0" || exit /b 1
-)
-
-python -c "import pydantic, sys; sys.exit(0 if pydantic.__version__ == '2.13.4' else 1)" >nul 2>&1
-if errorlevel 1 (
-  echo [run] Installing OpenAI-compatible Pydantic
-  python -m pip install "pydantic==2.13.4" || exit /b 1
+  echo [run][error] The shared Python environment has incompatible package versions.
+  echo Run Scripts\setup.bat to restore the validated voice and vision environment.
+  exit /b 1
 )
 
 if "%~1"=="" (
@@ -81,7 +77,19 @@ if not "%ROBOT_ARG%"=="" (
   )
 )
 
-echo [run] ROBIT_BASE_URL=%ROBIT_BASE_URL%
+rem Resolve robit.local with true mDNS discovery. Windows DNS does not reliably
+rem resolve .local names, so the PC brain uses the discovered IP internally.
+set "ROBIT_REQUESTED_URL=%ROBIT_BASE_URL%"
+set "ROBIT_RESOLVED_URL="
+for /f "delims=" %%I in ('python "%ROOT%\Scripts\resolve_robot_host.py" "%ROBIT_BASE_URL%"') do set "ROBIT_RESOLVED_URL=%%I"
+if "%ROBIT_RESOLVED_URL%"=="" (
+  echo [run][error] Could not discover %ROBIT_BASE_URL% with mDNS.
+  echo Confirm Robit is powered on, connected to this network, and running the latest firmware.
+  exit /b 1
+)
+set "ROBIT_BASE_URL=%ROBIT_RESOLVED_URL%"
+
+echo [run] Robot: %ROBIT_REQUESTED_URL% resolved to %ROBIT_BASE_URL%
 
 where ollama >nul 2>&1
 if not errorlevel 1 (
@@ -114,7 +122,7 @@ if not "%LLAMA_SERVER_EXE%"=="llama-server" if not exist "%LLAMA_SERVER_EXE%" (
 echo [run] Starting llama-server for realtime voice on %REALTIME_LLM_BASE_URL%
 echo [run] Model: %REALTIME_MODEL%
 echo [run] llama-server: %LLAMA_SERVER_EXE%
-start "Robit llama-server" /min cmd /c ""%LLAMA_SERVER_EXE%" -hf %REALTIME_MODEL% --host 127.0.0.1 --port %LLAMA_SERVER_PORT% -np 2 -c 65536 -fa on --swa-full"
+start "Robit llama-server" /min cmd /c ""%LLAMA_SERVER_EXE%" -hf %REALTIME_MODEL% --host 127.0.0.1 --port %LLAMA_SERVER_PORT% -np 2 -c 65536 -fa on --swa-full --reasoning off --image-max-tokens %ROBIT_VISION_IMAGE_TOKENS%"
 echo [run] Waiting for llama-server /v1/responses
 python "%ROOT%\Scripts\prewarm_responses.py" --base-url "%REALTIME_LLM_BASE_URL%" --model "%REALTIME_MODEL%" --attempts 90 --sleep 2 --target-seconds 180 || exit /b 1
 

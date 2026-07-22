@@ -48,6 +48,19 @@ class Settings:
     robot_llm_max_duration_ms: int
     data_dir: Path
     warm_models: bool
+    vision_enabled: bool = True
+    vision_base_url: str = "http://127.0.0.1:8081/v1"
+    vision_model: str = "ggml-org/gemma-4-E4B-it-GGUF:Q4_0"
+    vision_request_timeout_seconds: float = 30.0
+    vision_max_output_tokens: int = 320
+    vision_image_tokens: int = 140
+    vision_awareness_interval_seconds: float = 5.0
+    vision_snapshot_ttl_seconds: float = 10.0
+    vision_world_window_seconds: float = 60.0
+    vision_change_threshold: float = 0.03
+    vision_blur_threshold: float = 20.0
+    camera_frame_interval_seconds: float = 5.0
+    camera_rotate_degrees: int = 180
 
 
 def load_settings() -> Settings:
@@ -83,6 +96,22 @@ def load_settings() -> Settings:
         robot_llm_max_duration_ms=_int_env("ROBIT_LLM_MAX_DURATION_MS", 1000),
         data_dir=data_dir,
         warm_models=_bool_env("ROBIT_WARM_MODELS", True),
+        vision_enabled=_bool_env("ROBIT_VISION_ENABLED", True),
+        vision_base_url=os.getenv("ROBIT_VISION_BASE_URL", "http://127.0.0.1:8081/v1").rstrip("/"),
+        vision_model=os.getenv(
+            "ROBIT_VISION_MODEL",
+            os.getenv("ROBIT_REALTIME_MODEL", "ggml-org/gemma-4-E4B-it-GGUF:Q4_0"),
+        ),
+        vision_request_timeout_seconds=_float_env("ROBIT_VISION_REQUEST_TIMEOUT_SECONDS", 30.0),
+        vision_max_output_tokens=_int_env("ROBIT_VISION_MAX_OUTPUT_TOKENS", 320),
+        vision_image_tokens=_int_env("ROBIT_VISION_IMAGE_TOKENS", 140),
+        vision_awareness_interval_seconds=_float_env("ROBIT_VISION_AWARENESS_INTERVAL_SECONDS", 5.0),
+        vision_snapshot_ttl_seconds=_float_env("ROBIT_VISION_SNAPSHOT_TTL_SECONDS", 10.0),
+        vision_world_window_seconds=_float_env("ROBIT_VISION_WORLD_WINDOW_SECONDS", 60.0),
+        vision_change_threshold=_float_env("ROBIT_VISION_CHANGE_THRESHOLD", 0.03),
+        vision_blur_threshold=_float_env("ROBIT_VISION_BLUR_THRESHOLD", 20.0),
+        camera_frame_interval_seconds=_float_env("ROBIT_CAMERA_FRAME_INTERVAL_SECONDS", 5.0),
+        camera_rotate_degrees=_int_env("ROBIT_CAMERA_ROTATE_DEGREES", 180),
     )
 
 

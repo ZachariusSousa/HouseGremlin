@@ -26,7 +26,16 @@ Then start Robit:
 Scripts\run.bat
 ```
 
-If omitted, `Scripts\run.bat` uses Robit's mDNS name: `robit.local`.
+The same setup command installs the validated dependencies used by voice and
+structured vision. Vision reuses the realtime Gemma 4 E4B server; there is no
+second vision-model download.
+
+```powershell
+.\Scripts\setup.bat
+```
+
+If omitted, `Scripts\run.bat` discovers Robit's current address from its mDNS
+name, `robit.local`. This works independently of Windows' normal DNS resolver.
 
 `setup.bat` creates one virtual environment at `pc_brain\.venv` and installs both PC brain and realtime voice dependencies there.
 `run.bat` starts Ollama for silent typed chat, starts `llama-server` for realtime voice, starts the realtime voice sidecar from that same venv, starts the PC brain, and opens the browser UI.
@@ -57,7 +66,7 @@ cd C:\Users\z1sou\HouseGremlin\pc_brain
 .\.venv\Scripts\Activate.ps1
 $env:OPENAI_API_KEY="local"
 $env:OPENAI_BASE_URL="http://127.0.0.1:8081/v1"
-llama-server -hf ggml-org/gemma-4-E4B-it-GGUF --host 127.0.0.1 --port 8081 -np 2 -c 65536 -fa on --swa-full
+llama-server -hf ggml-org/gemma-4-E4B-it-GGUF:Q4_0 --host 127.0.0.1 --port 8081 -np 2 -c 65536 -fa on --swa-full --reasoning off --image-max-tokens 140
 ```
 
 In another PowerShell window:
@@ -67,11 +76,15 @@ cd C:\Users\z1sou\HouseGremlin\pc_brain
 .\.venv\Scripts\Activate.ps1
 $env:OPENAI_API_KEY="local"
 $env:OPENAI_BASE_URL="http://127.0.0.1:8081/v1"
-python -m speech_to_speech.s2s_pipeline --mode realtime --ws_host 0.0.0.0 --ws_port 7861 --stt parakeet-tdt --parakeet_tdt_model_name nvidia/parakeet-tdt-0.6b-v3 --parakeet_tdt_device cuda --parakeet_tdt_compute_type float16 --llm_backend responses-api --model_name ggml-org/gemma-4-E4B-it-GGUF --responses_api_api_key local --responses_api_base_url http://127.0.0.1:8081/v1 --responses_api_request_timeout_s 180 --tts qwen3 --qwen3_tts_model_name Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice --qwen3_tts_device cuda --qwen3_tts_speaker serena
+python -m speech_to_speech.s2s_pipeline --mode realtime --ws_host 0.0.0.0 --ws_port 7861 --stt parakeet-tdt --parakeet_tdt_model_name nvidia/parakeet-tdt-0.6b-v3 --parakeet_tdt_device cuda --parakeet_tdt_compute_type float16 --llm_backend responses-api --model_name ggml-org/gemma-4-E4B-it-GGUF:Q4_0 --responses_api_api_key local --responses_api_base_url http://127.0.0.1:8081/v1 --responses_api_request_timeout_s 180 --tts qwen3 --qwen3_tts_model_name Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice --qwen3_tts_device cuda --qwen3_tts_speaker serena
 ```
 
-Edit `.env` only if `robit.local` does not resolve on your network.
-The typed Text mode default is Ollama `gemma4:e4b`. The realtime voice default is the llama.cpp/Hugging Face model `ggml-org/gemma-4-E4B-it-GGUF`, served from `http://127.0.0.1:8081/v1`.
+`run.bat` resolves `robit.local` through mDNS service discovery and passes the
+current IP to the PC brain internally. Use a numeric argument only for recovery
+or diagnostics.
+The typed Text mode default is Ollama `gemma4:e4b`. Realtime voice and structured
+vision share `ggml-org/gemma-4-E4B-it-GGUF:Q4_0` through llama.cpp at
+`http://127.0.0.1:8081/v1`.
 LLM-issued movement is clamped by `ROBIT_LLM_MAX_SPEED=180` and `ROBIT_LLM_MAX_DURATION_MS=1000`.
 
 ## Checks
@@ -96,6 +109,8 @@ python -m pytest tests
 - `GET /robot/status`
 - `GET /robot/camera`
 - `GET /robot/camera/capture`
+- `GET /perception/latest`
+- `POST /perception/query`
 - `POST /robot/drive`
 - `POST /robot/head`
 - `POST /robot/stop`
@@ -111,7 +126,12 @@ The realtime voice sidecar remains separate at `ROBIT_REALTIME_WS_URL`, defaulti
 
 ## Operator Console
 
-The console shows the live robot camera, robot telemetry, silent Text mode, realtime Voice mode, manual controls, and an action log. Text mode calls `/chat/action`; Voice mode streams mic audio to `pc_brain`, which owns the sidecar session and executes the declared `robot_action` tool server-side.
+The console shows the shared low-rate robot camera, structured scene awareness,
+robot telemetry, silent Text mode, realtime Voice mode, manual controls, and an
+action log. Text mode calls `/chat/action`; Voice mode streams mic audio to
+`pc_brain`, which owns the sidecar session and executes `robot_action` and the
+read-only `inspect_scene` tool server-side. Vision cannot authorize movement in
+the same turn.
 
 Quick endpoint checks:
 
@@ -120,6 +140,11 @@ Invoke-RestMethod http://localhost:8080/health
 Invoke-RestMethod http://localhost:8080/robot/status
 Invoke-RestMethod http://localhost:8080/robot/camera
 Invoke-RestMethod http://localhost:8080/brain/state
+Invoke-RestMethod http://localhost:8080/perception/latest
+Invoke-RestMethod http://localhost:8080/perception/query `
+  -Method Post `
+  -ContentType "application/json" `
+  -Body '{"question":"What do you see?","fresh":true}'
 Invoke-RestMethod "http://localhost:8080/brain/events?conversation_id=default&after_sequence=0&limit=100"
 Invoke-WebRequest http://localhost:8080/robot/camera/capture -OutFile $env:TEMP\robit.jpg
 Invoke-RestMethod http://localhost:8080/robot/action `

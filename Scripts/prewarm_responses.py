@@ -11,7 +11,7 @@ import urllib.request
 def main() -> int:
     parser = argparse.ArgumentParser(description="Wait for and prewarm an OpenAI-compatible Responses API.")
     parser.add_argument("--base-url", default="http://127.0.0.1:8081/v1")
-    parser.add_argument("--model", default="ggml-org/gemma-4-E4B-it-GGUF")
+    parser.add_argument("--model", default="ggml-org/gemma-4-E4B-it-GGUF:Q4_0")
     parser.add_argument("--api-key", default="local")
     parser.add_argument("--timeout", type=float, default=180.0)
     parser.add_argument("--target-seconds", type=float, default=180.0)

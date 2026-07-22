@@ -100,7 +100,7 @@ eye gestures may continue. Internal reasoning is never automatically spoken.
 | Speaker | Keep `gemma4:e4b` initially | Short response, delegation request, proposed tool intent | No direct execution |
 | Thinker | Benchmark a larger 16 GB-capable reasoning model | Sourced research artifact or multi-step plan | No audio or motor access |
 | Affect | Start with a CPU-hosted tiny text model | Valence, arousal, stance, confidence | Eyes only |
-| Vision | Benchmark `LFM2.5-VL-450M` against SmolVLM2 | Typed scene snapshot | No actuation |
+| Vision | Reuse Gemma 4 E4B through local llama.cpp | Typed scene snapshot | No actuation |
 | Executive | Deterministic Python behavior code | Approved skills and schedules | May request body actions through policy |
 | Retrieval | Local embedding model plus lexical search | Ranked memory references | Read-only |
 
@@ -231,11 +231,12 @@ pipeline should:
 Uncertainty must be explicit, and `unknown` is a valid result. The VLM may
 describe and ground the scene but never issue movement commands.
 
-The first bakeoff should use 300 to 500 frames from the actual ESP camera across
-lighting, blur, empty rooms, people, furniture, and floor obstacles. Compare
-`LFM2.5-VL-450M` with SmolVLM2 on grounding, hallucinations, useful summaries,
-latency, VRAM, and schema compliance. Select one production model rather than
-shipping a runtime cascade.
+The first evaluation should use 300 to 500 frames from the actual ESP camera
+across lighting, blur, empty rooms, people, furniture, and floor obstacles.
+Validate the shared Gemma 4 E4B server on grounding, hallucinations, useful
+summaries, latency, voice coexistence, and schema compliance. Start at 140
+visual tokens and try 70 if the 750 ms p95 target is missed; consider a separate
+vision model only if E4B still fails latency or grounded accuracy.
 
 ## MCP and Tool Policy
 
@@ -334,8 +335,12 @@ robot action can be traced to its originating request.
 
 ### Gate 2: Implement eyes and affect
 
-**Status: eye expression and automatic-state software complete on 2026-07-15;
-heartbeat and end-to-end voice latency acceptance pending.**
+**Status: functionally closed on 2026-07-19.**
+
+The physical eye renderer, automatic operational overlays, expression policy,
+and heartbeat fault path are sufficient to build on. Affect-set validity,
+heartbeat timing, and end-to-end voice/eye latency measurements remain tracked
+as Gate 2 follow-up validation and do not reopen the functional gate.
 
 **Early hardware bring-up:** the firmware began with a minimal SSD1306 wiring
 test on the shared D6/D7 I2C bus at addresses `0x3C` and `0x3D`. At boot it
@@ -361,6 +366,8 @@ never changes tools or movement, and remains visually stable during rapid turns.
 
 ### Gate 3: Add autonomous voice presence
 
+**Status: intentionally deferred while Gate 5 vision is implemented.**
+
 - Add a local `Robit` wake word followed by VAD and Parakeet STT.
 - Keep room audio at the microphone source until activation.
 - Add visible and physical privacy mute states.
@@ -373,6 +380,8 @@ barge-in silences playback within 250 ms, and mute prevents capture.
 
 ### Gate 4: Add durable hybrid memory
 
+**Status: intentionally deferred while Gate 5 vision is implemented.**
+
 - Implement the working, episodic, semantic, and procedural memory layers.
 - Add provenance-aware memory extraction and hybrid retrieval.
 - Add remember, inspect, correct, forget, export, and retention controls.
@@ -384,14 +393,49 @@ private memories never appear in guest context.
 
 ### Gate 5: Add structured vision
 
+**Status: functionally available as of 2026-07-22; improvements and acceptance
+work required before closure.**
+
+The initial software path now includes a firmware-wide low-rate camera cap, a
+shared in-memory PC frame broker, blur/change filtering, low-rate idle
+awareness, and fresh read-only visual questions. Routine camera frames are not
+retained. E4B evaluation and physical acceptance remain before Gate 5 closure.
+
+Observed limitations of the current shared-E4B approach:
+
+- Fresh inference has taken about 2.6 seconds in live use, substantially above
+  the 750 ms p95 exit target. Explicit questions therefore have a noticeable
+  pause, and sharing E4B with foreground conversation remains a contention risk.
+- Scene summaries are often generic or lack useful detail. Grounding accuracy,
+  entity recall, and hallucination rate have not yet been measured on the
+  Robit-camera corpus.
+- E4B has produced truncated JSON at the configured output budget. Validation
+  correctly rejects it, but the resulting cached fallback can make an answer
+  appear stale and the required 99 percent schema-validity rate is unproven.
+- Realtime dialogue previously allowed old assistant visual claims to outweigh
+  a newer structured snapshot. Visual history is now excluded when a voice
+  session is restored, and current snapshots explicitly override earlier scene
+  descriptions, but this mitigation needs longer live testing.
+- The speech sidecar begins speculative generation as soon as transcription
+  completes, which previously let it narrate an inspection without executing
+  one. Explicit visual questions now cancel that response, run a fresh
+  inspection, and start a grounded response; this is correct but adds latency.
+- The current 0.2 FPS camera limit reduces bandwidth and power, but a newly
+  changed scene may take up to five seconds to reach ambient context. Explicit
+  visual questions bypass ambient reuse by requesting a fresh inspection.
+- Schema compliance, physical camera traffic, no-frame-retention behavior, and
+  foreground voice responsiveness still need the documented corpus and
+  concurrency acceptance runs.
+
 - Implement camera sampling, blur/change filtering, VLM invocation, scene
   snapshots, and rolling world state.
-- Run the Robit-camera model bakeoff and keep one winner.
+- Validate the shared Gemma 4 E4B backend on the Robit-camera corpus.
 - Allow explicit fresh visual queries when cached perception is stale.
 - Prevent vision from entering the motor control loop.
 
 Exit when the chosen VLM processes selected frames within 750 ms at p95 on the
-development laptop and does not starve foreground voice.
+development laptop, reaches at least 99 percent valid structured output, meets
+the grounded-description quality target, and does not starve foreground voice.
 
 ### Gate 6: Add the background thinker
 

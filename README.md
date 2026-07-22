@@ -36,7 +36,9 @@ From PowerShell:
 .\Scripts\run.bat
 ```
 
-By default, `run.bat` uses Robit's mDNS name, `http://robit.local`.
+By default, `run.bat` uses Robit's mDNS name, `http://robit.local`. Its bundled
+mDNS discovery resolves the current numeric address internally, including after
+Robit moves to another network; no IP argument is normally needed.
 To override it with a direct IP printed by the robot Serial Monitor:
 
 ```powershell
@@ -63,6 +65,11 @@ tool layer:
 - `GET /camera`
 - `GET /camera/capture`
 - `GET /camera/stream` redirects to the MJPEG stream on port `81`
+
+All camera acquisition is serialized with a five-second minimum interval
+(`ROBIT_CAMERA_FRAME_INTERVAL_MS=5000`) across still captures and MJPEG clients.
+The browser uses the PC brain's shared frame broker rather than opening its own
+raw stream.
 
 The XIAO ESP32S3 Sense camera stream is served at:
 
@@ -91,3 +98,14 @@ The PC service is intentionally a thin scaffold right now. It gives you a clean 
 
 See [docs/architecture.md](docs/architecture.md) for the current architecture and
 [DESIGN.md](DESIGN.md) for the long-term Robit design roadmap.
+
+Structured vision is local and reuses the same Gemma 4 E4B `llama-server` as
+realtime voice. Install the validated shared environment with:
+
+```powershell
+.\Scripts\setup.bat
+```
+
+The current Gate 5 surface is `GET /perception/latest` plus
+`POST /perception/query`. Visual results are descriptive only and cannot issue
+movement or head commands in the same turn.

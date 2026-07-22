@@ -19,6 +19,8 @@
 namespace {
 WebServer server(80);
 bool mdnsStarted = false;
+unsigned long lastWifiReconnectAttemptAt = 0;
+constexpr unsigned long WIFI_RECONNECT_INTERVAL_MS = 5000;
 
 #ifndef ROBIT_HOSTNAME
 #define ROBIT_HOSTNAME "robit"
@@ -41,6 +43,7 @@ String statusJson() {
   json += "\"mode\":\"" + String(robotState.apFallback ? "ap" : "sta") + "\",";
   json += "\"ip\":\"" + jsonEscape(getRobotIp()) + "\",";
   json += "\"hostname\":\"" + jsonEscape(String(ROBIT_HOSTNAME) + ".local") + "\",";
+  json += "\"wifi_rssi\":" + String(WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0) + ",";
   json += "\"movement\":\"" + jsonEscape(robotState.movement) + "\",";
   json += "\"move\":\"" + jsonEscape(robotState.movement) + "\",";
   json += "\"speed\":" + String(robotState.motorSpeed) + ",";
@@ -196,9 +199,15 @@ void handleEmergencyStop() {
 }
 
 void handleCameraStreamRedirect() {
-  const String host = mdnsStarted ? String(ROBIT_HOSTNAME) + ".local" : getRobotIp();
+  const String host = getRobotIp();
   server.sendHeader("Location", "http://" + host + ":81/stream");
   server.send(302, "text/plain", "Camera stream is on port 81");
+}
+
+void handleCameraCaptureRedirect() {
+  const String host = getRobotIp();
+  server.sendHeader("Location", "http://" + host + ":81/capture");
+  server.send(302, "text/plain", "Camera capture is on port 81");
 }
 
 void startMdns() {
@@ -218,7 +227,12 @@ void startMdns() {
 }
 
 void initializeWifi() {
+  // Robit is a latency-sensitive, mains/battery-powered controller. Favor a
+  // responsive radio and stable multi-tasked camera/control traffic over Wi-Fi
+  // power saving.
   WiFi.mode(WIFI_STA);
+  WiFi.setSleep(false);
+  WiFi.setAutoReconnect(true);
   WiFi.begin(ROBIT_STA_SSID, ROBIT_STA_PASSWORD);
 
   const unsigned long startedAt = millis();
@@ -244,7 +258,19 @@ void initializeWifi() {
 }
 
 void updateWifi() {
-  robotState.wifiConnected = robotState.apFallback || WiFi.status() == WL_CONNECTED;
+  if (robotState.apFallback) {
+    robotState.wifiConnected = true;
+    return;
+  }
+
+  robotState.wifiConnected = WiFi.status() == WL_CONNECTED;
+  if (robotState.wifiConnected) return;
+
+  const unsigned long now = millis();
+  if (now - lastWifiReconnectAttemptAt < WIFI_RECONNECT_INTERVAL_MS) return;
+  lastWifiReconnectAttemptAt = now;
+  Serial.println("[WIFI][WARN] Station disconnected; requesting reconnect");
+  WiFi.reconnect();
 }
 
 void initializeHttpServer() {
@@ -260,7 +286,10 @@ void initializeHttpServer() {
   server.on("/api/brain-heartbeat", HTTP_ANY, handleBrainHeartbeat);
   server.on("/api/emergency-stop", HTTP_ANY, handleEmergencyStop);
   server.on("/camera", HTTP_GET, []() { handleCameraPage(server); });
-  server.on("/camera/capture", HTTP_GET, []() { handleCameraCapture(server); });
+  // Camera acquisition runs only in the dedicated port-81 task. Never call
+  // esp_camera_fb_get() from the main control HTTP loop: a stalled sensor must
+  // not make status, heartbeat, or emergency-stop endpoints unresponsive.
+  server.on("/camera/capture", HTTP_GET, handleCameraCaptureRedirect);
   server.on("/camera/stream", HTTP_GET, handleCameraStreamRedirect);
   server.begin();
   Serial.println("[HTTP] Control server started on port 80");

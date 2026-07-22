@@ -6,9 +6,12 @@ python-dotenv==1.0.1
 pip-system-certs==5.3
 setuptools>=70,<81
 speech-to-speech==0.2.10
+transformers==4.57.3
 huggingface_hub>=0.34.0,<1.0
 hf_xet
 sounddevice==0.5.2
 websocket-client==1.8.0
 websockets==16.1
 pytest==8.3.4
+numpy==1.26.4
+zeroconf==0.150.0
