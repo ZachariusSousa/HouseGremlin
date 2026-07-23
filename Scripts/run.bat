@@ -6,14 +6,15 @@ set "PC_BRAIN=%ROOT%\pc_brain"
 set "VENV=%PC_BRAIN%\.venv"
 set "DEFAULT_ROBOT_HOST=robit.local"
 set "REALTIME_PORT=7861"
-set "TEXT_MODEL=gemma4:e4b"
 set "LLAMA_SERVER_PORT=8081"
 set "LLAMA_SERVER_EXE=llama-server"
-set "REALTIME_MODEL=ggml-org/gemma-4-E4B-it-GGUF:Q4_0"
-set "REALTIME_LLM_BASE_URL=http://127.0.0.1:%LLAMA_SERVER_PORT%/v1"
-set "ROBIT_REALTIME_MODEL=%REALTIME_MODEL%"
-set "ROBIT_VISION_BASE_URL=%REALTIME_LLM_BASE_URL%"
-set "ROBIT_VISION_MODEL=%REALTIME_MODEL%"
+set "E4B_MODEL=ggml-org/gemma-4-E4B-it-GGUF:Q4_0"
+set "E4B_BASE_URL=http://127.0.0.1:%LLAMA_SERVER_PORT%/v1"
+set "ROBIT_LLM_BASE_URL=%E4B_BASE_URL%"
+set "ROBIT_LLM_MODEL=%E4B_MODEL%"
+set "ROBIT_REALTIME_MODEL=%E4B_MODEL%"
+set "ROBIT_VISION_BASE_URL=%E4B_BASE_URL%"
+set "ROBIT_VISION_MODEL=%E4B_MODEL%"
 set "ROBIT_VISION_IMAGE_TOKENS=140"
 set "REALTIME_STT_MODEL=nvidia/parakeet-tdt-0.6b-v3"
 set "REALTIME_TTS_MODEL=Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"
@@ -91,17 +92,6 @@ set "ROBIT_BASE_URL=%ROBIT_RESOLVED_URL%"
 
 echo [run] Robot: %ROBIT_REQUESTED_URL% resolved to %ROBIT_BASE_URL%
 
-where ollama >nul 2>&1
-if not errorlevel 1 (
-  echo [run] Starting Ollama in a background window if it is not already running
-  start "Ollama" /min cmd /c "ollama serve"
-  timeout /t 3 /nobreak >nul
-  echo [run] Prewarming typed Text mode model %TEXT_MODEL%
-  ollama run %TEXT_MODEL% "Reply with the word ready." || exit /b 1
-) else (
-  echo [run] Ollama was not found on PATH. Chat will fail until Ollama is running.
-)
-
 if "%LLAMA_SERVER_EXE%"=="llama-server" (
   where llama-server >nul 2>&1
   if errorlevel 1 (
@@ -119,18 +109,18 @@ if not "%LLAMA_SERVER_EXE%"=="llama-server" if not exist "%LLAMA_SERVER_EXE%" (
   exit /b 1
 )
 
-echo [run] Starting llama-server for realtime voice on %REALTIME_LLM_BASE_URL%
-echo [run] Model: %REALTIME_MODEL%
+echo [run] Starting the shared E4B llama-server for Text, Voice LLM, and current Vision on %E4B_BASE_URL%
+echo [run] Model: %E4B_MODEL%
 echo [run] llama-server: %LLAMA_SERVER_EXE%
-start "Robit llama-server" /min cmd /c ""%LLAMA_SERVER_EXE%" -hf %REALTIME_MODEL% --host 127.0.0.1 --port %LLAMA_SERVER_PORT% -np 2 -c 65536 -fa on --swa-full --reasoning off --image-max-tokens %ROBIT_VISION_IMAGE_TOKENS%"
+start "Robit E4B llama-server" /min cmd /c ""%LLAMA_SERVER_EXE%" -hf %E4B_MODEL% --host 127.0.0.1 --port %LLAMA_SERVER_PORT% -np 2 -c 65536 -fa on --swa-full --reasoning off --image-max-tokens %ROBIT_VISION_IMAGE_TOKENS%"
 echo [run] Waiting for llama-server /v1/responses
-python "%ROOT%\Scripts\prewarm_responses.py" --base-url "%REALTIME_LLM_BASE_URL%" --model "%REALTIME_MODEL%" --attempts 90 --sleep 2 --target-seconds 180 || exit /b 1
+python "%ROOT%\Scripts\prewarm_responses.py" --base-url "%E4B_BASE_URL%" --model "%E4B_MODEL%" --attempts 90 --sleep 2 --target-seconds 180 || exit /b 1
 
 echo [run] Downloading voice sidecar models if needed
 python "%ROOT%\Scripts\download_voice_models.py" "%REALTIME_STT_MODEL%" "%REALTIME_TTS_MODEL%" || exit /b 1
 
 echo [run] Starting realtime voice sidecar on ws://localhost:%REALTIME_PORT%/v1/realtime
-echo [run] Pipeline: silero-vad to %REALTIME_STT_MODEL% to %REALTIME_MODEL% to %REALTIME_TTS_MODEL% (%REALTIME_VOICE%)
+echo [run] Pipeline: silero-vad to %REALTIME_STT_MODEL% to %E4B_MODEL% to %REALTIME_TTS_MODEL% (%REALTIME_VOICE%)
 echo [run] Sidecar log: %S2S_LOG%
 echo [run] Watch log: Get-Content "%S2S_LOG%" -Wait
 (
@@ -138,13 +128,13 @@ echo [run] Watch log: Get-Content "%S2S_LOG%" -Wait
   echo cd /d "%PC_BRAIN%"
   echo call "%VENV%\Scripts\activate.bat"
   echo set OPENAI_API_KEY=local
-  echo set OPENAI_BASE_URL=%REALTIME_LLM_BASE_URL%
+  echo set OPENAI_BASE_URL=%E4B_BASE_URL%
   echo echo [sidecar] verifying llama-server /v1/responses before speech-to-speech ^> "%S2S_LOG%"
-  echo python "%ROOT%\Scripts\prewarm_responses.py" --base-url "%REALTIME_LLM_BASE_URL%" --model "%REALTIME_MODEL%" --attempts 4 --sleep 2 --target-seconds 180 ^>^> "%S2S_LOG%" 2^>^&1
+  echo python "%ROOT%\Scripts\prewarm_responses.py" --base-url "%E4B_BASE_URL%" --model "%E4B_MODEL%" --attempts 4 --sleep 2 --target-seconds 180 ^>^> "%S2S_LOG%" 2^>^&1
   echo if errorlevel 1 exit /b 1
-  echo echo [sidecar] starting HF-style local pipeline: silero-vad to %REALTIME_STT_MODEL% to %REALTIME_MODEL% to %REALTIME_TTS_MODEL% ^>^> "%S2S_LOG%"
-  echo echo [sidecar] command: python -m speech_to_speech.s2s_pipeline --mode realtime --ws_host 0.0.0.0 --ws_port %REALTIME_PORT% --stt parakeet-tdt --parakeet_tdt_model_name %REALTIME_STT_MODEL% --parakeet_tdt_device cuda --parakeet_tdt_compute_type float16 --llm_backend responses-api --model_name %REALTIME_MODEL% --responses_api_base_url %REALTIME_LLM_BASE_URL% --tts qwen3 --qwen3_tts_model_name %REALTIME_TTS_MODEL% --qwen3_tts_device cuda --qwen3_tts_speaker %REALTIME_VOICE% ^>^> "%S2S_LOG%"
-  echo python -m speech_to_speech.s2s_pipeline --mode realtime --ws_host 0.0.0.0 --ws_port %REALTIME_PORT% --stt parakeet-tdt --parakeet_tdt_model_name %REALTIME_STT_MODEL% --parakeet_tdt_device cuda --parakeet_tdt_compute_type float16 --llm_backend responses-api --model_name %REALTIME_MODEL% --responses_api_api_key local --responses_api_base_url %REALTIME_LLM_BASE_URL% --responses_api_request_timeout_s 180 --tts qwen3 --qwen3_tts_model_name %REALTIME_TTS_MODEL% --qwen3_tts_device cuda --qwen3_tts_speaker %REALTIME_VOICE% ^>^> "%S2S_LOG%" 2^>^&1
+  echo echo [sidecar] starting HF-style local pipeline: silero-vad to %REALTIME_STT_MODEL% to %E4B_MODEL% to %REALTIME_TTS_MODEL% ^>^> "%S2S_LOG%"
+  echo echo [sidecar] command: python -m speech_to_speech.s2s_pipeline --mode realtime --ws_host 0.0.0.0 --ws_port %REALTIME_PORT% --stt parakeet-tdt --parakeet_tdt_model_name %REALTIME_STT_MODEL% --parakeet_tdt_device cuda --parakeet_tdt_compute_type float16 --llm_backend responses-api --model_name %E4B_MODEL% --responses_api_base_url %E4B_BASE_URL% --tts qwen3 --qwen3_tts_model_name %REALTIME_TTS_MODEL% --qwen3_tts_device cuda --qwen3_tts_speaker %REALTIME_VOICE% ^>^> "%S2S_LOG%"
+  echo python -m speech_to_speech.s2s_pipeline --mode realtime --ws_host 0.0.0.0 --ws_port %REALTIME_PORT% --stt parakeet-tdt --parakeet_tdt_model_name %REALTIME_STT_MODEL% --parakeet_tdt_device cuda --parakeet_tdt_compute_type float16 --llm_backend responses-api --model_name %E4B_MODEL% --responses_api_api_key local --responses_api_base_url %E4B_BASE_URL% --responses_api_request_timeout_s 180 --tts qwen3 --qwen3_tts_model_name %REALTIME_TTS_MODEL% --qwen3_tts_device cuda --qwen3_tts_speaker %REALTIME_VOICE% ^>^> "%S2S_LOG%" 2^>^&1
 ) > "%S2S_RUNNER%"
 start "Robit Realtime Voice" /min cmd /k call "%S2S_RUNNER%"
 

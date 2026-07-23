@@ -2,6 +2,9 @@ import os
 from dataclasses import dataclass
 from pathlib import Path
 
+DEFAULT_E4B_MODEL = "ggml-org/gemma-4-E4B-it-GGUF:Q4_0"
+DEFAULT_E4B_BASE_URL = "http://127.0.0.1:8081/v1"
+
 try:
     from dotenv import load_dotenv
 except ImportError:  # pragma: no cover - only used before dependencies are installed.
@@ -49,8 +52,8 @@ class Settings:
     data_dir: Path
     warm_models: bool
     vision_enabled: bool = True
-    vision_base_url: str = "http://127.0.0.1:8081/v1"
-    vision_model: str = "ggml-org/gemma-4-E4B-it-GGUF:Q4_0"
+    vision_base_url: str = DEFAULT_E4B_BASE_URL
+    vision_model: str = DEFAULT_E4B_MODEL
     vision_request_timeout_seconds: float = 30.0
     vision_max_output_tokens: int = 320
     vision_image_tokens: int = 140
@@ -75,8 +78,8 @@ def load_settings() -> Settings:
         robot_request_retries=_int_env("ROBIT_REQUEST_RETRIES", 2),
         robot_retry_backoff_seconds=_float_env("ROBIT_RETRY_BACKOFF_SECONDS", 0.15),
         llm_provider=os.getenv("ROBIT_LLM_PROVIDER", "openai_compatible"),
-        llm_base_url=os.getenv("ROBIT_LLM_BASE_URL", "http://localhost:11434/v1").rstrip("/"),
-        llm_model=os.getenv("ROBIT_LLM_MODEL", "gemma4:e4b"),
+        llm_base_url=os.getenv("ROBIT_LLM_BASE_URL", DEFAULT_E4B_BASE_URL).rstrip("/"),
+        llm_model=os.getenv("ROBIT_LLM_MODEL", DEFAULT_E4B_MODEL),
         llm_think=_bool_env("ROBIT_LLM_THINK", False),
         llm_timeout=_float_env("ROBIT_LLM_TIMEOUT", 30.0),
         realtime_ws_url=os.getenv("ROBIT_REALTIME_WS_URL", "ws://localhost:7861/v1/realtime"),
@@ -97,10 +100,10 @@ def load_settings() -> Settings:
         data_dir=data_dir,
         warm_models=_bool_env("ROBIT_WARM_MODELS", True),
         vision_enabled=_bool_env("ROBIT_VISION_ENABLED", True),
-        vision_base_url=os.getenv("ROBIT_VISION_BASE_URL", "http://127.0.0.1:8081/v1").rstrip("/"),
+        vision_base_url=os.getenv("ROBIT_VISION_BASE_URL", DEFAULT_E4B_BASE_URL).rstrip("/"),
         vision_model=os.getenv(
             "ROBIT_VISION_MODEL",
-            os.getenv("ROBIT_REALTIME_MODEL", "ggml-org/gemma-4-E4B-it-GGUF:Q4_0"),
+            os.getenv("ROBIT_REALTIME_MODEL", DEFAULT_E4B_MODEL),
         ),
         vision_request_timeout_seconds=_float_env("ROBIT_VISION_REQUEST_TIMEOUT_SECONDS", 30.0),
         vision_max_output_tokens=_int_env("ROBIT_VISION_MAX_OUTPUT_TOKENS", 320),

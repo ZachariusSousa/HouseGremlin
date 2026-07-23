@@ -99,8 +99,11 @@ The PC service is intentionally a thin scaffold right now. It gives you a clean 
 See [docs/architecture.md](docs/architecture.md) for the current architecture and
 [DESIGN.md](DESIGN.md) for the long-term Robit design roadmap.
 
-Structured vision is local and reuses the same Gemma 4 E4B `llama-server` as
-realtime voice. Install the validated shared environment with:
+Text and the language step in realtime Voice use one local Gemma 4 E4B
+`llama-server`; structured Vision currently reuses it as well. Parakeet STT and
+Qwen TTS remain separate voice models, and the Vision adapter remains replaceable
+by a dedicated detector or VLM later. Install the validated shared environment
+with:
 
 ```powershell
 .\Scripts\setup.bat

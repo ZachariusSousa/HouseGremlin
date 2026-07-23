@@ -7,8 +7,7 @@ The realtime speech server runs as a sidecar process, but it uses the same `pc_b
 ## Prerequisites
 
 - Python 3.11 for the shared `pc_brain\.venv`
-- [Ollama](https://ollama.com/) for typed Text mode with `gemma4:e4b`
-- `llama-server` from [llama.cpp](https://github.com/ggml-org/llama.cpp/releases) for realtime voice
+- `llama-server` from [llama.cpp](https://github.com/ggml-org/llama.cpp/releases) for the shared Gemma 4 E4B language backend
 - NVIDIA GPU recommended for local realtime speech
 
 ## Run
@@ -38,7 +37,10 @@ If omitted, `Scripts\run.bat` discovers Robit's current address from its mDNS
 name, `robit.local`. This works independently of Windows' normal DNS resolver.
 
 `setup.bat` creates one virtual environment at `pc_brain\.venv` and installs both PC brain and realtime voice dependencies there.
-`run.bat` starts Ollama for silent typed chat, starts `llama-server` for realtime voice, starts the realtime voice sidecar from that same venv, starts the PC brain, and opens the browser UI.
+`run.bat` starts one two-slot Gemma 4 E4B `llama-server` for Text, the Voice
+language step, and the current Vision adapter. It then starts the separate
+Parakeet STT and Qwen TTS voice sidecar from the shared venv, starts the PC
+brain, and opens the browser UI. Ollama is not required.
 
 To test realtime voice without the browser:
 
@@ -82,9 +84,12 @@ python -m speech_to_speech.s2s_pipeline --mode realtime --ws_host 0.0.0.0 --ws_p
 `run.bat` resolves `robit.local` through mDNS service discovery and passes the
 current IP to the PC brain internally. Use a numeric argument only for recovery
 or diagnostics.
-The typed Text mode default is Ollama `gemma4:e4b`. Realtime voice and structured
-vision share `ggml-org/gemma-4-E4B-it-GGUF:Q4_0` through llama.cpp at
-`http://127.0.0.1:8081/v1`.
+Text mode, the language step in realtime Voice, and the current structured
+Vision adapter share one `ggml-org/gemma-4-E4B-it-GGUF:Q4_0` llama.cpp process
+at `http://127.0.0.1:8081/v1`. Voice still uses its own Parakeet STT and Qwen
+TTS models. Vision remains behind `VisionService` and its own
+`ROBIT_VISION_MODEL`/`ROBIT_VISION_BASE_URL` settings so it can move to a
+dedicated detector or VLM later without changing Text or Voice.
 LLM-issued movement is clamped by `ROBIT_LLM_MAX_SPEED=180` and `ROBIT_LLM_MAX_DURATION_MS=1000`.
 
 ## Checks

@@ -83,7 +83,10 @@ The service sends selected frames to the existing Gemma 4 E4B llama.cpp server,
 requests JSON-schema output, and disables itself cleanly if `/v1/models` does
 not advertise multimodal image support. The shared server runs with reasoning
 disabled so short voice and scene responses do not spend their latency budget
-on hidden reasoning tokens.
+on hidden reasoning tokens. Text and the Voice language step also use this one
+two-slot E4B process; the audio pipeline still has separate Parakeet STT and Qwen
+TTS models. Vision keeps an independent adapter and configuration boundary so a
+detector or dedicated VLM can replace E4B later without changing Text or Voice.
 
 Text and Voice can request a fresh read-only inspection through the PC brain.
 The latest unexpired validated snapshot is also injected into every Text and

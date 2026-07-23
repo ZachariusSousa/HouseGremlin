@@ -69,22 +69,14 @@ echo [setup] Running PC brain tests
 cd /d "%PC_BRAIN%" || exit /b 1
 python -m pytest tests || exit /b 1
 
-where ollama >nul 2>&1
-if not errorlevel 1 (
-  echo [setup] Pulling default local model gemma4:e4b
-  ollama pull gemma4:e4b
-) else (
-  echo [setup] Ollama was not found on PATH. Install it before using typed Text mode.
-)
-
 if "%LLAMA_SERVER_EXE%"=="llama-server" (
   where llama-server >nul 2>&1
   if errorlevel 1 (
-    echo [setup] llama-server was not found on PATH. Install llama.cpp before using realtime voice.
+    echo [setup] llama-server was not found on PATH. Install llama.cpp for the shared E4B language backend.
     echo [setup] Download: https://github.com/ggml-org/llama.cpp/releases
-    echo [setup] voice_test.bat will download the Gemma E4B GGUF through llama-server on first run.
+    echo [setup] run.bat will download the Gemma 4 E4B GGUF through llama-server on first run.
   ) else (
-    echo [setup] llama-server found for realtime voice.
+    echo [setup] llama-server found for the shared E4B language backend.
   )
 )
 
