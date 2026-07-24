@@ -14,6 +14,11 @@
 
 namespace {
 Adafruit_PWMServoDriver pwm(SERVO_PCA9685_ADDRESS);
+int currentPanAngle = 90;
+int currentTiltAngle = 90;
+int targetPanAngle = 90;
+int targetTiltAngle = 90;
+unsigned long lastServoUpdateAt = 0;
 
 #ifndef PAN_SERVO_MIN_PULSE
 #define PAN_SERVO_MIN_PULSE 80
@@ -31,12 +36,12 @@ Adafruit_PWMServoDriver pwm(SERVO_PCA9685_ADDRESS);
 #define PAN_SERVO_INVERT 0
 #endif
 
-#ifndef PAN_SERVO_STEP_DEGREES
-#define PAN_SERVO_STEP_DEGREES 2
+#ifndef HEAD_SERVO_MAX_STEP_DEGREES
+#define HEAD_SERVO_MAX_STEP_DEGREES 3
 #endif
 
-#ifndef PAN_SERVO_STEP_DELAY_MS
-#define PAN_SERVO_STEP_DELAY_MS 4
+#ifndef HEAD_SERVO_UPDATE_INTERVAL_MS
+#define HEAD_SERVO_UPDATE_INTERVAL_MS 20
 #endif
 
 #ifndef TILT_SERVO_MIN_PULSE
@@ -90,20 +95,13 @@ void writeTiltServo(int angle) {
   );
 }
 
-void movePanServo(int fromAngle, int toAngle) {
-  const int stepSize = max(1, PAN_SERVO_STEP_DEGREES);
-  if (fromAngle == toAngle) {
-    writePanServo(toAngle);
-    return;
-  }
-
-  const int direction = toAngle > fromAngle ? 1 : -1;
-  for (int angle = fromAngle; angle != toAngle; angle += direction * stepSize) {
-    if ((direction > 0 && angle > toAngle) || (direction < 0 && angle < toAngle)) break;
-    writePanServo(angle);
-    delay(PAN_SERVO_STEP_DELAY_MS);
-  }
-  writePanServo(toAngle);
+int stepToward(int current, int target) {
+  const int distance = abs(target - current);
+  const int maximumStep = max(1, HEAD_SERVO_MAX_STEP_DEGREES);
+  const int stepSize = distance > 20 ? maximumStep : (distance > 8 ? min(2, maximumStep) : 1);
+  if (current < target) return min(current + stepSize, target);
+  if (current > target) return max(current - stepSize, target);
+  return current;
 }
 }
 
@@ -112,21 +110,22 @@ bool initializeServos() {
   pwm.begin();
   pwm.setPWMFreq(50);
   delay(250);
-  centerHead();
+  currentPanAngle = targetPanAngle = robotState.panAngle = 90;
+  currentTiltAngle = targetTiltAngle = robotState.tiltAngle = 90;
+  writePanServo(currentPanAngle);
+  writeTiltServo(currentTiltAngle);
   Serial.println("[SERVO] PCA9685 initialized at 0x40");
   return true;
 }
 
 void setPanAngle(int angle) {
-  const int targetAngle = constrain(angle, PAN_MIN, PAN_MAX);
-  const int previousAngle = constrain(robotState.panAngle, PAN_MIN, PAN_MAX);
-  robotState.panAngle = targetAngle;
-  movePanServo(previousAngle, targetAngle);
+  targetPanAngle = constrain(angle, PAN_MIN, PAN_MAX);
+  robotState.panAngle = targetPanAngle;
 }
 
 void setTiltAngle(int angle) {
-  robotState.tiltAngle = constrain(angle, TILT_MIN, TILT_MAX);
-  writeTiltServo(robotState.tiltAngle);
+  targetTiltAngle = constrain(angle, TILT_MIN, TILT_MAX);
+  robotState.tiltAngle = targetTiltAngle;
 }
 
 void setHeadPosition(int pan, int tilt) {
@@ -143,4 +142,18 @@ void centerHead() {
 }
 
 void updateServos() {
+  const unsigned long now = millis();
+  if (now - lastServoUpdateAt < HEAD_SERVO_UPDATE_INTERVAL_MS) return;
+  lastServoUpdateAt = now;
+
+  const int nextPan = stepToward(currentPanAngle, targetPanAngle);
+  const int nextTilt = stepToward(currentTiltAngle, targetTiltAngle);
+  if (nextPan != currentPanAngle) {
+    currentPanAngle = nextPan;
+    writePanServo(currentPanAngle);
+  }
+  if (nextTilt != currentTiltAngle) {
+    currentTiltAngle = nextTilt;
+    writeTiltServo(currentTiltAngle);
+  }
 }

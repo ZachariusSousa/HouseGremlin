@@ -6,7 +6,7 @@ RobotState robotState;
 
 void initializeState() {
   robotState.movement = "stop";
-  robotState.motorSpeed = 180;
+  robotState.motorSpeed = 170;
   robotState.panAngle = 90;
   robotState.tiltAngle = 90;
   robotState.eyeExpression = "neutral";

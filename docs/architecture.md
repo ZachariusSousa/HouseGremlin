@@ -68,10 +68,14 @@ Later, if you need lower latency, add WebSocket or UDP commands. Start with HTTP
 ## Camera
 
 The camera is the built-in XIAO ESP32S3 Sense camera. Firmware serializes all
-`/capture` and `/stream` acquisition through one mutex and enforces a five-second
-minimum capture interval (0.2 FPS). The PC brain's in-memory `FrameBroker`
-fetches that frame once and shares it with both the browser and perception pipeline.
-Routine frames are never written to disk.
+`/capture` acquisition through one mutex and enforces a global 3 FPS ceiling.
+The legacy `/stream` URL redirects to one still capture so it cannot monopolize
+the firmware's small HTTP server. The PC brain's in-memory `FrameBroker` controls demand
+independently: it defaults to 0.2 FPS while idle and raises the request rate only
+when tracking or conversation needs a fresher view. Person tracking is enabled
+by default, so the low idle rate applies only after tracking is explicitly
+disabled. Each acquired frame is shared with the browser, detector, and
+perception pipeline. Routine frames are never written to disk.
 
 ## Structured Vision
 
@@ -86,7 +90,7 @@ disabled so short voice and scene responses do not spend their latency budget
 on hidden reasoning tokens. Text and the Voice language step also use this one
 two-slot E4B process; the audio pipeline still has separate Parakeet STT and Qwen
 TTS models. Vision keeps an independent adapter and configuration boundary so a
-detector or dedicated VLM can replace E4B later without changing Text or Voice.
+dedicated VLM can replace E4B later without changing Text or Voice.
 
 Text and Voice can request a fresh read-only inspection through the PC brain.
 The latest unexpired validated snapshot is also injected into every Text and
@@ -104,10 +108,41 @@ dialogue history. The gateway now removes superseded visual dialogue when it
 restores a session, makes current snapshots override earlier descriptions, and
 cancels speculative speech before answering an explicit visual question from a
 fresh validated result. These mitigations preserve correctness but do not solve
-the remaining latency and description-quality limits. The 0.2 FPS camera cap
-also intentionally permits up to five seconds of ambient-view delay. Corpus,
-schema-validity, voice-concurrency, physical traffic, and retention acceptance
-tests remain required before the gate is closed.
+the remaining latency and description-quality limits. The broker's 0.2 FPS idle
+default intentionally permits up to five seconds of ambient-view delay, while
+active tracking or conversation can request fresher frames up to the firmware's
+3 FPS ceiling. Corpus, schema-validity, voice-concurrency, physical traffic, and
+retention acceptance tests remain required before the gate is closed.
+
+### Companion Person Tracking
+
+RF-DETR is a Gate 5 follow-up that adds fast person boxes and short-lived track
+observations for one always-on behavior. Robit turns its head toward the selected
+visible person and uses a proportional in-place body turn when horizontal error remains
+large. The behavior starts with Robit, has no timeout, and stops only after an
+explicit request or emergency stop. It is not a VLM replacement. The VLM
+continues to answer semantic visual questions and produce `SceneSnapshot`
+records; RF-DETR only supplies the geometry used by this deterministic behavior.
+
+The first implementation intentionally avoids a VRAM monitor or dynamic model
+swapping. One detector backend is selected from configuration at startup, one
+latest-frame-wins worker runs at a bounded cadence, and detector request
+timeouts report the detector unavailable cleanly if inference cannot keep up.
+This keeps CPU-only community builds understandable and prevents
+hardware-specific resource policy from entering the safety path.
+
+The control API is deliberately small:
+
+```text
+GET  /tracking/status
+POST /tracking/start       {}
+POST /tracking/stop        {}
+```
+
+The browser exposes one enabled checkbox and one status line. The camera proxy
+returns `X-Robit-Frame-Id`; its optional target overlay is drawn only when that
+exact ID matches `target.frame_id` from tracking status. A stale box is therefore
+never painted over a newer frame.
 
 ## LLM Tool Calling
 

@@ -4,6 +4,8 @@ setlocal EnableExtensions
 set "ROOT=%~dp0.."
 set "PC_BRAIN=%ROOT%\pc_brain"
 set "VENV=%PC_BRAIN%\.venv"
+set "PC_TRACKING=%ROOT%\pc_tracking"
+set "TRACKING_VENV=%PC_TRACKING%\.venv"
 set "LLAMA_SERVER_EXE=llama-server"
 set "PYTHON311="
 
@@ -36,6 +38,21 @@ if not exist "%VENV%\Scripts\python.exe" (
   echo [setup] Reusing existing virtual environment
 )
 
+if exist "%TRACKING_VENV%\Scripts\python.exe" (
+  "%TRACKING_VENV%\Scripts\python.exe" --version >nul 2>&1
+  if errorlevel 1 (
+    echo [setup] Existing tracking virtual environment is broken; recreating it
+    rmdir /s /q "%TRACKING_VENV%" || exit /b 1
+  )
+)
+
+if not exist "%TRACKING_VENV%\Scripts\python.exe" (
+  echo [setup] Creating isolated RF-DETR virtual environment
+  %PYTHON311% -m venv "%TRACKING_VENV%" || exit /b 1
+) else (
+  echo [setup] Reusing isolated RF-DETR virtual environment
+)
+
 call "%VENV%\Scripts\activate.bat" || exit /b 1
 
 if exist "C:\Tools\llama.cpp\llama-server.exe" set "LLAMA_SERVER_EXE=C:\Tools\llama.cpp\llama-server.exe"
@@ -47,6 +64,19 @@ python -c "import torch, torchaudio, sys; sys.exit(0 if torch.__version__ == '2.
 if errorlevel 1 (
   echo [setup] Installing validated CUDA Torch and Torchaudio pair
   python -m pip install --force-reinstall "torch==2.6.0+cu124" "torchaudio==2.6.0+cu124" --index-url https://download.pytorch.org/whl/cu124 || exit /b 1
+)
+
+echo [setup] Installing isolated RF-DETR tracking environment
+"%TRACKING_VENV%\Scripts\python.exe" -m pip install --upgrade pip "setuptools>=70,<81" wheel || exit /b 1
+"%TRACKING_VENV%\Scripts\python.exe" -c "import torch, torchvision, sys; sys.exit(0 if torch.__version__ == '2.6.0+cu124' and torchvision.__version__ == '0.21.0+cu124' else 1)" >nul 2>&1
+if errorlevel 1 (
+  "%TRACKING_VENV%\Scripts\python.exe" -m pip install --force-reinstall "torch==2.6.0+cu124" "torchvision==0.21.0+cu124" --index-url https://download.pytorch.org/whl/cu124 || exit /b 1
+)
+"%TRACKING_VENV%\Scripts\python.exe" -m pip install -r "%PC_TRACKING%\requirements.txt" || exit /b 1
+"%TRACKING_VENV%\Scripts\python.exe" -c "import importlib.metadata, torch, torchvision, sys; ok = importlib.metadata.version('rfdetr') == '1.8.3' and torch.__version__ == '2.6.0+cu124' and torchvision.__version__ == '0.21.0+cu124'; sys.exit(0 if ok else 1)" >nul 2>&1
+if errorlevel 1 (
+  echo [setup][error] RF-DETR tracking environment validation failed.
+  exit /b 1
 )
 
 echo [setup] Installing PC brain requirements
@@ -68,6 +98,10 @@ if not exist ".env" (
 echo [setup] Running PC brain tests
 cd /d "%PC_BRAIN%" || exit /b 1
 python -m pytest tests || exit /b 1
+
+echo [setup] Running RF-DETR sidecar tests
+cd /d "%PC_TRACKING%" || exit /b 1
+"%TRACKING_VENV%\Scripts\python.exe" -m pytest tests -q || exit /b 1
 
 if "%LLAMA_SERVER_EXE%"=="llama-server" (
   where llama-server >nul 2>&1

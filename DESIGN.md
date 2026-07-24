@@ -37,7 +37,7 @@ from measured resource requirements.
 ```mermaid
 flowchart LR
     Mic["Microphone / Wake Word"] --> Voice["VAD -> STT"]
-    Camera["ESP Camera"] --> Perception["Frame Gate -> VLM"]
+    Camera["ESP Camera"] --> Perception["Frame Gate -> Semantic VLM"]
     UI["Operator Console"] --> Brain
 
     Voice --> Brain["pc_brain Cognitive Runtime"]
@@ -238,6 +238,18 @@ summaries, latency, voice coexistence, and schema compliance. Start at 140
 visual tokens and try 70 if the 750 ms p95 target is missed; consider a separate
 vision model only if E4B still fails latency or grounded accuracy.
 
+RF-DETR is a Gate 5 follow-up for fast person geometry used by one always-on
+person-tracking behavior. It complements rather than replaces the semantic VLM:
+RF-DETR supplies short-lived boxes and track observations, while the VLM remains
+responsible for scene meaning, explicit visual questions, and structured
+`SceneSnapshot` records. The first detector integration stays deliberately
+simple: select one configured backend at startup, process only the newest frame
+at a bounded cadence, and report unavailable when that backend cannot run. It
+does not poll VRAM, dynamically unload models, or switch models based on live
+memory readings. Tracking starts with Robit and has no timeout: the head follows
+the selected visible person, with short in-place body pivots only when horizontal
+error remains large. It stops only on an explicit request or emergency stop.
+
 ## MCP and Tool Policy
 
 `pc_brain` should act as the MCP host and capability broker. MCP servers are not
@@ -396,10 +408,12 @@ private memories never appear in guest context.
 **Status: functionally available as of 2026-07-22; improvements and acceptance
 work required before closure.**
 
-The initial software path now includes a firmware-wide low-rate camera cap, a
-shared in-memory PC frame broker, blur/change filtering, low-rate idle
-awareness, and fresh read-only visual questions. Routine camera frames are not
-retained. E4B evaluation and physical acceptance remain before Gate 5 closure.
+The initial software path now includes a mutex-protected firmware-wide 3 FPS
+camera ceiling, a shared in-memory PC frame broker, blur/change filtering,
+low-rate idle awareness, and fresh read-only visual questions. The broker
+returns to 0.2 FPS only while person tracking is explicitly disabled and no
+conversation needs a fresh view. Routine camera frames are not retained. E4B
+evaluation and physical acceptance remain before Gate 5 closure.
 
 Observed limitations of the current shared-E4B approach:
 
@@ -420,9 +434,10 @@ Observed limitations of the current shared-E4B approach:
   completes, which previously let it narrate an inspection without executing
   one. Explicit visual questions now cancel that response, run a fresh
   inspection, and start a grounded response; this is correct but adds latency.
-- The current 0.2 FPS camera limit reduces bandwidth and power, but a newly
-  changed scene may take up to five seconds to reach ambient context. Explicit
-  visual questions bypass ambient reuse by requesting a fresh inspection.
+- The PC broker's default 0.2 FPS idle cadence reduces bandwidth and power, but
+  a newly changed scene may take up to five seconds to reach ambient context.
+  Explicit visual questions and active tracking may request fresher frames up
+  to the firmware's global 3 FPS ceiling.
 - Schema compliance, physical camera traffic, no-frame-retention behavior, and
   foreground voice responsiveness still need the documented corpus and
   concurrency acceptance runs.
@@ -432,10 +447,17 @@ Observed limitations of the current shared-E4B approach:
 - Validate the shared Gemma 4 E4B backend on the Robit-camera corpus.
 - Allow explicit fresh visual queries when cached perception is stale.
 - Prevent vision from entering the motor control loop.
+- Add RF-DETR person observations for default-on head and body person tracking
+  without replacing the VLM semantic lane.
+- Keep detector scheduling static and bounded: one configured backend,
+  latest-frame-wins processing, bounded detector requests, and no live VRAM
+  monitor or dynamic model swapping.
 
 Exit when the chosen VLM processes selected frames within 750 ms at p95 on the
 development laptop, reaches at least 99 percent valid structured output, meets
 the grounded-description quality target, and does not starve foreground voice.
+RF-DETR follow-up acceptance is additional and does not weaken or replace these
+semantic-vision exit conditions.
 
 ### Gate 6: Add the background thinker
 
@@ -468,7 +490,6 @@ Initial code-defined skills:
 - `look_around`
 - `short_wander`
 - `investigate_change`
-- `approach_attention_direction`
 - `greet_visible_person`
 - `return_to_idle`
 - `sleep`

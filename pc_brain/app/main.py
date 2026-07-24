@@ -5,8 +5,9 @@ import logging
 import re
 import time
 from contextlib import asynccontextmanager
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal
+from typing import Callable, Literal
 from urllib.parse import urlparse, urlunparse
 
 import httpx
@@ -24,8 +25,9 @@ from .eye_controller import EMOTIONAL_EYE_EXPRESSIONS, EyeController
 from .frame_broker import FrameBroker
 from .journal import EventJournal
 from .llm import OpenAICompatibleChatClient
-from .realtime_gateway import RealtimeGateway
+from .realtime_gateway import RealtimeGateway, explicit_robot_action
 from .timing import timed
+from .tracking import PersonTrackingService, RFDetrClient
 from .vision import VisionService, VisionUnavailable
 
 
@@ -36,12 +38,14 @@ robot_http_client: httpx.AsyncClient | None = None
 robot_status_cache: dict | None = None
 robot_status_cache_at = 0.0
 ROBOT_STATUS_CACHE_SECONDS = 3.0
+robot_camera_request_lock = asyncio.Lock()
 brain_journal: EventJournal | None = None
 brain_coordinator: BrainCoordinator | None = None
 realtime_gateway: RealtimeGateway | None = None
 eye_controller: EyeController | None = None
 frame_broker: FrameBroker | None = None
 vision_service: VisionService | None = None
+tracking_service: PersonTrackingService | None = None
 
 
 @asynccontextmanager
@@ -53,8 +57,15 @@ async def lifespan(app: FastAPI):
     controller = get_eye_controller()
     broker = get_frame_broker()
     vision = get_vision_service()
+    tracking = get_tracking_service()
     await controller.start()
     await broker.start()
+    try:
+        robot_status = await robot_get("/api/status")
+        tracking.sync_head_position(robot_status.get("pan"), robot_status.get("tilt"))
+    except Exception as exc:
+        logger.warning("tracking.head_sync_failed error=%s", exc)
+    await tracking.start()
     await vision.start()
     if settings.warm_models:
         await llm_client.warmup()
@@ -64,6 +75,7 @@ async def lifespan(app: FastAPI):
         if realtime_gateway is not None:
             await realtime_gateway.shutdown()
         await vision.shutdown()
+        await tracking.shutdown()
         await broker.shutdown()
         await controller.shutdown()
         await robot_http_client.aclose()
@@ -77,6 +89,7 @@ app.add_middleware(
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["X-Robit-Frame-Id", "X-Robit-Captured-At", "X-Robit-Frame-Interval"],
 )
 WEB_CONTROL_INDEX = Path(__file__).resolve().parents[2] / "web_control" / "index.html"
 REALTIME_EYE_POLICY = (
@@ -186,8 +199,91 @@ def get_eye_controller() -> EyeController:
 def get_frame_broker() -> FrameBroker:
     global frame_broker
     if frame_broker is None:
-        frame_broker = FrameBroker(fetch_robot_camera_frame, settings.camera_frame_interval_seconds)
+        frame_broker = FrameBroker(
+            fetch_robot_camera_frame,
+            getattr(settings, "camera_frame_interval_seconds", 5.0),
+            max_fps=5.0,
+        )
     return frame_broker
+
+
+def tracking_motion_authorized(
+    generation: int,
+    *,
+    body: bool,
+    allow_search: bool = False,
+) -> bool:
+    service = tracking_service
+    return bool(
+        service is not None
+        and callable(getattr(service, "motion_authorized", None))
+        and service.motion_authorized(generation, body=body, allow_search=allow_search)
+    )
+
+
+async def tracking_head_command(
+    pan: int,
+    tilt: int,
+    generation: int,
+    allow_search: bool = False,
+) -> dict:
+    if not tracking_motion_authorized(generation, body=False, allow_search=allow_search):
+        return {"ok": False, "skipped": "tracking authorization expired"}
+    return await robot_post(
+        "/api/head",
+        {"pan": pan, "tilt": tilt},
+        authorization=lambda: tracking_motion_authorized(
+            generation,
+            body=False,
+            allow_search=allow_search,
+        ),
+    )
+
+
+async def tracking_move_command(direction: str, speed: int, duration_ms: int, generation: int) -> dict:
+    if not tracking_motion_authorized(generation, body=True):
+        return {"ok": False, "skipped": "tracking authorization expired"}
+    correlation_id = get_brain_coordinator().new_correlation_id()
+    intent = ActionIntent(
+        action={"movement": {"direction": direction, "speed": speed, "duration_ms": duration_ms}},
+        origin=EventSource.policy,
+        correlation_id=correlation_id,
+        reason="RF-DETR person tracking pivot",
+        priority=WorkPriority.background,
+    )
+
+    async def execute(payload: dict) -> dict:
+        if not tracking_motion_authorized(generation, body=True):
+            return {"ok": False, "skipped": "tracking authorization expired"}
+        return await robot_post(
+            "/api/move",
+            payload["movement"],
+            authorization=lambda: tracking_motion_authorized(generation, body=True),
+        )
+
+    return await get_brain_coordinator().execute_action(intent, execute)
+
+
+def get_tracking_service() -> PersonTrackingService:
+    global tracking_service
+    coordinator = get_brain_coordinator()
+    if tracking_service is None or getattr(tracking_service, "coordinator", coordinator) is not coordinator:
+        tracking_service = PersonTrackingService(
+            coordinator,
+            get_frame_broker(),
+            RFDetrClient(
+                getattr(settings, "tracking_base_url", "http://127.0.0.1:8091"),
+                getattr(settings, "tracking_request_timeout_seconds", 2.0),
+            ),
+            tracking_head_command,
+            tracking_move_command,
+            enabled=getattr(settings, "tracking_enabled", True),
+            confidence=getattr(settings, "tracking_confidence", 0.40),
+            rotate_degrees=getattr(settings, "camera_rotate_degrees", 180),
+            pan_sign=getattr(settings, "tracking_pan_sign", 1),
+            tilt_sign=getattr(settings, "tracking_tilt_sign", 1),
+        )
+    return tracking_service
 
 
 def get_vision_service() -> VisionService:
@@ -205,6 +301,74 @@ async def inspect_scene(question: str) -> dict:
         "warning": result.warning,
         "snapshot": result.snapshot.model_dump(mode="json"),
     }
+
+
+def current_person_context() -> dict:
+    status = get_tracking_service().status()
+    target = status.target
+    target_age = (datetime.now(timezone.utc) - target.observed_at).total_seconds() if target is not None else None
+    if target is None or status.state != "tracking" or target_age is None or target_age > 1.0:
+        return {
+            "person_detected": None,
+            "state": status.state,
+            "mode": status.mode,
+            "instruction": "Person presence is unknown; do not claim that nobody is present.",
+        }
+    center_x = (target.bounding_box[0] + target.bounding_box[2]) / 2.0
+    position = "center"
+    if center_x < 0.35:
+        position = "left"
+    elif center_x > 0.65:
+        position = "right"
+    return {
+        "person_detected": True,
+        "position": position,
+        "confidence": target.confidence,
+        "observed_at": target.observed_at.isoformat(),
+        "frame_id": target.frame_id,
+        "instruction": "A person is detected, but their identity is unknown.",
+    }
+
+
+TRACKING_START_MARKERS = re.compile(
+    r"\b("
+    r"(?:track|follow)\s+(?:me|the person|that person)|"
+    r"(?:start|resume)\s+(?:tracking|following)(?:\s+(?:me|the person|that person))?|"
+    r"enable (?:person )?tracking|"
+    r"turn (?:person )?tracking on|"
+    r"look at me again"
+    r")\b",
+    re.IGNORECASE,
+)
+TRACKING_STOP_MARKERS = re.compile(r"\b(stop|quit|end)\s+(tracking|following)\b", re.IGNORECASE)
+TRACKING_OFF_MARKERS = re.compile(
+    r"\b("
+    r"stop (?:looking at|watching|tracking|following) me|"
+    r"(?:do not|don't) (?:look at|watch|track|follow) me|"
+    r"(?:do not|don't) (?:start|resume) (?:tracking|following)(?: me)?|"
+    r"(?:do not|don't) enable (?:person )?tracking|"
+    r"(?:do not|don't) turn (?:person )?tracking on|"
+    r"turn (?:person )?tracking off|"
+    r"disable (?:person )?tracking"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+async def execute_explicit_tracking_request(text: str) -> dict | None:
+    if TRACKING_OFF_MARKERS.search(text):
+        status = await get_tracking_service().stop(reason="explicit request")
+        return {"ok": True, "command": "off", "status": status.model_dump(mode="json")}
+    if TRACKING_STOP_MARKERS.search(text):
+        status = await get_tracking_service().stop(reason="explicit request")
+        return {"ok": True, "command": "off", "status": status.model_dump(mode="json")}
+    if TRACKING_START_MARKERS.search(text):
+        service = get_tracking_service()
+        if not service.detector.available and not await service.detector.probe():
+            return {"ok": False, "command": "track", "error": service.detector.reason}
+        status = await service.enable()
+        return {"ok": True, "command": "track", "status": status.model_dump(mode="json")}
+    return None
 
 
 def require_model_eye_expression(action: RobotActionRequest) -> None:
@@ -236,7 +400,9 @@ def get_realtime_gateway() -> RealtimeGateway:
 
         def current_scene_context() -> dict | None:
             snapshot = vision.current_snapshot()
-            return snapshot.model_dump(mode="json") if snapshot is not None else None
+            context = snapshot.model_dump(mode="json") if snapshot is not None else {}
+            context["person_tracking"] = current_person_context()
+            return context
 
         realtime_gateway = RealtimeGateway(
             settings.realtime_ws_url,
@@ -249,6 +415,7 @@ def get_realtime_gateway() -> RealtimeGateway:
             voice_session_handler=get_eye_controller().set_voice_session_active,
             inspect_scene=inspect_scene,
             scene_context=current_scene_context,
+            tracking_command=execute_explicit_tracking_request,
         )
         vision.subscribe_snapshot(realtime_gateway.refresh_scene_context)
     return realtime_gateway
@@ -275,7 +442,13 @@ def cache_robot_status(path: str, payload: dict) -> None:
         robot_status_cache_at = time.monotonic()
 
 
-async def robot_request(method: str, path: str, params: dict | None = None, body: dict | None = None):
+async def robot_request(
+    method: str,
+    path: str,
+    params: dict | None = None,
+    body: dict | None = None,
+    authorization: Callable[[], bool] | None = None,
+):
     url = f"{settings.robot_base_url}{path}"
     retries = max(0, getattr(settings, "robot_request_retries", 2))
     backoff = max(0.0, getattr(settings, "robot_retry_backoff_seconds", 0.15))
@@ -283,6 +456,8 @@ async def robot_request(method: str, path: str, params: dict | None = None, body
 
     async with robot_request_lock:
         for attempt in range(retries + 1):
+            if authorization is not None and not authorization():
+                return {"ok": False, "skipped": "tracking authorization expired"}
             try:
                 correlation_id = current_correlation_id.get()
                 headers = {"x-robit-correlation-id": correlation_id} if correlation_id else None
@@ -314,8 +489,12 @@ async def robot_get(path: str, params: dict | None = None):
     return await robot_request("GET", path, params=params)
 
 
-async def robot_post(path: str, body: dict | None = None):
-    return await robot_request("POST", path, body=body or {})
+async def robot_post(
+    path: str,
+    body: dict | None = None,
+    authorization: Callable[[], bool] | None = None,
+):
+    return await robot_request("POST", path, body=body or {}, authorization=authorization)
 
 
 async def robot_heartbeat_post(path: str, body: dict | None = None):
@@ -351,7 +530,10 @@ def cached_robot_status() -> dict | None:
 async def robot_fetch_bytes(path: str, base_url: str | None = None):
     url = f"{base_url or settings.robot_base_url}{path}"
     try:
-        async with robot_request_lock:
+        # Camera acquisition can take about half a second on the ESP. Keep it
+        # off the control queue so fresh head commands are not expired while
+        # waiting behind the continuous frame broker.
+        async with robot_camera_request_lock:
             response = await robot_client().get(url)
             response.raise_for_status()
     except httpx.HTTPError as exc:
@@ -374,13 +556,18 @@ def camera_urls() -> dict:
     scheme = parsed.scheme or "http"
     capture_url = urlunparse((scheme, f"{hostname}:81", "/capture", "", "", ""))
     stream_url = urlunparse((scheme, f"{hostname}:81", "/stream", "", "", ""))
+    broker = get_frame_broker()
+    configured_interval = getattr(settings, "camera_frame_interval_seconds", 5.0)
+    interval = getattr(broker, "effective_interval_seconds", configured_interval)
+    fps = getattr(broker, "effective_fps", 1.0 / interval)
     return {
         "ok": True,
         "robot_base_url": settings.robot_base_url,
         "page_url": f"{settings.robot_base_url}/camera",
         "capture_url": capture_url,
         "stream_url": stream_url,
-        "frame_interval_seconds": settings.camera_frame_interval_seconds,
+        "frame_interval_seconds": interval,
+        "effective_fps": fps,
     }
 
 
@@ -388,8 +575,14 @@ def sanitized_action_payload(action: RobotActionRequest) -> dict:
     payload: dict = {}
     if action.movement:
         movement = action.movement.model_dump(exclude_none=True)
+        maximum_speed = settings.robot_llm_max_speed
         if "speed" in movement:
-            movement["speed"] = min(movement["speed"], settings.robot_llm_max_speed)
+            movement["speed"] = min(movement["speed"], maximum_speed)
+        elif movement["direction"] != "stop":
+            movement["speed"] = min(
+                max(0, getattr(settings, "robot_llm_default_speed", 170)),
+                maximum_speed,
+            )
         if "duration_ms" in movement:
             movement["duration_ms"] = min(movement["duration_ms"], settings.robot_llm_max_duration_ms)
         elif movement["direction"] != "stop":
@@ -442,10 +635,14 @@ async def execute_robot_action(action: RobotActionRequest, mood_source: EventSou
     skipped: list[dict] = []
 
     if payload.get("emergency_stop"):
+        get_tracking_service().emergency_disable()
         result = await robot_emergency_stop_request()
         executed.append({"type": "emergency_stop", "result": result})
         logger.info("robot.llm_action emergency_stop")
         return {"ok": True, "action": payload, "executed": executed, "skipped": skipped}
+
+    if payload.get("movement") or payload.get("head"):
+        get_tracking_service().suspend_for_manual_control()
 
     model_eyes = payload.get("eyes") if mood_source is not None else None
     if model_eyes:
@@ -464,6 +661,7 @@ async def execute_robot_action(action: RobotActionRequest, mood_source: EventSou
 
     if head := payload.get("head"):
         result = await robot_post("/api/head", head)
+        get_tracking_service().sync_head_position(result.get("pan"), result.get("tilt"))
         executed.append({"type": "head", "request": head, "result": result})
 
     if mood_source is None and (eyes := payload.get("eyes")):
@@ -530,7 +728,9 @@ async def execute_manual_drive(payload: dict) -> dict:
 
 
 async def execute_manual_head(payload: dict) -> dict:
-    return await robot_post("/api/head", payload["head"])
+    result = await robot_post("/api/head", payload["head"])
+    get_tracking_service().sync_head_position(result.get("pan"), result.get("tilt"))
+    return result
 
 
 async def execute_manual_stop(payload: dict) -> dict:
@@ -559,8 +759,11 @@ def prompt_with_live_scene(text: str) -> str:
             },
             separators=(",", ":"),
         )
+    person_context = json.dumps(current_person_context(), separators=(",", ":"))
     return (
-        f"{context}\nUse this validated scene as Robit's current visual awareness when relevant, "
+        f"{context}\nLIVE PERSON-TRACKING CONTEXT: {person_context}\n"
+        "Use person tracking only for presence and rough left/center/right position; never infer identity. "
+        "Use this validated scene as Robit's current visual awareness when relevant, "
         "without inventing additional details.\nUser request: " + text
     )
 
@@ -635,6 +838,7 @@ async def answer_visual_question(
 async def health(request: Request):
     websocket_scheme = "wss" if request.url.scheme == "https" else "ws"
     gateway_url = f"{websocket_scheme}://{request.url.netloc}/v1/realtime"
+    tracking = get_tracking_service().status()
     return {
         "ok": True,
         "robot_base_url": settings.robot_base_url,
@@ -646,6 +850,12 @@ async def health(request: Request):
             "gateway_path": "/v1/realtime",
             "voice": settings.realtime_voice,
             "instructions": effective_realtime_instructions(),
+        },
+        "tracking": {
+            "available": tracking.available,
+            "mode": tracking.mode,
+            "backend": tracking.backend,
+            "reason": tracking.reason,
         },
     }
 
@@ -672,14 +882,21 @@ async def robot_camera():
 
 
 @app.get("/robot/camera/capture")
-async def robot_camera_capture():
-    frame = await get_frame_broker().get_frame()
+async def robot_camera_capture(fresh: bool = False):
+    frame = await get_frame_broker().get_frame(force_fresh=fresh)
     return Response(
         content=frame.content,
         media_type=frame.media_type,
         headers={
             "X-Robit-Frame-Id": frame.frame_id,
             "X-Robit-Captured-At": frame.captured_at.isoformat(),
+            "X-Robit-Frame-Interval": str(
+                getattr(
+                    get_frame_broker(),
+                    "effective_interval_seconds",
+                    getattr(settings, "camera_frame_interval_seconds", 5.0),
+                )
+            ),
             "Cache-Control": "no-store",
         },
     )
@@ -704,8 +921,32 @@ async def perception_query(query: PerceptionQueryRequest):
     }
 
 
+@app.get("/tracking/status")
+async def tracking_status():
+    return get_tracking_service().status().model_dump(mode="json")
+
+
+@app.post("/tracking/start")
+async def tracking_start():
+    service = get_tracking_service()
+    if not service.detector.available and not await service.detector.probe():
+        raise HTTPException(status_code=503, detail=service.detector.reason or "RF-DETR is unavailable")
+    try:
+        status = await service.enable()
+    except RuntimeError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    return status.model_dump(mode="json")
+
+
+@app.post("/tracking/stop")
+async def tracking_stop():
+    status = await get_tracking_service().stop(reason="API request")
+    return status.model_dump(mode="json")
+
+
 @app.post("/robot/drive")
 async def robot_drive(command: DriveCommand, request: Request):
+    get_tracking_service().suspend_for_manual_control()
     movement = MovementAction(direction=command.move, speed=command.speed)
     result = await coordinated_action(
         RobotActionRequest(movement=movement),
@@ -722,6 +963,7 @@ async def robot_drive(command: DriveCommand, request: Request):
 async def robot_head(command: HeadCommand, request: Request):
     if command.pan is None and command.tilt is None:
         raise HTTPException(status_code=400, detail="pan or tilt is required")
+    get_tracking_service().suspend_for_manual_control()
     result = await coordinated_action(
         RobotActionRequest(head=HeadAction(pan=command.pan, tilt=command.tilt)),
         EventSource.manual,
@@ -735,6 +977,7 @@ async def robot_head(command: HeadCommand, request: Request):
 
 @app.post("/robot/stop")
 async def robot_stop(request: Request):
+    get_tracking_service().emergency_disable()
     result = await coordinated_action(
         RobotActionRequest(emergency_stop=True),
         EventSource.manual,
@@ -783,6 +1026,51 @@ async def chat_action(chat_request: ChatActionRequest, request: Request):
     history = coordinator.recent_messages(20)
     coordinator.record_turn("user", chat_request.text, EventSource.browser, correlation_id)
     coordinator.transition(correlation_id, EventSource.browser, conversation=ConversationState.formulating)
+    explicit_action = explicit_robot_action(chat_request.text)
+    if explicit_action and explicit_action.get("emergency_stop"):
+        action_result = await coordinated_action(
+            RobotActionRequest(emergency_stop=True),
+            EventSource.browser,
+            correlation_id,
+            "Explicit text emergency stop",
+            WorkPriority.emergency,
+            execute_text_model_action_payload,
+        )
+        response_text = "I stopped Robit's movement and disabled automatic tracking."
+        coordinator.record_turn("assistant", response_text, EventSource.system, correlation_id)
+        coordinator.transition(correlation_id, EventSource.system, conversation=ConversationState.idle)
+        return {
+            "response": response_text,
+            "model": "deterministic-safety",
+            "conversation_id": chat_request.conversation_id,
+            "correlation_id": correlation_id,
+            "action": {"emergency_stop": True},
+            "action_result": action_result,
+            "vision": None,
+            "parse_error": None,
+        }
+    tracking_result = await execute_explicit_tracking_request(chat_request.text)
+    if tracking_result is not None:
+        if tracking_result.get("ok"):
+            responses = {
+                "track": "I am tracking the visible person continuously.",
+                "off": "Person tracking is off.",
+            }
+            response_text = responses.get(str(tracking_result.get("command")), "Tracking updated.")
+        else:
+            response_text = f"I could not do that safely: {tracking_result.get('error', 'tracking is unavailable')}."
+        coordinator.record_turn("assistant", response_text, EventSource.system, correlation_id)
+        coordinator.transition(correlation_id, EventSource.system, conversation=ConversationState.idle)
+        return {
+            "response": response_text,
+            "model": "deterministic-tracking",
+            "conversation_id": chat_request.conversation_id,
+            "correlation_id": correlation_id,
+            "action": None,
+            "action_result": tracking_result,
+            "vision": None,
+            "parse_error": None,
+        }
     with timed("endpoint.chat_action", prompt_chars=len(chat_request.text)):
         chat_result = await call_llm("action_chat", chat_request.text, history)
 
@@ -916,6 +1204,11 @@ async def tools():
                 "name": "action",
                 "description": "Execute a combined bounded robot action from the PC safety layer.",
                 "endpoint": "POST /robot/action",
+            },
+            {
+                "name": "person_tracking",
+                "description": "Enable or disable continuous RF-DETR person tracking.",
+                "endpoint": "POST /tracking/start",
             },
         ]
     }

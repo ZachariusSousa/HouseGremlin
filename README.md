@@ -12,6 +12,7 @@ Do not put vision or LLM work on the motor controller. Keep the robot firmware b
 ```text
 firmware/robit_controller/    ESP/Arduino firmware for movement and head control
 pc_brain/                     FastAPI service that talks to the robot and owns future AI features
+pc_tracking/                  Isolated local RF-DETR Nano person detector
 web_control/                  Browser control panel for manual driving
 docs/architecture.md          Current system architecture and initial build roadmap
 DESIGN.md                     Long-term brain, memory, vision, tools, and autonomy roadmap
@@ -29,9 +30,10 @@ Maindesign.stl                Current printable model
 
 ## Windows Quick Start
 
-From PowerShell:
+Install 64-bit Python 3.11 first, then run from PowerShell:
 
 ```powershell
+py -3.11 --version
 .\Scripts\setup.bat
 .\Scripts\run.bat
 ```
@@ -64,18 +66,20 @@ tool layer:
 - `POST /api/emergency-stop`
 - `GET /camera`
 - `GET /camera/capture`
-- `GET /camera/stream` redirects to the MJPEG stream on port `81`
+- `GET /camera/stream` is a legacy alias for the still-capture endpoint on port `81`
 
-All camera acquisition is serialized with a five-second minimum interval
-(`ROBIT_CAMERA_FRAME_INTERVAL_MS=5000`) across still captures and MJPEG clients.
-The browser uses the PC brain's shared frame broker rather than opening its own
-raw stream.
+All camera acquisition is serialized through one mutex and capped globally at
+5 FPS while tracking (`ROBIT_CAMERA_MAX_FPS=5`). The PC
+brain's shared frame broker controls demand separately. Person tracking is on
+by default and requests fresh shared frames without opening another camera
+stream. The broker returns to its low idle rate only when tracking is explicitly
+disabled.
 
-The XIAO ESP32S3 Sense camera stream is served at:
+The XIAO ESP32S3 Sense camera page and still endpoint are:
 
 ```text
 http://ROBOT_IP/camera
-http://ROBOT_IP:81/stream
+http://ROBOT_IP:81/capture
 ```
 
 Current soldered pin assumptions:
@@ -112,3 +116,33 @@ with:
 The current Gate 5 surface is `GET /perception/latest` plus
 `POST /perception/query`. Visual results are descriptive only and cannot issue
 movement or head commands in the same turn.
+
+RF-DETR Nano runs in its own `pc_tracking\.venv`, so its Transformers 5
+dependency cannot alter the validated voice environment. It powers one simple
+always-on person tracker: Robit turns its head toward the visible person and
+uses one proportional in-place body turn based on the estimated target bearing
+when the head alone cannot keep up. Tracking
+starts with Robit, has no timeout, and remains off only after an explicit stop
+or emergency stop. It does not replace semantic E4B scene descriptions and it
+never retains camera frames. The tracking API is:
+
+```text
+GET  /tracking/status
+POST /tracking/start
+POST /tracking/stop
+```
+
+After `run.bat` is running, verify the default:
+
+```powershell
+Invoke-RestMethod http://localhost:8080/tracking/status
+```
+
+If tracking was explicitly stopped, turn it back on with:
+
+```powershell
+Invoke-RestMethod -Method Post `
+  -Uri http://localhost:8080/tracking/start `
+  -ContentType "application/json" `
+  -Body '{}'
+```

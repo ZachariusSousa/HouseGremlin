@@ -34,6 +34,7 @@ def vision_settings(tmp_path: Path) -> Settings:
         realtime_voice="serena",
         realtime_instructions="instructions",
         robot_llm_max_speed=180,
+        robot_llm_default_speed=170,
         robot_llm_max_duration_ms=1000,
         data_dir=tmp_path,
         warm_models=False,
@@ -59,6 +60,25 @@ async def test_frame_broker_shares_one_frame_inside_interval():
     fresh = await broker.get_frame(force_fresh=True)
     assert fresh.frame_id != first.frame_id
     assert calls == 2
+
+
+@pytest.mark.anyio
+async def test_frame_broker_rate_leases_raise_and_restore_shared_rate():
+    async def fetch():
+        return b"jpeg", "image/jpeg"
+
+    broker = FrameBroker(fetch, interval_seconds=5.0, max_fps=3.0)
+    assert broker.effective_fps == pytest.approx(0.2)
+    assert broker.effective_interval_seconds == pytest.approx(5.0)
+
+    broker.set_rate_lease("conversation", 2.0)
+    broker.set_rate_lease("tracking", 3.0)
+    assert broker.effective_fps == pytest.approx(3.0)
+
+    broker.release_rate_lease("tracking")
+    assert broker.effective_fps == pytest.approx(2.0)
+    broker.release_rate_lease("conversation")
+    assert broker.effective_fps == pytest.approx(0.2)
 
 
 class FakeAdapter:

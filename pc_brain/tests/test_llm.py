@@ -19,6 +19,7 @@ def settings_for_test() -> Settings:
         realtime_voice="serena",
         realtime_instructions="test realtime instructions",
         robot_llm_max_speed=180,
+        robot_llm_default_speed=170,
         robot_llm_max_duration_ms=1000,
         data_dir=Path("data"),
         warm_models=True,

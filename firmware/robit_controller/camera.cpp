@@ -14,11 +14,11 @@
 #include "robot_state.h"
 #include "config.h"
 
-#ifndef ROBIT_CAMERA_FRAME_INTERVAL_MS
-#define ROBIT_CAMERA_FRAME_INTERVAL_MS 5000
+#ifndef ROBIT_CAMERA_MAX_FPS
+#define ROBIT_CAMERA_MAX_FPS 5
 #endif
-#if ROBIT_CAMERA_FRAME_INTERVAL_MS < 1000
-#error "ROBIT_CAMERA_FRAME_INTERVAL_MS must be at least 1000"
+#if ROBIT_CAMERA_MAX_FPS < 1 || ROBIT_CAMERA_MAX_FPS > 5
+#error "ROBIT_CAMERA_MAX_FPS must be between 1 and 5"
 #endif
 
 namespace {
@@ -26,7 +26,8 @@ WebServer cameraServer(81);
 TaskHandle_t cameraServerTaskHandle = nullptr;
 SemaphoreHandle_t cameraCaptureMutex = nullptr;
 unsigned long lastFrameCapturedAt = 0;
-constexpr unsigned long CAMERA_FRAME_INTERVAL_MS = ROBIT_CAMERA_FRAME_INTERVAL_MS;
+constexpr unsigned long CAMERA_MIN_ACQUISITION_INTERVAL_MS =
+  (1000UL + ROBIT_CAMERA_MAX_FPS - 1UL) / ROBIT_CAMERA_MAX_FPS;
 
 // Seeed Studio XIAO ESP32S3 Sense OV2640 camera pin map.
 constexpr int PWDN_GPIO_NUM = -1;
@@ -46,8 +47,6 @@ constexpr int VSYNC_GPIO_NUM = 38;
 constexpr int HREF_GPIO_NUM = 47;
 constexpr int PCLK_GPIO_NUM = 13;
 
-constexpr char STREAM_BOUNDARY[] = "123456789000000000000987654321";
-
 camera_fb_t* acquireCameraFrame() {
   if (cameraCaptureMutex == nullptr) {
     cameraCaptureMutex = xSemaphoreCreateMutex();
@@ -58,8 +57,8 @@ camera_fb_t* acquireCameraFrame() {
 
   const unsigned long now = millis();
   const unsigned long elapsed = now - lastFrameCapturedAt;
-  if (lastFrameCapturedAt != 0 && elapsed < CAMERA_FRAME_INTERVAL_MS) {
-    vTaskDelay(pdMS_TO_TICKS(CAMERA_FRAME_INTERVAL_MS - elapsed));
+  if (lastFrameCapturedAt != 0 && elapsed < CAMERA_MIN_ACQUISITION_INTERVAL_MS) {
+    vTaskDelay(pdMS_TO_TICKS(CAMERA_MIN_ACQUISITION_INTERVAL_MS - elapsed));
   }
 
   camera_fb_t* frame = esp_camera_fb_get();
@@ -81,34 +80,14 @@ void releaseCameraFrame(camera_fb_t* frame) {
 }
 
 void handleStream() {
-  WiFiClient client = cameraServer.client();
-  client.print(
-    String("HTTP/1.1 200 OK\r\n") +
-    "Access-Control-Allow-Origin: *\r\n"
-    "Content-Type: multipart/x-mixed-replace; boundary=" + STREAM_BOUNDARY + "\r\n\r\n"
-  );
-
-  while (client.connected()) {
-    camera_fb_t* fb = acquireCameraFrame();
-    if (!fb) {
-      Serial.println("[CAMERA][ERROR] Frame capture failed");
-      delay(50);
-      continue;
-    }
-
-    client.print("--");
-    client.print(STREAM_BOUNDARY);
-    client.print("\r\nContent-Type: image/jpeg\r\nContent-Length: ");
-    client.print(fb->len);
-    client.print("\r\n\r\n");
-    client.write(fb->buf, fb->len);
-    client.print("\r\n");
-    releaseCameraFrame(fb);
-  }
+  // A blocking multipart loop would monopolize this small WebServer and starve
+  // the shared /capture broker. Keep the legacy URL as a one-frame redirect.
+  cameraServer.sendHeader("Location", "/capture");
+  cameraServer.send(302, "text/plain", "Use /capture");
 }
 
 void handleStreamStatus() {
-  cameraServer.send(200, "application/json", "{\"ok\":true,\"stream\":\"/stream\"}");
+  cameraServer.send(200, "application/json", "{\"ok\":true,\"capture\":\"/capture\"}");
 }
 
 void cameraServerTask(void*) {
@@ -154,10 +133,11 @@ bool initializeCamera() {
   config.xclk_freq_hz = 20000000;
   config.frame_size = FRAMESIZE_QVGA;
   config.pixel_format = PIXFORMAT_JPEG;
-  config.grab_mode = CAMERA_GRAB_WHEN_EMPTY;
-  config.fb_location = psramFound() ? CAMERA_FB_IN_PSRAM : CAMERA_FB_IN_DRAM;
+  const bool hasPsram = psramFound();
+  config.grab_mode = hasPsram ? CAMERA_GRAB_LATEST : CAMERA_GRAB_WHEN_EMPTY;
+  config.fb_location = hasPsram ? CAMERA_FB_IN_PSRAM : CAMERA_FB_IN_DRAM;
   config.jpeg_quality = 14;
-  config.fb_count = 1;
+  config.fb_count = hasPsram ? 2 : 1;
 
   esp_err_t error = esp_camera_init(&config);
   if (error != ESP_OK) {
@@ -212,7 +192,9 @@ void handleCameraPage(WebServer& server) {
     "main{display:grid;min-height:100vh;place-items:center;padding:16px}"
     "img{max-width:100%;height:auto;border:1px solid #444}</style></head>"
     "<body><main><img src=\"http://\" id=\"stream\" alt=\"Robit camera stream\"></main>"
-    "<script>document.getElementById('stream').src='http://'+location.hostname+':81/stream';</script>"
+    "<script>const image=document.getElementById('stream');"
+    "function refresh(){image.onload=image.onerror=()=>setTimeout(refresh,1000);"
+    "image.src='http://'+location.hostname+':81/capture?t='+Date.now()}refresh();</script>"
     "</body></html>";
   server.send(200, "text/html", html);
 }

@@ -14,4 +14,7 @@ def isolated_main_brain(monkeypatch, tmp_path):
     monkeypatch.setattr(main, "eye_controller", None)
     monkeypatch.setattr(main, "frame_broker", None)
     monkeypatch.setattr(main, "vision_service", None)
+    monkeypatch.setattr(main, "tracking_service", None)
+    monkeypatch.setattr(main, "robot_status_cache", None)
+    monkeypatch.setattr(main, "robot_status_cache_at", 0.0)
     yield

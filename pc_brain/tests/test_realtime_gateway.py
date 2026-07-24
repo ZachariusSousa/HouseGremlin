@@ -107,6 +107,8 @@ def test_explicit_robot_action_parses_bounded_voice_commands():
     assert explicit_robot_action("Can you tilt your head to 110 degrees?") == {"head": {"tilt": 110}}
     assert explicit_robot_action("Tilt your head a hundred and ten degrees") == {"head": {"tilt": 110}}
     assert explicit_robot_action("Please stop moving") == {"emergency_stop": True}
+    assert explicit_robot_action("Stop please") == {"emergency_stop": True}
+    assert explicit_robot_action("Stop following me please") is None
     assert explicit_robot_action("Are you actually doing it or just saying it?") is None
 
 
@@ -442,6 +444,118 @@ def test_browser_contains_no_voice_tool_execution_path():
     assert 'getJson("/brain/state")' in page
     assert "Voice active in another tab" in page
     assert "Voice reconnecting" in page
+    assert "enabledRequested: true" in page
+    assert 'getJson("/tracking/status")' in page
+    assert 'runTrackingCommand("/tracking/start"' in page
+    assert 'runTrackingCommand("/tracking/stop"' in page
+    assert "/tracking/approach" not in page
+    assert 'response.headers.get("X-Robit-Frame-Id")' in page
+    assert "targetFrameId !== state.cameraFrameId" in page
+    assert "URL.createObjectURL(blob)" in page
+
+
+@pytest.mark.anyio
+async def test_explicit_tracking_voice_command_does_not_fall_through_to_emergency_stop(tmp_path):
+    coordinator = BrainCoordinator(EventJournal(tmp_path / "brain.db"))
+    robot_actions = []
+    tracking_commands = []
+
+    async def execute(action):
+        robot_actions.append(action)
+        return {"ok": True}
+
+    async def tracking_command(text):
+        tracking_commands.append(text)
+        return {"ok": True, "command": "stop"}
+
+    gateway = RealtimeGateway(
+        "ws://sidecar",
+        "serena",
+        "instructions",
+        coordinator,
+        lambda action: action,
+        execute,
+        tracking_command=tracking_command,
+    )
+    await gateway._handle_upstream_event(
+        {
+            "type": "conversation.item.input_audio_transcription.completed",
+            "transcript": "Stop following me please",
+        }
+    )
+
+    assert tracking_commands == ["Stop following me please"]
+    assert robot_actions == []
+
+
+@pytest.mark.anyio
+async def test_stop_looking_voice_command_disables_tracking_instead_of_starting_vision(tmp_path):
+    coordinator = BrainCoordinator(EventJournal(tmp_path / "brain.db"))
+    tracking_commands = []
+    visual_questions = []
+
+    async def tracking_command(text):
+        tracking_commands.append(text)
+        return {"ok": True, "command": "off"}
+
+    async def inspect_scene(question):
+        visual_questions.append(question)
+        return {"fresh": True, "snapshot": {"frame_id": "wrong-path"}}
+
+    gateway = RealtimeGateway(
+        "ws://sidecar",
+        "serena",
+        "instructions",
+        coordinator,
+        lambda action: action,
+        None,
+        inspect_scene=inspect_scene,
+        tracking_command=tracking_command,
+    )
+    await gateway._handle_upstream_event(
+        {
+            "type": "conversation.item.input_audio_transcription.completed",
+            "transcript": "Please don't look at me",
+        }
+    )
+
+    assert tracking_commands == ["Please don't look at me"]
+    assert visual_questions == []
+    assert gateway._visual_response_task is None
+
+
+@pytest.mark.anyio
+async def test_combined_tracking_and_motor_stop_prioritizes_emergency_stop(tmp_path):
+    coordinator = BrainCoordinator(EventJournal(tmp_path / "brain.db"))
+    robot_actions = []
+    tracking_commands = []
+
+    async def execute(action):
+        robot_actions.append(action)
+        return {"ok": True}
+
+    async def tracking_command(text):
+        tracking_commands.append(text)
+        return {"ok": True, "command": "stop"}
+
+    gateway = RealtimeGateway(
+        "ws://sidecar",
+        "serena",
+        "instructions",
+        coordinator,
+        lambda action: action,
+        execute,
+        tracking_command=tracking_command,
+    )
+    await gateway._handle_upstream_event(
+        {
+            "type": "conversation.item.input_audio_transcription.completed",
+            "transcript": "Stop tracking and stop moving",
+        }
+    )
+
+    assert tracking_commands == []
+    assert robot_actions == [{"emergency_stop": True}]
 
 
 @pytest.mark.anyio

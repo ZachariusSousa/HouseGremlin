@@ -48,6 +48,7 @@ class Settings:
     realtime_voice: str
     realtime_instructions: str
     robot_llm_max_speed: int
+    robot_llm_default_speed: int
     robot_llm_max_duration_ms: int
     data_dir: Path
     warm_models: bool
@@ -64,6 +65,12 @@ class Settings:
     vision_blur_threshold: float = 20.0
     camera_frame_interval_seconds: float = 5.0
     camera_rotate_degrees: int = 180
+    tracking_enabled: bool = True
+    tracking_base_url: str = "http://127.0.0.1:8091"
+    tracking_request_timeout_seconds: float = 2.0
+    tracking_confidence: float = 0.40
+    tracking_pan_sign: int = 1
+    tracking_tilt_sign: int = 1
 
 
 def load_settings() -> Settings:
@@ -96,6 +103,7 @@ def load_settings() -> Settings:
             ),
         ),
         robot_llm_max_speed=_int_env("ROBIT_LLM_MAX_SPEED", 180),
+        robot_llm_default_speed=_int_env("ROBIT_LLM_DEFAULT_SPEED", 170),
         robot_llm_max_duration_ms=_int_env("ROBIT_LLM_MAX_DURATION_MS", 1000),
         data_dir=data_dir,
         warm_models=_bool_env("ROBIT_WARM_MODELS", True),
@@ -115,6 +123,12 @@ def load_settings() -> Settings:
         vision_blur_threshold=_float_env("ROBIT_VISION_BLUR_THRESHOLD", 20.0),
         camera_frame_interval_seconds=_float_env("ROBIT_CAMERA_FRAME_INTERVAL_SECONDS", 5.0),
         camera_rotate_degrees=_int_env("ROBIT_CAMERA_ROTATE_DEGREES", 180),
+        tracking_enabled=_bool_env("ROBIT_TRACKING_ENABLED", True),
+        tracking_base_url=os.getenv("ROBIT_TRACKING_BASE_URL", "http://127.0.0.1:8091").rstrip("/"),
+        tracking_request_timeout_seconds=_float_env("ROBIT_TRACKING_REQUEST_TIMEOUT_SECONDS", 2.0),
+        tracking_confidence=_float_env("ROBIT_TRACKING_CONFIDENCE", 0.40),
+        tracking_pan_sign=_int_env("ROBIT_TRACKING_PAN_SIGN", 1),
+        tracking_tilt_sign=_int_env("ROBIT_TRACKING_TILT_SIGN", 1),
     )
 
 

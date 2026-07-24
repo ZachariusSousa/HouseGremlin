@@ -852,8 +852,23 @@
           #06090e;
       }
 
+      .camera-frame img {
+        position: relative;
+        z-index: 1;
+      }
+
+      .tracking-overlay {
+        position: absolute;
+        z-index: 2;
+        width: 100%;
+        height: 100%;
+        pointer-events: none;
+        inset: 0;
+      }
+
       .camera-frame::after {
         position: absolute;
+        z-index: 3;
         pointer-events: none;
         inset: 0;
         border: 1px solid rgba(255, 255, 255, 0.025);
@@ -997,6 +1012,33 @@
 
       .status-text.error {
         color: #ff8b86;
+      }
+
+      .tracking-panel {
+        gap: 12px;
+      }
+
+      .tracking-toggle-copy {
+        display: grid;
+        min-width: 0;
+        gap: 2px;
+      }
+
+      .tracking-toggle-copy strong {
+        color: var(--ink);
+        font-size: 13px;
+      }
+
+      .tracking-toggle-copy small {
+        color: var(--muted);
+        font-size: 11px;
+        line-height: 1.35;
+      }
+
+      .tracking-reason {
+        min-height: 1.4em;
+        margin: 0;
+        line-height: 1.4;
       }
 
       .side-panel {
@@ -1180,8 +1222,9 @@
             </div>
             <div class="camera-frame">
               <img id="cameraStream" class="camera-rotated" alt="Robit live camera feed">
+              <canvas id="trackingOverlay" class="tracking-overlay" hidden aria-hidden="true"></canvas>
               <div id="cameraEmpty" class="camera-empty">
-                Camera feed will appear here when the firmware stream is available.
+                Camera feed will appear here when the firmware camera is available.
               </div>
             </div>
             <div class="telemetry">
@@ -1224,6 +1267,20 @@
           </section>
 
           <aside class="side-panel" aria-label="Controls and logs">
+            <details open>
+              <summary><span>Person Tracking</span><span aria-hidden="true">+</span></summary>
+              <div class="panel-content tracking-panel">
+                <label class="check-row" for="trackingToggle">
+                  <input id="trackingToggle" type="checkbox">
+                  <span class="tracking-toggle-copy">
+                    <strong>Always track a visible person</strong>
+                    <small>Uses the head first, then a short body pivot when needed.</small>
+                  </span>
+                </label>
+                <p id="trackingReason" class="status-text tracking-reason">Checking tracking service…</p>
+              </div>
+            </details>
+
             <details open>
               <summary><span>Manual Controls</span><span aria-hidden="true">+</span></summary>
               <div class="panel-content">
@@ -1299,10 +1356,21 @@
         isSending: false,
         controlsEnabled: false,
         camera: null,
-        cameraStillTimer: null,
+        cameraLoopTimer: null,
         cameraFrameInFlight: false,
         cameraFrameStartedAt: 0,
-        cameraDirectFailed: false,
+        cameraAbortController: null,
+        cameraLoopGeneration: 0,
+        cameraObjectUrl: null,
+        cameraFrameId: null,
+        tracking: {
+          status: null,
+          statusInFlight: false,
+          actionInFlight: false,
+          refreshTimer: null,
+          enabledRequested: true,
+          lastError: null
+        },
         realtime: {
           ws: null,
           audioContext: null,
@@ -1340,6 +1408,9 @@
         cameraText: document.getElementById("cameraText"),
         cameraStream: document.getElementById("cameraStream"),
         cameraEmpty: document.getElementById("cameraEmpty"),
+        trackingOverlay: document.getElementById("trackingOverlay"),
+        trackingToggle: document.getElementById("trackingToggle"),
+        trackingReason: document.getElementById("trackingReason"),
         metricMode: document.getElementById("metricMode"),
         metricMove: document.getElementById("metricMove"),
         metricSpeed: document.getElementById("metricSpeed"),
@@ -1469,15 +1540,191 @@
         els.metricHead.textContent = `${status.pan ?? "-"}, ${status.tilt ?? "-"}`;
       }
 
+      function cameraFrameIntervalMs() {
+        const seconds = Number(state.camera?.frame_interval_seconds);
+        // RF-DETR consumes the broker internally at up to 3 FPS. The operator
+        // preview only needs one cached frame per second and should not flood
+        // the HTTP access log.
+        return Number.isFinite(seconds) && seconds > 0 ? Math.max(1000, seconds * 1000) : 5000;
+      }
+
+      function cameraCadenceText() {
+        const intervalMs = cameraFrameIntervalMs();
+        if (intervalMs <= 1000) {
+          return `Camera ${(1000 / intervalMs).toFixed(1)} FPS`;
+        }
+        return `Camera every ${(intervalMs / 1000).toFixed(intervalMs % 1000 === 0 ? 0 : 1)}s`;
+      }
+
+      function clearTrackingOverlay() {
+        const canvas = els.trackingOverlay;
+        const context = canvas.getContext("2d");
+        context.clearRect(0, 0, canvas.width, canvas.height);
+        canvas.hidden = true;
+      }
+
+      function renderTrackingOverlay() {
+        const target = state.tracking.status?.target;
+        const targetFrameId = target?.frame_id === null || target?.frame_id === undefined
+          ? null
+          : String(target.frame_id);
+        if (
+          !target ||
+          !state.cameraFrameId ||
+          targetFrameId !== state.cameraFrameId ||
+          !Array.isArray(target.bounding_box) ||
+          target.bounding_box.length !== 4 ||
+          !els.cameraStream.naturalWidth ||
+          !els.cameraStream.naturalHeight
+        ) {
+          clearTrackingOverlay();
+          return;
+        }
+
+        const rawBox = target.bounding_box.map(Number);
+        if (!rawBox.every(Number.isFinite)) {
+          clearTrackingOverlay();
+          return;
+        }
+
+        const sourceWidth = els.cameraStream.naturalWidth;
+        const sourceHeight = els.cameraStream.naturalHeight;
+        if (rawBox.some((value) => value < 0 || value > 1)) {
+          clearTrackingOverlay();
+          return;
+        }
+        let [x1, y1, x2, y2] = rawBox;
+        x1 *= sourceWidth;
+        x2 *= sourceWidth;
+        y1 *= sourceHeight;
+        y2 *= sourceHeight;
+
+        const sourceLeft = Math.max(0, Math.min(sourceWidth, Math.min(x1, x2)));
+        const sourceRight = Math.max(0, Math.min(sourceWidth, Math.max(x1, x2)));
+        const sourceTop = Math.max(0, Math.min(sourceHeight, Math.min(y1, y2)));
+        const sourceBottom = Math.max(0, Math.min(sourceHeight, Math.max(y1, y2)));
+        if (sourceRight <= sourceLeft || sourceBottom <= sourceTop) {
+          clearTrackingOverlay();
+          return;
+        }
+
+        const canvas = els.trackingOverlay;
+        const displayWidth = canvas.parentElement?.clientWidth || 0;
+        const displayHeight = canvas.parentElement?.clientHeight || 0;
+        if (!displayWidth || !displayHeight) {
+          clearTrackingOverlay();
+          return;
+        }
+
+        const pixelRatio = Math.min(2, window.devicePixelRatio || 1);
+        const expectedWidth = Math.round(displayWidth * pixelRatio);
+        const expectedHeight = Math.round(displayHeight * pixelRatio);
+        if (canvas.width !== expectedWidth || canvas.height !== expectedHeight) {
+          canvas.width = expectedWidth;
+          canvas.height = expectedHeight;
+        }
+
+        const context = canvas.getContext("2d");
+        context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+        context.clearRect(0, 0, displayWidth, displayHeight);
+
+        const scale = Math.min(displayWidth / sourceWidth, displayHeight / sourceHeight);
+        const offsetX = (displayWidth - sourceWidth * scale) / 2;
+        const offsetY = (displayHeight - sourceHeight * scale) / 2;
+
+        // Tracking boxes are produced from the same 180-degree-corrected view
+        // shown to the operator, so they can be mapped directly to the canvas.
+        const boxX = offsetX + sourceLeft * scale;
+        const boxY = offsetY + sourceTop * scale;
+        const boxWidth = (sourceRight - sourceLeft) * scale;
+        const boxHeight = (sourceBottom - sourceTop) * scale;
+
+        context.strokeStyle = "#52d6c3";
+        context.lineWidth = 2;
+        context.setLineDash([7, 4]);
+        context.strokeRect(boxX, boxY, boxWidth, boxHeight);
+        context.setLineDash([]);
+
+        const confidence = Number(target.confidence);
+        const confidenceText = Number.isFinite(confidence) ? ` ${Math.round(confidence * 100)}%` : "";
+        const trackText = target.track_id === null || target.track_id === undefined ? "person" : `person ${target.track_id}`;
+        const label = `${trackText}${confidenceText}`;
+        context.font = "600 12px system-ui, sans-serif";
+        const labelWidth = Math.ceil(context.measureText(label).width) + 12;
+        const labelHeight = 22;
+        const labelX = Math.max(0, Math.min(displayWidth - labelWidth, boxX));
+        const labelY = boxY >= labelHeight ? boxY - labelHeight : Math.min(displayHeight - labelHeight, boxY + 2);
+        context.fillStyle = "rgba(6, 20, 18, 0.88)";
+        context.fillRect(labelX, labelY, labelWidth, labelHeight);
+        context.fillStyle = "#dff8f3";
+        context.fillText(label, labelX + 6, labelY + 15);
+        canvas.hidden = false;
+      }
+
+      function loadCameraBlob(objectUrl) {
+        return new Promise((resolve, reject) => {
+          let settled = false;
+          const timeout = window.setTimeout(() => finish(new Error("Camera image decode timed out")), 5000);
+
+          function cleanup() {
+            window.clearTimeout(timeout);
+            els.cameraStream.removeEventListener("load", handleLoad);
+            els.cameraStream.removeEventListener("error", handleError);
+          }
+
+          function finish(error) {
+            if (settled) return;
+            settled = true;
+            cleanup();
+            if (error) reject(error);
+            else resolve();
+          }
+
+          function handleLoad() {
+            finish();
+          }
+
+          function handleError() {
+            finish(new Error("Camera image could not be decoded"));
+          }
+
+          els.cameraStream.addEventListener("load", handleLoad);
+          els.cameraStream.addEventListener("error", handleError);
+          els.cameraStream.src = objectUrl;
+        });
+      }
+
+      function stopCameraLoop() {
+        state.cameraLoopGeneration += 1;
+        window.clearTimeout(state.cameraLoopTimer);
+        state.cameraLoopTimer = null;
+        state.cameraAbortController?.abort();
+        state.cameraAbortController = null;
+        state.cameraFrameInFlight = false;
+      }
+
+      function scheduleCameraFrame(delayMs = 0, generation = state.cameraLoopGeneration) {
+        window.clearTimeout(state.cameraLoopTimer);
+        if (generation !== state.cameraLoopGeneration || document.hidden || !state.camera) return;
+        state.cameraLoopTimer = window.setTimeout(() => fetchCameraFrame(generation), Math.max(0, delayMs));
+      }
+
+      function startCameraLoop() {
+        stopCameraLoop();
+        if (document.hidden || !state.camera) return;
+        scheduleCameraFrame(0, state.cameraLoopGeneration);
+      }
+
       async function refreshCamera() {
         try {
           const camera = await getJson("/robot/camera");
           state.camera = camera;
-          state.cameraDirectFailed = false;
-          state.cameraFrameInFlight = false;
-          window.clearTimeout(state.cameraStillTimer);
-          showCameraStillFrame();
+          startCameraLoop();
         } catch (error) {
+          stopCameraLoop();
+          state.camera = null;
+          state.cameraFrameId = null;
+          clearTrackingOverlay();
           els.cameraStream.hidden = true;
           els.cameraEmpty.hidden = false;
           setPill(els.cameraStatus, els.cameraText, "error", "Unavailable");
@@ -1485,21 +1732,187 @@
         }
       }
 
-      function showCameraStillFrame() {
-        if (!state.camera || state.cameraFrameInFlight || document.hidden) return;
-        window.clearTimeout(state.cameraStillTimer);
+      async function fetchCameraFrame(generation) {
+        if (generation !== state.cameraLoopGeneration || document.hidden || !state.camera) return;
+        if (state.cameraFrameInFlight) {
+          scheduleCameraFrame(cameraFrameIntervalMs(), generation);
+          return;
+        }
+
         state.cameraFrameInFlight = true;
         state.cameraFrameStartedAt = Date.now();
-        const captureUrl = brainUrl(`/robot/camera/capture?t=${Date.now()}`);
-        els.cameraStream.src = captureUrl;
-        els.cameraStream.hidden = false;
-        els.cameraEmpty.hidden = true;
-        setPill(
-          els.cameraStatus,
-          els.cameraText,
-          "ready",
-          `Camera every ${state.camera.frame_interval_seconds || 5}s`
-        );
+        const controller = new AbortController();
+        state.cameraAbortController = controller;
+        let failed = false;
+
+        try {
+          const response = await fetch(brainUrl(`/robot/camera/capture?t=${Date.now()}`), {
+            cache: "no-store",
+            signal: controller.signal
+          });
+          if (!response.ok) throw new Error(await response.text());
+
+          const frameIdHeader = response.headers.get("X-Robit-Frame-Id");
+          const reportedIntervalSeconds = Number(response.headers.get("X-Robit-Frame-Interval"));
+          if (
+            generation === state.cameraLoopGeneration &&
+            Number.isFinite(reportedIntervalSeconds) &&
+            reportedIntervalSeconds > 0
+          ) {
+            state.camera = {
+              ...state.camera,
+              frame_interval_seconds: reportedIntervalSeconds
+            };
+          }
+          const blob = await response.blob();
+          if (!blob.type.startsWith("image/")) {
+            throw new Error(`Unexpected camera content type: ${blob.type || "unknown"}`);
+          }
+
+          const objectUrl = URL.createObjectURL(blob);
+          try {
+            await loadCameraBlob(objectUrl);
+          } catch (error) {
+            URL.revokeObjectURL(objectUrl);
+            throw error;
+          }
+
+          if (generation !== state.cameraLoopGeneration) {
+            URL.revokeObjectURL(objectUrl);
+            return;
+          }
+
+          const previousObjectUrl = state.cameraObjectUrl;
+          state.cameraObjectUrl = objectUrl;
+          state.cameraFrameId = frameIdHeader === null ? null : String(frameIdHeader);
+          if (previousObjectUrl) URL.revokeObjectURL(previousObjectUrl);
+
+          els.cameraStream.hidden = false;
+          els.cameraEmpty.hidden = true;
+          setPill(els.cameraStatus, els.cameraText, "ready", cameraCadenceText());
+          renderTrackingOverlay();
+        } catch (error) {
+          if (error?.name === "AbortError" || generation !== state.cameraLoopGeneration) return;
+          failed = true;
+          state.cameraFrameId = null;
+          clearTrackingOverlay();
+          if (!state.cameraObjectUrl) {
+            els.cameraStream.hidden = true;
+            els.cameraEmpty.hidden = false;
+          }
+          setPill(els.cameraStatus, els.cameraText, "error", "Camera retrying");
+          addLog("camera frame error", error instanceof Error ? error.message : String(error));
+        } finally {
+          if (state.cameraAbortController === controller) state.cameraAbortController = null;
+          state.cameraFrameInFlight = false;
+          if (generation === state.cameraLoopGeneration && !document.hidden && state.camera) {
+            const elapsed = Date.now() - state.cameraFrameStartedAt;
+            const targetInterval = cameraFrameIntervalMs();
+            const retryFloor = failed ? 1000 : 0;
+            scheduleCameraFrame(Math.max(retryFloor, targetInterval - elapsed), generation);
+          }
+        }
+      }
+
+      function trackingPollIntervalMs() {
+        return Math.max(1000, Math.min(2500, cameraFrameIntervalMs()));
+      }
+
+      function updateTrackingControls() {
+        const busy = state.tracking.actionInFlight;
+        els.trackingToggle.disabled = busy;
+      }
+
+      function trackingReasonText(status) {
+        if (!status?.available) return status?.reason || "Tracking service unavailable.";
+        if (status.state === "fault") return status.reason || "Tracking fault.";
+        if (!status.enabled) {
+          return status.stop_reason ? `Tracking off: ${status.stop_reason}` : "Tracking is off.";
+        }
+        if (status.target) {
+          const confidence = Number(status.target.confidence);
+          const detail = Number.isFinite(confidence) ? ` (${Math.round(confidence * 100)}%)` : "";
+          return `Following a visible person${detail}.`;
+        }
+        return "Tracking is on; looking for a visible person.";
+      }
+
+      function applyTrackingStatus(status) {
+        state.tracking.status = status || {
+          available: false,
+          enabled: false,
+          state: "off",
+          reason: "Tracking service unavailable."
+        };
+        const current = state.tracking.status;
+        const available = current.available === true;
+
+        if (typeof current.enabled === "boolean") {
+          state.tracking.enabledRequested = current.enabled;
+        }
+        els.trackingToggle.checked = state.tracking.enabledRequested;
+
+        els.trackingReason.textContent = trackingReasonText(current);
+        els.trackingReason.classList.toggle("error", !available || current.state === "fault");
+        updateTrackingControls();
+        renderTrackingOverlay();
+      }
+
+      function scheduleTrackingRefresh(delayMs = trackingPollIntervalMs()) {
+        window.clearTimeout(state.tracking.refreshTimer);
+        if (document.hidden) return;
+        state.tracking.refreshTimer = window.setTimeout(refreshTrackingStatus, Math.max(0, delayMs));
+      }
+
+      async function refreshTrackingStatus() {
+        window.clearTimeout(state.tracking.refreshTimer);
+        if (document.hidden || state.tracking.statusInFlight) return;
+        state.tracking.statusInFlight = true;
+        try {
+          const status = await getJson("/tracking/status");
+          state.tracking.lastError = null;
+          applyTrackingStatus(status);
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          applyTrackingStatus({
+            available: false,
+            enabled: false,
+            state: "off",
+            reason: message
+          });
+          if (message !== state.tracking.lastError) {
+            addLog("tracking status error", message);
+            state.tracking.lastError = message;
+          }
+        } finally {
+          state.tracking.statusInFlight = false;
+          scheduleTrackingRefresh();
+        }
+      }
+
+      async function runTrackingCommand(path, body, label) {
+        if (state.tracking.actionInFlight) return;
+        state.tracking.actionInFlight = true;
+        updateTrackingControls();
+        try {
+          const result = await postJson(path, body);
+          addLog(label, result);
+          const returnedStatus =
+            result?.status ||
+            result?.tracking ||
+            (result?.available !== undefined && result?.state ? result : null);
+          if (returnedStatus && typeof returnedStatus === "object") applyTrackingStatus(returnedStatus);
+          await refreshCamera();
+        } catch (error) {
+          const message = error instanceof Error ? error.message : String(error);
+          els.trackingReason.textContent = message;
+          els.trackingReason.classList.add("error");
+          addLog(`${label} error`, message);
+        } finally {
+          state.tracking.actionInFlight = false;
+          updateTrackingControls();
+          scheduleTrackingRefresh(0);
+        }
       }
 
       function updateScenePanel(payload) {
@@ -2057,26 +2470,13 @@
 
       els.replayButton.hidden = true;
 
-      els.cameraStream.addEventListener("error", () => {
-        state.cameraFrameInFlight = false;
-        els.cameraStream.hidden = true;
-        els.cameraEmpty.hidden = false;
-        setPill(els.cameraStatus, els.cameraText, "error", "Unavailable");
-        state.cameraStillTimer = window.setTimeout(showCameraStillFrame, 3000);
-      });
-
-      els.cameraStream.addEventListener("load", () => {
-        state.cameraFrameInFlight = false;
-        if (document.hidden) return;
-        const elapsed = Date.now() - state.cameraFrameStartedAt;
-        const targetInterval = Math.max(1000, Number(state.camera?.frame_interval_seconds || 5) * 1000);
-        setPill(
-          els.cameraStatus,
-          els.cameraText,
-          "ready",
-          `Camera every ${state.camera?.frame_interval_seconds || 5}s`
-        );
-        state.cameraStillTimer = window.setTimeout(showCameraStillFrame, Math.max(0, targetInterval - elapsed));
+      els.trackingToggle.addEventListener("change", () => {
+        state.tracking.enabledRequested = els.trackingToggle.checked;
+        if (state.tracking.enabledRequested) {
+          runTrackingCommand("/tracking/start", {}, "tracking enabled");
+        } else {
+          runTrackingCommand("/tracking/stop", {}, "tracking disabled");
+        }
       });
 
       document.querySelectorAll("[data-move]").forEach((button) => {
@@ -2128,20 +2528,36 @@
         if (["KeyW", "KeyA", "KeyS", "KeyD"].includes(event.code)) drive("stop");
       });
       document.addEventListener("visibilitychange", () => {
-        window.clearTimeout(state.cameraStillTimer);
-        if (!document.hidden) {
-          refreshCamera();
-          refreshPerception();
+        if (document.hidden) {
+          stopCameraLoop();
+          window.clearTimeout(state.tracking.refreshTimer);
+          return;
         }
+        refreshCamera();
+        refreshPerception();
+        scheduleTrackingRefresh(0);
+      });
+      window.addEventListener("resize", renderTrackingOverlay);
+      window.addEventListener("beforeunload", () => {
+        stopCameraLoop();
+        window.clearTimeout(state.tracking.refreshTimer);
+        if (state.cameraObjectUrl) URL.revokeObjectURL(state.cameraObjectUrl);
       });
 
       loadBrainState().catch((error) => addLog("conversation restore error", error instanceof Error ? error.message : String(error)));
       setMode(window.localStorage.getItem("robitMode") === "voice" ? "voice" : "text");
       setControlsEnabled(false);
+      applyTrackingStatus({
+        available: false,
+        enabled: false,
+        state: "off",
+        reason: "Checking tracking service…"
+      });
       setPill(els.connectionStatus, els.connectionText, "ready", "Ready");
       loadRealtimeConfig().catch(() => {});
       refreshCamera();
       refreshPerception();
+      refreshTrackingStatus();
       window.setInterval(refreshPerception, 5000);
     </script>
   </body>

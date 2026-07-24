@@ -90,7 +90,8 @@ at `http://127.0.0.1:8081/v1`. Voice still uses its own Parakeet STT and Qwen
 TTS models. Vision remains behind `VisionService` and its own
 `ROBIT_VISION_MODEL`/`ROBIT_VISION_BASE_URL` settings so it can move to a
 dedicated detector or VLM later without changing Text or Voice.
-LLM-issued movement is clamped by `ROBIT_LLM_MAX_SPEED=180` and `ROBIT_LLM_MAX_DURATION_MS=1000`.
+LLM-issued movement defaults to `ROBIT_LLM_DEFAULT_SPEED=170`, is clamped by
+`ROBIT_LLM_MAX_SPEED=180`, and is limited by `ROBIT_LLM_MAX_DURATION_MS=1000`.
 
 ## Checks
 

@@ -4,9 +4,12 @@ setlocal EnableExtensions
 set "ROOT=%~dp0.."
 set "PC_BRAIN=%ROOT%\pc_brain"
 set "VENV=%PC_BRAIN%\.venv"
+set "PC_TRACKING=%ROOT%\pc_tracking"
+set "TRACKING_VENV=%PC_TRACKING%\.venv"
 set "DEFAULT_ROBOT_HOST=robit.local"
 set "REALTIME_PORT=7861"
 set "LLAMA_SERVER_PORT=8081"
+set "TRACKING_PORT=8091"
 set "LLAMA_SERVER_EXE=llama-server"
 set "E4B_MODEL=ggml-org/gemma-4-E4B-it-GGUF:Q4_0"
 set "E4B_BASE_URL=http://127.0.0.1:%LLAMA_SERVER_PORT%/v1"
@@ -16,6 +19,11 @@ set "ROBIT_REALTIME_MODEL=%E4B_MODEL%"
 set "ROBIT_VISION_BASE_URL=%E4B_BASE_URL%"
 set "ROBIT_VISION_MODEL=%E4B_MODEL%"
 set "ROBIT_VISION_IMAGE_TOKENS=140"
+set "ROBIT_TRACKING_BASE_URL=http://127.0.0.1:%TRACKING_PORT%"
+set "ROBIT_TRACKING_CONFIDENCE=0.40"
+set "ROBIT_CAMERA_ROTATE_DEGREES=180"
+if "%ROBIT_TRACKING_DEVICE%"=="" set "ROBIT_TRACKING_DEVICE=auto"
+set "TRACKING_READY=0"
 set "REALTIME_STT_MODEL=nvidia/parakeet-tdt-0.6b-v3"
 set "REALTIME_TTS_MODEL=Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"
 rem These voice models are public. Ignore a stale saved Hugging Face token so
@@ -29,6 +37,8 @@ if "%ROBIT_REALTIME_VOICE%"=="" (
 set "RUN_ID=%RANDOM%%RANDOM%"
 set "S2S_LOG=%TEMP%\robit-realtime-voice-%RUN_ID%.log"
 set "S2S_RUNNER=%TEMP%\robit-realtime-voice-%RUN_ID%.bat"
+set "TRACKING_LOG=%TEMP%\robit-rfdetr-%RUN_ID%.log"
+set "TRACKING_RUNNER=%TEMP%\robit-rfdetr-%RUN_ID%.bat"
 set "PORT=%~2"
 if "%PORT%"=="" set "PORT=8080"
 
@@ -38,6 +48,11 @@ if not exist "%VENV%\Scripts\python.exe" (
   echo [run][error] pc_brain\.venv was not found.
   echo Run Scripts\setup.bat first.
   exit /b 1
+)
+
+if not exist "%TRACKING_VENV%\Scripts\python.exe" (
+  echo [run][warning] pc_tracking\.venv was not found. Tracking will be unavailable.
+  echo [run][warning] Run Scripts\setup.bat to install RF-DETR later.
 )
 
 "%VENV%\Scripts\python.exe" --version >nul 2>&1
@@ -51,8 +66,8 @@ call "%VENV%\Scripts\activate.bat" || exit /b 1
 
 if exist "C:\Tools\llama.cpp\llama-server.exe" set "LLAMA_SERVER_EXE=C:\Tools\llama.cpp\llama-server.exe"
 
-echo [run] Stopping stale realtime voice processes
-python "%ROOT%\Scripts\stop_voice_stack.py" --ports %REALTIME_PORT% %LLAMA_SERVER_PORT% || exit /b 1
+echo [run] Stopping stale Robit sidecar processes
+python "%ROOT%\Scripts\stop_voice_stack.py" --ports %REALTIME_PORT% %LLAMA_SERVER_PORT% %TRACKING_PORT% || exit /b 1
 
 python "%ROOT%\Scripts\patch_speech_to_speech_timeout.py" || exit /b 1
 
@@ -61,6 +76,16 @@ if errorlevel 1 (
   echo [run][error] The shared Python environment has incompatible package versions.
   echo Run Scripts\setup.bat to restore the validated voice and vision environment.
   exit /b 1
+)
+
+if exist "%TRACKING_VENV%\Scripts\python.exe" (
+  "%TRACKING_VENV%\Scripts\python.exe" -c "import importlib.metadata, sys; sys.exit(0 if importlib.metadata.version('rfdetr') == '1.8.3' else 1)" >nul 2>&1
+  if errorlevel 1 (
+    echo [run][warning] The isolated RF-DETR environment is incompatible. Tracking will be unavailable.
+    echo [run][warning] Run Scripts\setup.bat to repair it.
+  ) else (
+    set "TRACKING_READY=1"
+  )
 )
 
 if "%~1"=="" (
@@ -137,6 +162,22 @@ echo [run] Watch log: Get-Content "%S2S_LOG%" -Wait
   echo python -m speech_to_speech.s2s_pipeline --mode realtime --ws_host 0.0.0.0 --ws_port %REALTIME_PORT% --stt parakeet-tdt --parakeet_tdt_model_name %REALTIME_STT_MODEL% --parakeet_tdt_device cuda --parakeet_tdt_compute_type float16 --llm_backend responses-api --model_name %E4B_MODEL% --responses_api_api_key local --responses_api_base_url %E4B_BASE_URL% --responses_api_request_timeout_s 180 --tts qwen3 --qwen3_tts_model_name %REALTIME_TTS_MODEL% --qwen3_tts_device cuda --qwen3_tts_speaker %REALTIME_VOICE% ^>^> "%S2S_LOG%" 2^>^&1
 ) > "%S2S_RUNNER%"
 start "Robit Realtime Voice" /min cmd /k call "%S2S_RUNNER%"
+
+if "%TRACKING_READY%"=="1" (
+  echo [run] Starting RF-DETR Nano sidecar on http://127.0.0.1:%TRACKING_PORT%
+  echo [run] Tracking device: %ROBIT_TRACKING_DEVICE%
+  echo [run] Tracking log: %TRACKING_LOG%
+  (
+    echo @echo off
+    echo cd /d "%PC_TRACKING%"
+    echo set HF_HUB_DISABLE_IMPLICIT_TOKEN=1
+    echo set ROBIT_TRACKING_DEVICE=%ROBIT_TRACKING_DEVICE%
+    echo "%TRACKING_VENV%\Scripts\python.exe" -m uvicorn app.main:app --host 127.0.0.1 --port %TRACKING_PORT% ^> "%TRACKING_LOG%" 2^>^&1
+  ) > "%TRACKING_RUNNER%"
+  start "Robit RF-DETR" /min cmd /k call "%TRACKING_RUNNER%"
+) else (
+  echo [run] RF-DETR sidecar skipped; text, voice, and descriptive vision remain available.
+)
 
 echo [run] Opening http://localhost:%PORT%
 start "" cmd /c "timeout /t 3 /nobreak >nul && start http://localhost:%PORT%"

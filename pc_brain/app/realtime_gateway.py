@@ -23,6 +23,7 @@ ServerFaultHandler = Callable[[str, bool, str | None], None]
 VoiceSessionHandler = Callable[[bool], None]
 SceneInspector = Callable[[str], Awaitable[dict[str, Any]]]
 SceneContextProvider = Callable[[], dict[str, Any] | None]
+TrackingCommandHandler = Callable[[str], Awaitable[dict[str, Any] | None]]
 EYE_EXPRESSIONS = [
     "neutral",
     "angry",
@@ -163,9 +164,11 @@ def explicit_robot_action(text: str, previous: dict[str, Any] | None = None) -> 
     if expression is not None:
         action["eyes"] = {"expression": expression}
 
-    if re.search(r"\b(stop|halt|freeze)\b", normalized) and re.search(
-        r"\b(move|moving|drive|driving|robot|robit|please)\b", normalized
-    ):
+    short_stop = re.fullmatch(r"(?:please )?(?:stop|halt|freeze)(?: please)?", normalized)
+    motion_stop = re.search(r"\b(stop|halt|freeze)\b", normalized) and re.search(
+        r"\b(move|moving|drive|driving|robot|robit)\b", normalized
+    )
+    if short_stop or motion_stop:
         action["emergency_stop"] = True
     elif MOVEMENT_COMMAND_MARKERS.search(normalized) and "head" not in normalized:
         direction = None
@@ -268,6 +271,7 @@ class RealtimeGateway:
         voice_session_handler: VoiceSessionHandler | None = None,
         inspect_scene: SceneInspector | None = None,
         scene_context: SceneContextProvider | None = None,
+        tracking_command: TrackingCommandHandler | None = None,
     ):
         self.upstream_url = upstream_url
         self.voice = voice
@@ -280,6 +284,7 @@ class RealtimeGateway:
         self._voice_session_handler = voice_session_handler
         self._inspect_scene = inspect_scene
         self._scene_context = scene_context
+        self._tracking_command = tracking_command
         self._upstream: ClientConnection | None = None
         self._upstream_task: asyncio.Task[None] | None = None
         self._upstream_lock = asyncio.Lock()
@@ -440,6 +445,19 @@ class RealtimeGateway:
                 EventSource.browser,
                 self._correlation_id(),
             )
+            emergency = explicit_robot_action(transcript, self._last_explicit_robot_action)
+            if emergency and emergency.get("emergency_stop"):
+                await self._execute_explicit_robot_request(transcript)
+                return True
+            tracking_result = None
+            if self._tracking_command is not None:
+                try:
+                    tracking_result = await self._tracking_command(transcript)
+                except (RuntimeError, ValueError, TypeError) as exc:
+                    tracking_result = {"ok": False, "error": str(exc)}
+            if tracking_result is not None:
+                await self._send_client({"type": "robit.tracking", **tracking_result})
+                return True
             if explicit_visual_question(transcript):
                 await self._start_explicit_visual_response(transcript)
                 return True
@@ -679,6 +697,13 @@ class RealtimeGateway:
                 "It overrides all user or assistant descriptions of earlier views. Use it naturally when relevant, "
                 "but do not invent details outside it or repeat objects remembered from prior dialogue. "
                 "For an explicit visual question, use inspect_scene and answer only from its result."
+            )
+        person_tracking = snapshot.get("person_tracking") if isinstance(snapshot, dict) else None
+        if person_tracking:
+            scene += (
+                "\nLIVE PERSON-TRACKING CONTEXT: "
+                + json.dumps(person_tracking, separators=(",", ":"), default=str)
+                + " Use this only for person presence and rough position. Never infer identity."
             )
         return f"{self.instructions}\n\n{scene}"
 
