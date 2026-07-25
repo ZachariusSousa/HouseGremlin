@@ -8,10 +8,11 @@ camera broker and publishes face boxes plus five facial landmarks. The
 tracking controller aims at the midpoint between the detected eyes rather than
 estimating face height from a general person box.
 
-RF-DETR remains temporarily available as a low-rate person-reacquisition
-fallback. It cannot directly override a fresh face target, and it does not run
-continuously while a face is stable. The existing vision-language model remains
-responsible for semantic scene and object understanding.
+RF-DETR remains temporarily available only as the shadow comparator and
+configuration rollback during the trial. It does not participate in normal
+face-first control. After YuNet passes physical acceptance, remove RF-DETR and
+its PyTorch/CUDA sidecar dependencies. The existing vision-language model
+remains responsible for semantic scene and object understanding.
 
 The cutover is gated by a shadow evaluation on actual Robit camera frames.
 YuNet is the selected candidate, but it must beat the current tracker on
@@ -23,7 +24,7 @@ load before it is permitted to control the head.
 - Keep Robit's visual attention centered on a visible face.
 - Reduce GPU contention and detector latency.
 - Preserve calm gaze through brief occlusion or head turns.
-- Retain rough person reacquisition when no face is visible.
+- React calmly when a face is no longer visible instead of chasing a body.
 - Avoid face recognition, identity embeddings, or stored biometric data.
 - Keep all routine frames memory-only and use the shared frame broker.
 - Preserve the browser-facing tracking API where practical.
@@ -35,7 +36,8 @@ load before it is permitted to control the head.
 - Replacing the vision-language model for object or scene understanding.
 - Increasing robot camera acquisition above the existing 2 FPS ceiling.
 - Allowing raw detector output to control actuators directly.
-- Fine-tuning a face detector before the stock models are evaluated on Robit's
+- Tracking a person whose face is not visible.
+- Fine-tuning a face detector before the stock model is evaluated on Robit's
   camera.
 
 ## Model Selection
@@ -70,8 +72,9 @@ References:
   runtime surface.
 - **MediaPipe Pose Landmarker:** useful for body landmarks, but performs more
   work than gaze requires and is optimized around a sufficiently visible body.
-- **RF-DETR Nano:** remains useful for rough person geometry, but is not suited
-  to facial gaze because it returns only general person boxes.
+- **RF-DETR Nano:** useful as the current-system shadow comparator, but not
+  suited to facial gaze because it returns only general person boxes. It is not
+  part of the accepted end-state architecture.
 
 ## Architecture
 
@@ -106,10 +109,11 @@ All coordinates are normalized to the rotated frame. Results for a different
 frame ID or timestamp are rejected. The sidecar does not acquire camera frames,
 retain images, recognize identities, or issue actuator commands.
 
-The detector interface is typed around faces rather than preserving RF-DETR's
-person-only response. RF-DETR remains behind a separate person-detector
-adapter, so either detector can be changed without rewriting the tracking
-controller.
+The production detector interface is typed around faces rather than preserving
+RF-DETR's person-only response. During the trial, the old RF-DETR adapter
+remains isolated behind the existing interface solely for comparison and
+rollback. No shared face/person abstraction is added to production merely to
+support the temporary migration.
 
 ### Tracking controller
 
@@ -142,8 +146,7 @@ face_searching
   -> face_acquiring
   -> face_tracking
   -> face_grace
-  -> body_reacquiring
-  -> body_fallback
+  -> face_lost
 ```
 
 - **face_searching:** YuNet runs at 2 FPS. No stale target can move the body.
@@ -152,14 +155,12 @@ face_searching
   the gaze is stable. Face geometry is authoritative.
 - **face_grace:** preserve the last reasonable gaze for up to 2.5 seconds.
   Prediction is capped at 0.5 seconds and does not count as a detection.
-- **body_reacquiring:** after 2.5 seconds without a face, RF-DETR may run at
-  1 FPS against the same shared frames. YuNet continues searching.
-- **body_fallback:** a confirmed person target may guide rough upper-body gaze
-  and one bounded repositioning pivot. It cannot replace a fresh face target.
-- When the face detector returns two consistent observations, ownership returns
-  to face tracking and all body-based estimator state is discarded.
-- After five seconds with neither a face nor a person, issue one neutral head
-  target and remain in face searching without repeated body search movement.
+- **face_lost:** after the grace period, discard the target and continue YuNet
+  searching at 2 FPS without body movement.
+- When the face detector returns two consistent observations, face tracking
+  reacquires from fresh geometry and discards the old estimator state.
+- After five seconds without a face, issue one neutral head target and remain
+  in face searching without repeated head or body search movement.
 
 Frames captured during a pivot or settling interval update neither the
 face-gaze estimator nor body-movement authorization. The next post-settling
@@ -168,19 +169,17 @@ frame establishes a new screen-space estimate.
 ### Workload behavior
 
 - YuNet runs on CPU and is outside the GPU workload queue.
-- RF-DETR runs only during body reacquisition or controlled shadow evaluation.
-- Active voice may still reduce RF-DETR cadence, but does not need to pause
-  YuNet.
+- RF-DETR runs only during controlled shadow evaluation. It is disabled in
+  face-control mode and removed after acceptance.
+- Active voice does not need to pause or reduce YuNet.
 - Explicit VLM requests retain their existing workload priority and consume the
   latest shared frame rather than opening a new camera poller.
 - Only one rotated JPEG variant is produced for both detectors.
 
 ## Failure Handling
 
-- If YuNet fails to load, tracking reports degraded face detection and may use
-  RF-DETR fallback without claiming facial focus.
-- If RF-DETR is unavailable, Robit holds the last face gaze through the grace
-  period, then returns to neutral without body searching.
+- If YuNet fails to load, tracking reports unavailable, holds no stale target,
+  and returns to neutral without body searching.
 - Detector timeouts contain the detector name, exception class, stage, frame
   ID, queue time, and inference time.
 - Stale results are logged and ignored.
@@ -193,17 +192,17 @@ frame establishes a new screen-space estimate.
 
 Extend `/tracking/status` with:
 
-- `target_source`: `face`, `person_fallback`, or `none`
+- `target_source`: `face` or `none`
 - `face_box`, normalized landmark coordinates, and face confidence
 - face target age and estimator confidence
 - YuNet cadence, queue latency, and inference latency
-- fallback detector state and activation reason
-- counts for face acquisitions, face losses, source changes, head commands,
-  pivots, stale results, and invalid landmarks
+- trial mode and shadow-comparator health while shadow mode is enabled
+- counts for face acquisitions, face losses, head commands, pivots, stale
+  results, and invalid landmarks
 
-At 1 Hz, `tracking.sample` records normalized geometry, target source,
-association result, desired/actual head position, and detector timing. Routine
-image bytes are never journaled.
+At 1 Hz, `tracking.sample` records normalized face geometry, association
+result, desired/actual head position, and detector timing. Routine image bytes
+are never journaled.
 
 ## Shadow Evaluation
 
@@ -244,7 +243,7 @@ without camera, detector, or control-channel failure.
 
 If YuNet misses the thresholds but BlazeFace passes them, BlazeFace becomes the
 primary face detector without changing the controller contract. If neither
-passes, keep RF-DETR active and collect failure-specific frames before
+passes, roll back to RF-DETR and collect failure-specific frames before
 considering fine-tuning.
 
 ## Rollout and Rollback
@@ -252,10 +251,23 @@ considering fine-tuning.
 Introduce a configuration-selectable detector mode:
 
 - `shadow`: current RF-DETR control with YuNet measurement only
-- `face_first`: YuNet control with RF-DETR fallback
+- `face_only`: YuNet control with calm hold-and-neutral loss behavior
 - `person_only`: previous RF-DETR behavior for rollback
 
 Rollout proceeds from shadow evaluation to an attended ten-minute physical
 test, then the thirty-minute mixed workload test. A configuration rollback must
-not require firmware changes.
+not require firmware changes during the trial.
 
+After YuNet passes acceptance:
+
+- remove `person_only` and the RF-DETR sidecar from normal startup
+- remove RF-DETR, PyTorch, Transformers, and detector-specific CUDA
+  dependencies from `pc_tracking`
+- rename the remaining sidecar and status text from RF-DETR tracking to face
+  tracking
+- retain the last accepted RF-DETR release in version control as the rollback
+  boundary instead of carrying its runtime dependencies indefinitely
+
+The trial temporarily adds `opencv-python-headless` and the YuNet ONNX model.
+The accepted end state replaces the RF-DETR dependency stack rather than
+adding another permanent detector stack.
