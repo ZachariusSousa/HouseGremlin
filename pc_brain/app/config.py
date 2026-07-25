@@ -71,6 +71,23 @@ class Settings:
     tracking_confidence: float = 0.40
     tracking_pan_sign: int = 1
     tracking_tilt_sign: int = 1
+    control_tcp_port: int = 82
+    control_heartbeat_interval_seconds: float = 1.0
+    control_command_timeout_seconds: float = 1.5
+    actuator_tracking_rate_hz: float = 4.0
+    actuator_manual_rate_hz: float = 10.0
+    actuator_head_deadband_degrees: float = 2.0
+    actuator_manual_lease_seconds: float = 3.0
+    tracking_search_fps: float = 2.0
+    tracking_stable_fps: float = 1.0
+    tracking_voice_fps: float = 0.5
+    tracking_acquire_window_seconds: float = 2.0
+    tracking_missing_grace_seconds: float = 2.5
+    tracking_pivot_confirmation_seconds: float = 1.5
+    tracking_settling_seconds: float = 1.0
+    tracking_opposite_pivot_block_seconds: float = 5.0
+    tracking_lost_neutral_seconds: float = 5.0
+    journal_queue_limit: int = 1000
 
 
 def load_settings() -> Settings:
@@ -96,7 +113,7 @@ def load_settings() -> Settings:
             (
                 "You are Robit, a small helpful home robot. Talk like Rocky from Project Hail Mary. "
                 "Be concise and use plain spoken text only. You can call the robot_action tool for "
-                "safe movement, head, or emergency-stop actions when the user asks. You may also "
+                "safe bounded movement, head, or stop actions when the user asks. You may also "
                 "select a temporary emotional eye expression when a message genuinely warrants it; "
                 "when the user explicitly asks for an expression, call robot_action with the eyes field and "
                 "do not claim it changed without that tool call. Operational eye states are automatic."
@@ -116,7 +133,10 @@ def load_settings() -> Settings:
         vision_request_timeout_seconds=_float_env("ROBIT_VISION_REQUEST_TIMEOUT_SECONDS", 30.0),
         vision_max_output_tokens=_int_env("ROBIT_VISION_MAX_OUTPUT_TOKENS", 320),
         vision_image_tokens=_int_env("ROBIT_VISION_IMAGE_TOKENS", 140),
-        vision_awareness_interval_seconds=_float_env("ROBIT_VISION_AWARENESS_INTERVAL_SECONDS", 5.0),
+        vision_awareness_interval_seconds=max(
+            30.0,
+            _float_env("ROBIT_VISION_AWARENESS_INTERVAL_SECONDS", 30.0),
+        ),
         vision_snapshot_ttl_seconds=_float_env("ROBIT_VISION_SNAPSHOT_TTL_SECONDS", 10.0),
         vision_world_window_seconds=_float_env("ROBIT_VISION_WORLD_WINDOW_SECONDS", 60.0),
         vision_change_threshold=_float_env("ROBIT_VISION_CHANGE_THRESHOLD", 0.03),
@@ -129,6 +149,47 @@ def load_settings() -> Settings:
         tracking_confidence=_float_env("ROBIT_TRACKING_CONFIDENCE", 0.40),
         tracking_pan_sign=_int_env("ROBIT_TRACKING_PAN_SIGN", 1),
         tracking_tilt_sign=_int_env("ROBIT_TRACKING_TILT_SIGN", 1),
+        control_tcp_port=_int_env("ROBIT_CONTROL_TCP_PORT", 82),
+        control_heartbeat_interval_seconds=_float_env(
+            "ROBIT_CONTROL_HEARTBEAT_INTERVAL_SECONDS", 1.0
+        ),
+        control_command_timeout_seconds=_float_env(
+            "ROBIT_CONTROL_COMMAND_TIMEOUT_SECONDS", 1.5
+        ),
+        actuator_tracking_rate_hz=_float_env(
+            "ROBIT_ACTUATOR_TRACKING_RATE_HZ", 4.0
+        ),
+        actuator_manual_rate_hz=_float_env(
+            "ROBIT_ACTUATOR_MANUAL_RATE_HZ", 10.0
+        ),
+        actuator_head_deadband_degrees=_float_env(
+            "ROBIT_ACTUATOR_HEAD_DEADBAND_DEGREES", 2.0
+        ),
+        actuator_manual_lease_seconds=_float_env(
+            "ROBIT_ACTUATOR_MANUAL_LEASE_SECONDS", 3.0
+        ),
+        tracking_search_fps=_float_env("ROBIT_TRACKING_SEARCH_FPS", 2.0),
+        tracking_stable_fps=_float_env("ROBIT_TRACKING_STABLE_FPS", 1.0),
+        tracking_voice_fps=_float_env("ROBIT_TRACKING_VOICE_FPS", 0.5),
+        tracking_acquire_window_seconds=_float_env(
+            "ROBIT_TRACKING_ACQUIRE_WINDOW_SECONDS", 2.0
+        ),
+        tracking_missing_grace_seconds=_float_env(
+            "ROBIT_TRACKING_MISSING_GRACE_SECONDS", 2.5
+        ),
+        tracking_pivot_confirmation_seconds=_float_env(
+            "ROBIT_TRACKING_PIVOT_CONFIRMATION_SECONDS", 1.5
+        ),
+        tracking_settling_seconds=_float_env(
+            "ROBIT_TRACKING_SETTLING_SECONDS", 1.0
+        ),
+        tracking_opposite_pivot_block_seconds=_float_env(
+            "ROBIT_TRACKING_OPPOSITE_PIVOT_BLOCK_SECONDS", 5.0
+        ),
+        tracking_lost_neutral_seconds=_float_env(
+            "ROBIT_TRACKING_LOST_NEUTRAL_SECONDS", 5.0
+        ),
+        journal_queue_limit=_int_env("ROBIT_JOURNAL_QUEUE_LIMIT", 1000),
     )
 
 

@@ -169,7 +169,7 @@ def explicit_robot_action(text: str, previous: dict[str, Any] | None = None) -> 
         r"\b(move|moving|drive|driving|robot|robit)\b", normalized
     )
     if short_stop or motion_stop:
-        action["emergency_stop"] = True
+        action["movement"] = {"direction": "stop"}
     elif MOVEMENT_COMMAND_MARKERS.search(normalized) and "head" not in normalized:
         direction = None
         if re.search(r"\b(forward|forwards|ahead)\b", normalized):
@@ -233,7 +233,6 @@ def robot_action_tool() -> dict[str, Any]:
                     },
                     "required": ["expression"],
                 },
-                "emergency_stop": {"type": "boolean"},
             },
         },
     }
@@ -301,6 +300,10 @@ class RealtimeGateway:
         self._visual_response_task: asyncio.Task[None] | None = None
         self._suppress_cancelled_response = False
         self._visual_cancelled = asyncio.Event()
+        self._speaking_started = False
+        self._voice_items: dict[str, dict[str, Any]] = {}
+        self._provisional_action_tasks: dict[str, asyncio.Task[None]] = {}
+        self._scene_refresh_task: asyncio.Task[None] | None = None
         self._closing = False
 
     async def handle_browser(self, websocket: WebSocket) -> None:
@@ -335,6 +338,8 @@ class RealtimeGateway:
                     disconnected_current_client = True
             if disconnected_current_client and self._voice_session_handler is not None:
                 self._voice_session_handler(False)
+            if disconnected_current_client:
+                await self.coordinator.resource_lease.set_foreground_barrier(False)
 
     async def _ensure_upstream(self) -> ClientConnection:
         if self._upstream is not None:
@@ -423,8 +428,10 @@ class RealtimeGateway:
                 self._visual_cancelled.set()
             return False
         if event_type == "input_audio_buffer.speech_started":
+            await self.coordinator.resource_lease.set_foreground_barrier(True)
             self._current_correlation_id = self.coordinator.new_correlation_id()
             self._vision_used_in_turn = False
+            self._speaking_started = False
             self.coordinator.transition(
                 self._current_correlation_id,
                 EventSource.browser,
@@ -439,30 +446,34 @@ class RealtimeGateway:
             )
         elif "input_audio_transcription" in event_type and not event_type.endswith(".delta"):
             transcript = str(event.get("transcript") or "")
-            self.coordinator.record_turn(
-                "user",
-                transcript,
-                EventSource.browser,
-                self._correlation_id(),
+            item_id = str(
+                event.get("item_id")
+                or (event.get("item") or {}).get("id")
+                or f"anonymous-{len(self._voice_items) + 1}"
             )
-            emergency = explicit_robot_action(transcript, self._last_explicit_robot_action)
-            if emergency and emergency.get("emergency_stop"):
-                await self._execute_explicit_robot_request(transcript)
-                return True
-            tracking_result = None
-            if self._tracking_command is not None:
-                try:
-                    tracking_result = await self._tracking_command(transcript)
-                except (RuntimeError, ValueError, TypeError) as exc:
-                    tracking_result = {"ok": False, "error": str(exc)}
-            if tracking_result is not None:
-                await self._send_client({"type": "robit.tracking", **tracking_result})
-                return True
-            if explicit_visual_question(transcript):
-                await self._start_explicit_visual_response(transcript)
-                return True
-            await self.refresh_scene_context()
-            await self._execute_explicit_robot_request(transcript)
+            previous = self._voice_items.get(item_id)
+            revision = int((previous or {}).get("revision", 0)) + 1
+            logger.info(
+                "voice.transcript item_id=%s revision=%s reopened=%s chars=%s",
+                item_id,
+                revision,
+                previous is not None,
+                len(transcript),
+            )
+            self._voice_items[item_id] = {
+                "revision": revision,
+                "text": transcript,
+                "correlation_id": self._correlation_id(),
+                "journaled_revision": int(
+                    (previous or {}).get("journaled_revision", 0)
+                ),
+            }
+            old_task = self._provisional_action_tasks.pop(item_id, None)
+            if old_task is not None and not old_task.done():
+                old_task.cancel()
+            self._provisional_action_tasks[item_id] = asyncio.create_task(
+                self._process_voice_item(item_id, revision, transcript)
+            )
         elif "transcript" in event_type and "input_audio_transcription" not in event_type and not event_type.endswith(".delta"):
             self.coordinator.record_turn(
                 "assistant",
@@ -471,11 +482,13 @@ class RealtimeGateway:
                 self._correlation_id(),
             )
         elif event_type == "response.output_audio.delta":
-            self.coordinator.transition(
-                self._correlation_id(),
-                EventSource.voice_model,
-                conversation=ConversationState.speaking,
-            )
+            if not self._speaking_started:
+                self._speaking_started = True
+                self.coordinator.transition(
+                    self._correlation_id(),
+                    EventSource.voice_model,
+                    conversation=ConversationState.speaking,
+                )
         elif "function_call_arguments.delta" in event_type:
             call_id = str(event.get("call_id") or event.get("item_id") or "")
             if call_id:
@@ -488,6 +501,7 @@ class RealtimeGateway:
             await self._execute_tool_event(event)
             return False
         elif event_type == "response.done":
+            self._finalize_voice_items()
             if self._awaiting_tool_followup_response:
                 self._awaiting_tool_followup_response = False
             else:
@@ -496,7 +510,65 @@ class RealtimeGateway:
                     EventSource.voice_model,
                     conversation=ConversationState.idle,
                 )
+            self._speaking_started = False
+            await self.coordinator.resource_lease.set_foreground_barrier(False)
         return True
+
+    async def _process_voice_item(
+        self, item_id: str, revision: int, transcript: str
+    ) -> None:
+        try:
+            await asyncio.sleep(0.2)
+            current = self._voice_items.get(item_id)
+            if current is None or current["revision"] != revision:
+                return
+            stop_action = explicit_robot_action(
+                transcript, self._last_explicit_robot_action
+            )
+            if stop_action and stop_action.get("movement", {}).get("direction") == "stop":
+                await self._execute_explicit_robot_request(transcript)
+                return
+            tracking_result = None
+            if self._tracking_command is not None:
+                try:
+                    tracking_result = await self._tracking_command(transcript)
+                except (RuntimeError, ValueError, TypeError) as exc:
+                    tracking_result = {"ok": False, "error": str(exc)}
+            if tracking_result is not None:
+                await self._send_client({"type": "robit.tracking", **tracking_result})
+                return
+            if explicit_visual_question(transcript):
+                await self._start_explicit_visual_response(transcript)
+                return
+            await self.refresh_scene_context()
+            await self._execute_explicit_robot_request(transcript)
+        except asyncio.CancelledError:
+            raise
+        finally:
+            current_task = self._provisional_action_tasks.get(item_id)
+            if current_task is asyncio.current_task():
+                self._provisional_action_tasks.pop(item_id, None)
+
+    def _finalize_voice_items(self) -> None:
+        for item_id, item in self._voice_items.items():
+            revision = int(item["revision"])
+            if revision <= int(item.get("journaled_revision", 0)):
+                continue
+            text = str(item.get("text") or "").strip()
+            if text:
+                logger.info(
+                    "voice.transcript_finalized item_id=%s revision=%s chars=%s",
+                    item_id,
+                    revision,
+                    len(text),
+                )
+                self.coordinator.record_turn(
+                    "user",
+                    text,
+                    EventSource.browser,
+                    str(item["correlation_id"]),
+                )
+            item["journaled_revision"] = revision
 
     async def _start_explicit_visual_response(self, question: str) -> None:
         """Replace speculative speech with an answer grounded in one fresh frame."""
@@ -569,7 +641,7 @@ class RealtimeGateway:
             arguments = json.loads(raw_arguments) if isinstance(raw_arguments, str) else raw_arguments
             action = self.validate_action(arguments)
             correlation_id = self._correlation_id()
-            if self._vision_used_in_turn and (action.get("movement") or action.get("head")) and not action.get("emergency_stop"):
+            if self._vision_used_in_turn and (action.get("movement") or action.get("head")):
                 raise ValueError("Movement and head actions are blocked in the same turn as a vision result")
             if correlation_id == self._explicit_action_correlation_id and action == self._last_explicit_robot_action:
                 output = {"ok": True, "correlation_id": correlation_id, "deduplicated": True}
@@ -578,11 +650,15 @@ class RealtimeGateway:
                     action=action,
                     origin=EventSource.voice_model,
                     correlation_id=correlation_id,
-                    priority=WorkPriority.emergency if action.get("emergency_stop") else WorkPriority.model_action,
+                    priority=WorkPriority.model_action,
                     reason="Realtime voice tool call",
                 )
                 result = await self.coordinator.execute_action(intent, self.execute_action)
-                output = {"ok": True, "correlation_id": intent.correlation_id, "result": result}
+                output = {
+                    "ok": bool(result.get("ok", True)),
+                    "correlation_id": intent.correlation_id,
+                    "result": result,
+                }
         except (json.JSONDecodeError, ValidationError, ValueError, TypeError) as exc:
             correlation_id = self._correlation_id()
             self.coordinator.record(
@@ -609,7 +685,7 @@ class RealtimeGateway:
                 action=action,
                 origin=EventSource.browser,
                 correlation_id=correlation_id,
-                priority=WorkPriority.emergency if action.get("emergency_stop") else WorkPriority.manual_action,
+                priority=WorkPriority.manual_action,
                 reason="Explicit voice eye request" if only_eyes else "Explicit voice robot request",
             )
             result = await self.coordinator.execute_action(intent, self.execute_action)
@@ -617,7 +693,11 @@ class RealtimeGateway:
             self._explicit_action_correlation_id = correlation_id
             if expression := action.get("eyes", {}).get("expression"):
                 self._last_explicit_eye_expression = expression
-            output = {"ok": True, "correlation_id": correlation_id, "result": result}
+            output = {
+                "ok": bool(result.get("ok", True)),
+                "correlation_id": correlation_id,
+                "result": result,
+            }
         except (ValidationError, ValueError, TypeError) as exc:
             self.coordinator.record(
                 "action.rejected",
@@ -634,6 +714,23 @@ class RealtimeGateway:
                 **output,
             }
         )
+        if action_payload.get("movement") and self._upstream is not None:
+            acknowledged = bool(output.get("ok"))
+            instruction = (
+                "The actuator acknowledged the requested movement. Confirm it briefly."
+                if acknowledged
+                else "The actuator did not acknowledge the requested movement. Say clearly that it failed."
+            )
+            await self._send_upstream({"type": "response.cancel"})
+            await self._send_upstream(
+                {
+                    "type": "response.create",
+                    "response": {
+                        "instructions": instruction,
+                        "tool_choice": "none",
+                    },
+                }
+            )
 
     async def _return_tool_output(self, call_id: str, output: dict[str, Any]) -> None:
         await self._send_upstream(
@@ -667,6 +764,14 @@ class RealtimeGateway:
         )
 
     async def refresh_scene_context(self, snapshot: Any | None = None) -> None:
+        if self._scene_refresh_task is not None:
+            self._scene_refresh_task.cancel()
+        self._scene_refresh_task = asyncio.create_task(
+            self._refresh_scene_context_after_debounce()
+        )
+
+    async def _refresh_scene_context_after_debounce(self) -> None:
+        await asyncio.sleep(2.0)
         if self._upstream is not None:
             await self._send_server_session_update()
 
@@ -755,6 +860,18 @@ class RealtimeGateway:
         if self._visual_response_task is not None and not self._visual_response_task.done():
             self._visual_response_task.cancel()
             await asyncio.gather(self._visual_response_task, return_exceptions=True)
+        if self._scene_refresh_task is not None:
+            self._scene_refresh_task.cancel()
+            await asyncio.gather(self._scene_refresh_task, return_exceptions=True)
+            self._scene_refresh_task = None
+        for task in self._provisional_action_tasks.values():
+            task.cancel()
+        if self._provisional_action_tasks:
+            await asyncio.gather(
+                *self._provisional_action_tasks.values(), return_exceptions=True
+            )
+        self._provisional_action_tasks.clear()
+        await self.coordinator.resource_lease.set_foreground_barrier(False)
         if self._voice_session_handler is not None:
             self._voice_session_handler(False)
         if self._upstream is not None:

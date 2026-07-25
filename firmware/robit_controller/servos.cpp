@@ -16,8 +16,12 @@ namespace {
 Adafruit_PWMServoDriver pwm(SERVO_PCA9685_ADDRESS);
 int currentPanAngle = 90;
 int currentTiltAngle = 90;
+float currentPanPosition = 90.0f;
+float currentTiltPosition = 90.0f;
 int targetPanAngle = 90;
 int targetTiltAngle = 90;
+float panVelocityDegreesPerSecond = 0.0f;
+float tiltVelocityDegreesPerSecond = 0.0f;
 unsigned long lastServoUpdateAt = 0;
 
 #ifndef PAN_SERVO_MIN_PULSE
@@ -36,8 +40,16 @@ unsigned long lastServoUpdateAt = 0;
 #define PAN_SERVO_INVERT 0
 #endif
 
-#ifndef HEAD_SERVO_MAX_STEP_DEGREES
-#define HEAD_SERVO_MAX_STEP_DEGREES 3
+#ifndef HEAD_PAN_MAX_SPEED_DPS
+#define HEAD_PAN_MAX_SPEED_DPS 90.0f
+#endif
+
+#ifndef HEAD_TILT_MAX_SPEED_DPS
+#define HEAD_TILT_MAX_SPEED_DPS 70.0f
+#endif
+
+#ifndef HEAD_SERVO_ACCELERATION_DPS2
+#define HEAD_SERVO_ACCELERATION_DPS2 240.0f
 #endif
 
 #ifndef HEAD_SERVO_UPDATE_INTERVAL_MS
@@ -95,13 +107,43 @@ void writeTiltServo(int angle) {
   );
 }
 
-int stepToward(int current, int target) {
-  const int distance = abs(target - current);
-  const int maximumStep = max(1, HEAD_SERVO_MAX_STEP_DEGREES);
-  const int stepSize = distance > 20 ? maximumStep : (distance > 8 ? min(2, maximumStep) : 1);
-  if (current < target) return min(current + stepSize, target);
-  if (current > target) return max(current - stepSize, target);
-  return current;
+float easedStepToward(
+  float current,
+  int target,
+  float& velocityDegreesPerSecond,
+  float maximumSpeedDegreesPerSecond,
+  float deltaSeconds
+) {
+  const float distance = static_cast<float>(target - current);
+  if (fabsf(distance) < 0.01f) {
+    velocityDegreesPerSecond = 0.0f;
+    return target;
+  }
+
+  const float direction = distance > 0.0f ? 1.0f : -1.0f;
+  const float brakingSpeed = sqrtf(
+    2.0f * HEAD_SERVO_ACCELERATION_DPS2 * fabsf(distance)
+  );
+  const float desiredSpeed = direction * min(maximumSpeedDegreesPerSecond, brakingSpeed);
+  const float maximumVelocityChange = HEAD_SERVO_ACCELERATION_DPS2 * deltaSeconds;
+  if (velocityDegreesPerSecond < desiredSpeed) {
+    velocityDegreesPerSecond = min(
+      velocityDegreesPerSecond + maximumVelocityChange,
+      desiredSpeed
+    );
+  } else {
+    velocityDegreesPerSecond = max(
+      velocityDegreesPerSecond - maximumVelocityChange,
+      desiredSpeed
+    );
+  }
+
+  const float step = velocityDegreesPerSecond * deltaSeconds;
+  if (fabsf(step) >= fabsf(distance)) {
+    velocityDegreesPerSecond = 0.0f;
+    return target;
+  }
+  return current + step;
 }
 }
 
@@ -112,6 +154,10 @@ bool initializeServos() {
   delay(250);
   currentPanAngle = targetPanAngle = robotState.panAngle = 90;
   currentTiltAngle = targetTiltAngle = robotState.tiltAngle = 90;
+  currentPanPosition = 90.0f;
+  currentTiltPosition = 90.0f;
+  panVelocityDegreesPerSecond = 0.0f;
+  tiltVelocityDegreesPerSecond = 0.0f;
   writePanServo(currentPanAngle);
   writeTiltServo(currentTiltAngle);
   Serial.println("[SERVO] PCA9685 initialized at 0x40");
@@ -144,16 +190,50 @@ void centerHead() {
 void updateServos() {
   const unsigned long now = millis();
   if (now - lastServoUpdateAt < HEAD_SERVO_UPDATE_INTERVAL_MS) return;
+  const unsigned long elapsedMs = lastServoUpdateAt == 0
+    ? HEAD_SERVO_UPDATE_INTERVAL_MS
+    : now - lastServoUpdateAt;
   lastServoUpdateAt = now;
+  const float deltaSeconds = min(elapsedMs, 100UL) / 1000.0f;
 
-  const int nextPan = stepToward(currentPanAngle, targetPanAngle);
-  const int nextTilt = stepToward(currentTiltAngle, targetTiltAngle);
-  if (nextPan != currentPanAngle) {
-    currentPanAngle = nextPan;
+  currentPanPosition = easedStepToward(
+    currentPanPosition,
+    targetPanAngle,
+    panVelocityDegreesPerSecond,
+    HEAD_PAN_MAX_SPEED_DPS,
+    deltaSeconds
+  );
+  currentTiltPosition = easedStepToward(
+    currentTiltPosition,
+    targetTiltAngle,
+    tiltVelocityDegreesPerSecond,
+    HEAD_TILT_MAX_SPEED_DPS,
+    deltaSeconds
+  );
+  const int nextPanAngle = roundf(currentPanPosition);
+  const int nextTiltAngle = roundf(currentTiltPosition);
+  if (nextPanAngle != currentPanAngle) {
+    currentPanAngle = nextPanAngle;
     writePanServo(currentPanAngle);
   }
-  if (nextTilt != currentTiltAngle) {
-    currentTiltAngle = nextTilt;
+  if (nextTiltAngle != currentTiltAngle) {
+    currentTiltAngle = nextTiltAngle;
     writeTiltServo(currentTiltAngle);
   }
+}
+
+int getActualPanAngle() {
+  return currentPanAngle;
+}
+
+int getActualTiltAngle() {
+  return currentTiltAngle;
+}
+
+int getTargetPanAngle() {
+  return targetPanAngle;
+}
+
+int getTargetTiltAngle() {
+  return targetTiltAngle;
 }

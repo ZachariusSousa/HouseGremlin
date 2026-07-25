@@ -11,9 +11,6 @@ void setDirection(bool leftForward, bool leftReverse, bool rightForward, bool ri
   digitalWrite(RIGHT_REV_PIN, rightReverse ? HIGH : LOW);
 }
 
-bool movementBlocked() {
-  return robotState.emergencyStopUntil > millis();
-}
 }
 
 bool initializeMotors() {
@@ -41,34 +38,25 @@ void stopMotors() {
   robotState.movementStopAt = 0;
 }
 
-void emergencyStopMotors() {
-  stopMotors();
-  robotState.emergencyStopUntil = millis() + EMERGENCY_STOP_HOLD_MS;
-}
-
 void moveForward() {
-  if (movementBlocked()) return;
   analogWrite(MOTOR_PWM_PIN, robotState.motorSpeed);
   setDirection(true, false, true, false);
   robotState.movement = "forward";
 }
 
 void moveReverse() {
-  if (movementBlocked()) return;
   analogWrite(MOTOR_PWM_PIN, robotState.motorSpeed);
   setDirection(false, true, false, true);
   robotState.movement = "reverse";
 }
 
 void turnLeft() {
-  if (movementBlocked()) return;
   analogWrite(MOTOR_PWM_PIN, robotState.motorSpeed);
   setDirection(false, true, true, false);
   robotState.movement = "left";
 }
 
 void turnRight() {
-  if (movementBlocked()) return;
   analogWrite(MOTOR_PWM_PIN, robotState.motorSpeed);
   setDirection(true, false, false, true);
   robotState.movement = "right";

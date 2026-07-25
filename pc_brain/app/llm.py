@@ -22,7 +22,7 @@ ACTION_SYSTEM_PROMPT = (
     "of you, or another question requiring the camera, include vision_question and do not guess the answer. "
     "Never include a movement or head action in the same response as vision_question. Supported action fields are "
     "movement:{direction,speed,duration_ms}, head:{pan,tilt,pan_delta,tilt_delta}, "
-    "eyes:{expression,duration_ms}, emergency_stop:true. "
+    "eyes:{expression,duration_ms}. Use movement:{direction:\"stop\"} to stop. "
     "Allowed movement directions are forward, reverse, left, right, stop. "
     "You may optionally select a temporary emotional eye expression when the message warrants it. "
     "When the user explicitly asks you to show, make, try, or change an eye expression, you must include "

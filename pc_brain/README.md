@@ -37,10 +37,12 @@ If omitted, `Scripts\run.bat` discovers Robit's current address from its mDNS
 name, `robit.local`. This works independently of Windows' normal DNS resolver.
 
 `setup.bat` creates one virtual environment at `pc_brain\.venv` and installs both PC brain and realtime voice dependencies there.
-`run.bat` starts one two-slot Gemma 4 E4B `llama-server` for Text, the Voice
+`run.bat` invokes a supervisor that starts one two-slot Gemma 4 E4B `llama-server` for Text, the Voice
 language step, and the current Vision adapter. It then starts the separate
 Parakeet STT and Qwen TTS voice sidecar from the shared venv, starts the PC
-brain, and opens the browser UI. Ollama is not required.
+brain in readiness order, and opens the browser UI. Failed sidecars restart up
+to three times with bounded backoff. Rotating logs are stored in
+`pc_brain\data\logs`. Ollama is not required.
 
 To test realtime voice without the browser:
 
@@ -92,14 +94,18 @@ TTS models. Vision remains behind `VisionService` and its own
 dedicated detector or VLM later without changing Text or Voice.
 LLM-issued movement defaults to `ROBIT_LLM_DEFAULT_SPEED=170`, is clamped by
 `ROBIT_LLM_MAX_SPEED=180`, and is limited by `ROBIT_LLM_MAX_DURATION_MS=1000`.
+The PC Brain is the only control producer. It connects to firmware protocol v1
+on TCP port 82 and coalesces tracking head targets to at most 4 Hz. Manual head
+control may run at 10 Hz and leases the actuators for three seconds before
+tracking discards its old target and reacquires.
 
 ## Checks
 
 From the repository root:
 
 ```powershell
-python -m compileall pc_brain\app pc_brain\tests
-python -m pytest pc_brain\tests
+.\pc_brain\.venv\Scripts\python.exe -m compileall pc_brain\app pc_brain\tests
+.\pc_brain\.venv\Scripts\python.exe -m pytest pc_brain\tests
 ```
 
 From inside `pc_brain`:

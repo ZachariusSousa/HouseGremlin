@@ -329,7 +329,9 @@ class VisionService:
                 fresh = True
                 continue
             try:
-                async with self.coordinator.resource_lease.acquire(WorkPriority.foreground):
+                async with self.coordinator.resource_lease.acquire(
+                    WorkPriority.explicit_vision
+                ):
                     return await self._infer(frame, quality, question, "explicit")
             except (VisionUnavailable, ValidationError, ValueError) as exc:
                 last_error = exc
@@ -360,17 +362,16 @@ class VisionService:
                 cancelled = asyncio.Event()
                 self._awareness_cancel = cancelled
                 try:
-                    async with self.coordinator.resource_lease.acquire(WorkPriority.background, cancelled.set):
-                        if cancelled.is_set() or self.coordinator.state.conversation != ConversationState.idle:
-                            continue
-                        await self._infer(
-                            frame,
-                            quality,
-                            "Describe the current scene briefly.",
-                            "awareness",
-                            cancelled,
-                        )
+                    job = asyncio.create_task(
+                        self._run_background_inference(frame, quality, cancelled)
+                    )
+                    try:
+                        await job
                         self._last_awareness_at = monotonic()
+                    except asyncio.CancelledError:
+                        if asyncio.current_task() and asyncio.current_task().cancelling():
+                            raise
+                        continue
                 finally:
                     self._awareness_cancel = None
             except (VisionUnavailable, ValidationError, ValueError, OSError, RuntimeError) as exc:
@@ -381,6 +382,25 @@ class VisionService:
                     {"error": str(exc)},
                     WorkPriority.background,
                 )
+
+    async def _run_background_inference(
+        self,
+        frame: CameraFrame,
+        quality: FrameQuality,
+        cancelled: asyncio.Event,
+    ) -> None:
+        async with self.coordinator.resource_lease.acquire(
+            WorkPriority.background, cancelled.set
+        ):
+            if cancelled.is_set() or self.coordinator.state.conversation != ConversationState.idle:
+                return
+            await self._infer(
+                frame,
+                quality,
+                "Describe the current scene briefly.",
+                "awareness",
+                cancelled,
+            )
 
     async def _infer(
         self,
@@ -426,10 +446,13 @@ class VisionService:
             latency_ms=0.0,
             expires_at=frame.captured_at + timedelta(seconds=self.settings.vision_snapshot_ttl_seconds),
         )
-        await self._store_snapshot(snapshot, "awareness")
+        # Carry-forwards keep the in-memory view alive without manufacturing a
+        # durable perception event or pushing a redundant voice session update.
+        self._snapshots.append(snapshot)
         return True
 
     async def _store_snapshot(self, snapshot: SceneSnapshot, trigger: str) -> None:
+        previous = self.latest
         self._snapshots.append(snapshot)
         self.coordinator.record(
             "perception.snapshot.created",
@@ -438,6 +461,16 @@ class VisionService:
             {"snapshot": snapshot.model_dump(mode="json")},
             WorkPriority.background if trigger == "awareness" else WorkPriority.foreground,
         )
+        meaningful_change = (
+            previous is None
+            or previous.summary.strip().casefold() != snapshot.summary.strip().casefold()
+            or {
+                entity.label.strip().casefold() for entity in previous.entities
+            }
+            != {entity.label.strip().casefold() for entity in snapshot.entities}
+        )
+        if not meaningful_change:
+            return
         for listener in tuple(self._snapshot_listeners):
             try:
                 result = listener(snapshot)

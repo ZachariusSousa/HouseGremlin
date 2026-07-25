@@ -1,4 +1,5 @@
 #include "camera.h"
+#include "control_channel.h"
 #include "eyes.h"
 #include "motors.h"
 #include "robot_state.h"
@@ -16,11 +17,13 @@ void setup() {
   initializeEyes();
   initializeCamera();
   initializeWifi();
+  initializeControlChannel();
   initializeHttpServer();
 }
 
 void loop() {
   updateWifi();
+  updateControlChannel();
   updateHttpServer();
   updateMotors();
   updateServos();

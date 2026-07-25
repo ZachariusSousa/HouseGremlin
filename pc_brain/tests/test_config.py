@@ -18,7 +18,7 @@ def test_default_model_is_gemma4(monkeypatch, tmp_path):
     assert settings.vision_base_url == "http://127.0.0.1:8081/v1"
     assert settings.vision_model == "ggml-org/gemma-4-E4B-it-GGUF:Q4_0"
     assert settings.vision_image_tokens == 140
-    assert settings.vision_awareness_interval_seconds == 5.0
+    assert settings.vision_awareness_interval_seconds == 30.0
     assert settings.camera_frame_interval_seconds == 5.0
     assert settings.vision_snapshot_ttl_seconds == 10.0
 

@@ -24,11 +24,14 @@ class EventSource(str, Enum):
 
 
 class WorkPriority(IntEnum):
-    emergency = 0
+    # Reserved so journals created by pre-v1 control builds remain readable.
+    legacy_critical = 0
     interruption = 10
     foreground = 20
+    explicit_vision = 25
     manual_action = 30
     model_action = 40
+    target_reacquisition = 45
     background = 50
 
 

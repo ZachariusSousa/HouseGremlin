@@ -17,7 +17,7 @@ silently, and research difficult questions in the background.
 The target is a hybrid system:
 
 - The ESP remains a deterministic body controller for motors, servos, eyes,
-  watchdogs, and emergency stops.
+  bounded movement, and disconnect watchdogs.
 - A Windows home server is the authoritative brain for speech, perception,
   memory, planning, tools, and autonomy.
 - Robit remains useful offline. Internet research is optional and explicit.
@@ -82,12 +82,12 @@ acknowledge a difficult question immediately, and report the result later.
 
 Arbitration priority is fixed:
 
-1. Emergency stop and hardware faults.
-2. Firmware watchdogs and movement limits.
-3. User interruption or wake-word interaction.
-4. Foreground speech.
-5. Approved physical skills.
-6. Background follow-ups.
+1. Hardware faults, firmware watchdogs, and movement limits.
+2. Active voice and user interruption.
+3. User language responses.
+4. Explicit visual requests.
+5. RF target reacquisition.
+6. Background awareness and follow-ups.
 7. Idle curiosity and wandering.
 
 Tracks should normally stop when Robit begins listening or speaking. Head and
@@ -133,7 +133,7 @@ is a bounded schema containing:
 - expression lifetime
 
 It never receives motor, memory-write, or MCP authority. Operational truth wins
-over emotion: listening, thinking, fault, and emergency states cannot be hidden
+over emotion: listening, thinking, and fault states cannot be hidden
 by a cheerful classification.
 
 Firmware should own fixed animations such as `neutral`, `listening`,
@@ -248,7 +248,7 @@ at a bounded cadence, and report unavailable when that backend cannot run. It
 does not poll VRAM, dynamically unload models, or switch models based on live
 memory readings. Tracking starts with Robit and has no timeout: the head follows
 the selected visible person, with short in-place body pivots only when horizontal
-error remains large. It stops only on an explicit request or emergency stop.
+error remains large. It stops only on an explicit tracking request.
 
 ## MCP and Tool Policy
 
@@ -298,13 +298,13 @@ baseline.
 The pan axis has a known mechanical stall under load. Commands reach the shared
 manual/AI firmware path correctly, so this is accepted as a chassis or servo
 design limitation for Gate 0 rather than an unresolved brain-stack failure. A
-physical emergency-stop drill must be repeated after any motor, power, or chassis
-revision.
+bounded-stop and disconnect-watchdog checks must be repeated after any motor,
+power, or chassis revision.
 
 - Recreate the stale Python 3.11 virtual environment with the existing setup
   script.
 - Verify camera, text chat, realtime voice, manual movement, action parsing,
-  safety clamps, and emergency stop.
+  safety clamps, ordinary stop, and disconnect stopping.
 - Record warm and cold latency, CPU, VRAM, and failure logs for every model
   stage.
 - Create a permanent evaluation corpus covering dialogue, tool calls,
@@ -497,7 +497,7 @@ Initial code-defined skills:
 
 The model chooses a goal or approved skill, not motor pulses. The executive
 expands skills into short bounded actions. New speech, lost connectivity, stale
-perception, model failure, or emergency stop cancels motion.
+perception, model failure, ordinary stop, or lost control connectivity cancels motion.
 
 Begin mapless in one controlled flat room at low speed. Gentle furniture contact
 is acceptable for the current tiny chassis, but the robot must not roam
@@ -555,7 +555,7 @@ remains useful offline, and needs no collection of manually managed terminals.
 - Model-proposed physical actions passing schema validation: 100 percent.
 - High-risk MCP actions executed without approval: zero.
 - Durable memories without provenance: zero.
-- Autonomous motion continuing after disconnect or emergency stop: zero.
+- Autonomous motion continuing after disconnect or ordinary stop: zero.
 - Background work delaying voice because it holds GPU resources: zero.
 - Significant events traceable through a single correlation ID: 100 percent.
 

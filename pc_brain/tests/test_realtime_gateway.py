@@ -106,8 +106,8 @@ def test_explicit_robot_action_parses_bounded_voice_commands():
     }
     assert explicit_robot_action("Can you tilt your head to 110 degrees?") == {"head": {"tilt": 110}}
     assert explicit_robot_action("Tilt your head a hundred and ten degrees") == {"head": {"tilt": 110}}
-    assert explicit_robot_action("Please stop moving") == {"emergency_stop": True}
-    assert explicit_robot_action("Stop please") == {"emergency_stop": True}
+    assert explicit_robot_action("Please stop moving") == {"movement": {"direction": "stop"}}
+    assert explicit_robot_action("Stop please") == {"movement": {"direction": "stop"}}
     assert explicit_robot_action("Stop following me please") is None
     assert explicit_robot_action("Are you actually doing it or just saying it?") is None
 
@@ -150,12 +150,14 @@ async def test_explicit_voice_eye_command_executes_without_model_tool(tmp_path):
             "transcript": "Can you show me happy eyes?",
         }
     )
+    await asyncio.sleep(0.25)
     await gateway._handle_upstream_event(
         {
             "type": "conversation.item.input_audio_transcription.completed",
             "transcript": "Try it again",
         }
     )
+    await asyncio.sleep(0.25)
 
     assert executed == [
         {"eyes": {"expression": "happy"}},
@@ -194,6 +196,7 @@ async def test_explicit_voice_movement_and_head_execute_without_model_tool(tmp_p
                 "transcript": transcript,
             }
         )
+        await asyncio.sleep(0.25)
 
     assert executed == [
         {"movement": {"direction": "forward", "duration_ms": 500}},
@@ -347,6 +350,7 @@ async def test_voice_session_always_receives_current_visual_context(tmp_path):
     assert "overrides all user or assistant descriptions of earlier views" in instructions
 
     await gateway.refresh_scene_context()
+    await asyncio.sleep(2.1)
     assert len(upstream.sent) == 2
 
 
@@ -379,6 +383,7 @@ async def test_explicit_visual_question_cancels_speculation_and_grounds_response
             "transcript": "What can you see now?",
         }
     )
+    await asyncio.sleep(0.25)
     assert upstream.sent[0] == {"type": "response.cancel"}
     assert await gateway._handle_upstream_event({"type": "response.output_audio.delta", "delta": "old"}) is False
     assert await gateway._handle_upstream_event({"type": "response.done"}) is False
@@ -455,7 +460,7 @@ def test_browser_contains_no_voice_tool_execution_path():
 
 
 @pytest.mark.anyio
-async def test_explicit_tracking_voice_command_does_not_fall_through_to_emergency_stop(tmp_path):
+async def test_explicit_tracking_voice_command_does_not_fall_through_to_motor_stop(tmp_path):
     coordinator = BrainCoordinator(EventJournal(tmp_path / "brain.db"))
     robot_actions = []
     tracking_commands = []
@@ -483,6 +488,7 @@ async def test_explicit_tracking_voice_command_does_not_fall_through_to_emergenc
             "transcript": "Stop following me please",
         }
     )
+    await asyncio.sleep(0.25)
 
     assert tracking_commands == ["Stop following me please"]
     assert robot_actions == []
@@ -518,6 +524,7 @@ async def test_stop_looking_voice_command_disables_tracking_instead_of_starting_
             "transcript": "Please don't look at me",
         }
     )
+    await asyncio.sleep(0.25)
 
     assert tracking_commands == ["Please don't look at me"]
     assert visual_questions == []
@@ -525,7 +532,7 @@ async def test_stop_looking_voice_command_disables_tracking_instead_of_starting_
 
 
 @pytest.mark.anyio
-async def test_combined_tracking_and_motor_stop_prioritizes_emergency_stop(tmp_path):
+async def test_combined_tracking_and_motor_stop_prioritizes_motor_stop(tmp_path):
     coordinator = BrainCoordinator(EventJournal(tmp_path / "brain.db"))
     robot_actions = []
     tracking_commands = []
@@ -553,9 +560,10 @@ async def test_combined_tracking_and_motor_stop_prioritizes_emergency_stop(tmp_p
             "transcript": "Stop tracking and stop moving",
         }
     )
+    await asyncio.sleep(0.25)
 
     assert tracking_commands == []
-    assert robot_actions == [{"emergency_stop": True}]
+    assert robot_actions == [{"movement": {"direction": "stop"}}]
 
 
 @pytest.mark.anyio

@@ -138,7 +138,7 @@ async def test_explicit_vision_query_creates_typed_snapshot_and_cached_fallback(
 
 
 @pytest.mark.anyio
-async def test_unchanged_frame_refreshes_snapshot_and_notifies_voice_context(monkeypatch, tmp_path):
+async def test_unchanged_frame_refreshes_snapshot_without_notifying_voice_context(monkeypatch, tmp_path):
     async def fetch():
         return b"jpeg", "image/jpeg"
 
@@ -157,7 +157,7 @@ async def test_unchanged_frame_refreshes_snapshot_and_notifies_voice_context(mon
     assert service.latest.frame_id == "frame-next"
     assert service.latest.summary == first.summary
     assert service.latest.latency_ms == 0.0
-    assert observed == [first, service.latest]
+    assert observed == [first]
 
 
 def test_scene_entity_rejects_non_normalized_bounding_box():

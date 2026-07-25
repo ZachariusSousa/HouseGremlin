@@ -120,10 +120,6 @@ class FakeTrackingService:
             self.head[1] if tilt is None else tilt,
         )
 
-    def emergency_disable(self):
-        self.mode = "off"
-
-
 def test_operator_console_is_not_browser_cached():
     response = TestClient(main.app).get("/")
 
@@ -326,16 +322,25 @@ def test_tracking_api_and_deterministic_text_command(monkeypatch):
     assert restarted_by_switch.json()["action_result"]["command"] == "track"
 
 
-def test_combined_tracking_and_motor_stop_prioritizes_emergency_stop(monkeypatch):
+def test_combined_tracking_and_motor_stop_uses_ordinary_stop(monkeypatch):
     tracking = FakeTrackingService()
     monkeypatch.setattr(main, "tracking_service", tracking)
     calls = []
 
-    async def fake_emergency_stop():
-        calls.append("emergency-stop")
+    class FakeBroker:
+        async def stop(self):
+            calls.append("stop")
+            return {"ok": True}
+
+    def fake_broker():
+        return FakeBroker()
+
+    async def fake_execute(payload):
+        calls.append("stop")
         return {"ok": True}
 
-    monkeypatch.setattr(main, "robot_emergency_stop_request", fake_emergency_stop)
+    monkeypatch.setattr(main, "get_actuator_broker", fake_broker)
+    monkeypatch.setattr(main, "execute_text_model_action_payload", fake_execute)
 
     response = TestClient(main.app).post(
         "/chat/action",
@@ -343,10 +348,9 @@ def test_combined_tracking_and_motor_stop_prioritizes_emergency_stop(monkeypatch
     )
 
     assert response.status_code == 200
-    assert response.json()["model"] == "deterministic-safety"
-    assert response.json()["action"] == {"emergency_stop": True}
-    assert calls == ["emergency-stop"]
-    assert tracking.mode == "off"
+    assert response.json()["model"] == "deterministic-control"
+    assert response.json()["action"] == {"movement": {"direction": "stop"}}
+    assert calls == ["stop"]
 
 
 def test_text_visual_question_never_executes_action(monkeypatch):
@@ -452,50 +456,8 @@ def test_robot_request_retries_transient_http_errors(monkeypatch):
     response = TestClient(main.app).get("/robot/status")
 
     assert response.status_code == 200
-    assert response.json() == {"ok": True}
+    assert response.json() == {"ok": True, "control_channel": "disconnected"}
     assert calls == 2
-
-
-@pytest.mark.anyio
-async def test_transport_rechecks_tracking_authorization_after_waiting_for_lock(monkeypatch):
-    lock = asyncio.Lock()
-    monkeypatch.setattr(main, "robot_request_lock", lock)
-    monkeypatch.setattr(
-        main,
-        "settings",
-        SimpleNamespace(
-            robot_base_url="http://robot",
-            request_timeout=2.0,
-            robot_request_retries=0,
-            robot_retry_backoff_seconds=0.0,
-        ),
-    )
-    authorized = True
-    calls = []
-
-    class FakeRobotClient:
-        is_closed = False
-
-        async def request(self, method, url, **kwargs):
-            calls.append((method, url, kwargs))
-            return httpx.Response(200, json={"ok": True}, request=httpx.Request(method, url))
-
-    monkeypatch.setattr(main, "robot_http_client", FakeRobotClient())
-    await lock.acquire()
-
-    pending = asyncio.create_task(
-        main.robot_post(
-            "/api/move",
-            {"direction": "right", "speed": 70, "duration_ms": 150},
-            authorization=lambda: authorized,
-        )
-    )
-    await asyncio.sleep(0)
-    authorized = False
-    lock.release()
-
-    assert await pending == {"ok": False, "skipped": "tracking authorization expired"}
-    assert calls == []
 
 
 @pytest.mark.anyio
@@ -533,6 +495,15 @@ async def test_slow_camera_fetch_does_not_block_robot_control_requests(monkeypat
             return httpx.Response(200, json={"ok": True}, request=httpx.Request(method, url))
 
     monkeypatch.setattr(main, "robot_http_client", FakeRobotClient())
+    class FakeBroker:
+        def status(self):
+            return {"desired_head": {"pan": 90, "tilt": 90}}
+
+        async def head_target(self, pan, tilt, *, source):
+            calls.append(("HEAD", pan, tilt, source))
+            return {"ok": True}
+
+    monkeypatch.setattr(main, "get_actuator_broker", lambda: FakeBroker())
     await camera_lock.acquire()
     pending_camera = asyncio.create_task(main.robot_fetch_bytes("/capture", "http://robot:81"))
     await asyncio.sleep(0)
@@ -543,7 +514,7 @@ async def test_slow_camera_fetch_does_not_block_robot_control_requests(monkeypat
     )
 
     assert control_result == {"ok": True}
-    assert calls == [("POST", "http://robot/api/head")]
+    assert calls == [("HEAD", 95, 90, "manual")]
     camera_lock.release()
     assert await pending_camera == (b"jpeg", "image/jpeg")
 
@@ -556,18 +527,21 @@ async def test_continuous_tracking_head_command_uses_direct_control_path(monkeyp
         def motion_authorized(self, generation, *, body, allow_search=False):
             return generation == 7 and not body and not allow_search
 
-    async def fake_robot_post(path, body=None, authorization=None):
-        assert authorization is not None and authorization()
-        calls.append((path, body))
-        return {"ok": True, "pan": body["pan"], "tilt": body["tilt"]}
+    class FakeBroker:
+        async def head_target(
+            self, pan, tilt, *, source, wait_for_ack, authorization
+        ):
+            assert authorization()
+            calls.append((pan, tilt, source))
+            return {"ok": True, "queued": True, "pan": pan, "tilt": tilt}
 
     monkeypatch.setattr(main, "tracking_service", AuthorizedTracking())
-    monkeypatch.setattr(main, "robot_post", fake_robot_post)
+    monkeypatch.setattr(main, "get_actuator_broker", lambda: FakeBroker())
 
     result = await main.tracking_head_command(108, 76, 7)
 
-    assert result == {"ok": True, "pan": 108, "tilt": 76}
-    assert calls == [("/api/head", {"pan": 108, "tilt": 76})]
+    assert result == {"ok": True, "queued": True, "pan": 108, "tilt": 76}
+    assert calls == [(108, 76, "tracking")]
 
 
 def test_robot_action_clamps_movement_speed_and_duration(monkeypatch):
@@ -667,7 +641,6 @@ def test_model_eye_policy_rejects_operational_expressions():
 
     assert main.validate_action_payload({"eyes": {"expression": "happy"}}) == {
         "eyes": {"expression": "happy"},
-        "emergency_stop": False,
     }
 
 

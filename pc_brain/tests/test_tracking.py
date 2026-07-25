@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timedelta, timezone
 from io import BytesIO
 
@@ -46,7 +47,17 @@ def make_service(tmp_path, *, skip_head=False):
 
     coordinator = BrainCoordinator(EventJournal(tmp_path / "tracking.db"))
     broker = FrameBroker(fetch, interval_seconds=5.0, max_fps=3.0)
-    service = PersonTrackingService(coordinator, broker, FakeDetector(), head, move)
+    service = PersonTrackingService(
+        coordinator,
+        broker,
+        FakeDetector(),
+        head,
+        move,
+        acquire_required_detections=1,
+    )
+    service.pivot_confirmation_seconds = 0.0
+    service.settling_seconds = 0.0
+    service.opposite_pivot_block_seconds = 0.0
     return service, broker, head_commands, move_commands
 
 
@@ -68,6 +79,7 @@ def person(box, confidence=0.9):
 @pytest.mark.anyio
 async def test_brief_detection_miss_keeps_target_and_sustained_loss_reacquires(tmp_path):
     service, _, _, _ = make_service(tmp_path)
+    service.missing_grace_seconds = 0.05
     await service.process_result(
         result(
             "one",
@@ -92,9 +104,10 @@ async def test_brief_detection_miss_keeps_target_and_sustained_loss_reacquires(t
     assert service.target is not None
     assert service.target.track_id == track_id
 
+    await asyncio.sleep(0.06)
     for frame_id in ("four", "five", "six", "seven", "eight", "nine"):
         await service.process_result(result(frame_id, []))
-    assert service.state == "searching"
+    assert service.state == "lost"
     assert service.target is None
 
     await service.process_result(result("ten", [person((0.0, 0.1, 0.2, 0.9))]))
@@ -117,7 +130,7 @@ async def test_head_steps_are_bounded_and_default_tracking_can_pivot(tmp_path):
         for previous, current in zip([(90, 90), *tracking_updates], tracking_updates)
     )
     assert head_commands[-1][0] == 90
-    assert ("left", 170, 650) in move_commands
+    assert ("left", 140, 500) in move_commands
 
 
 @pytest.mark.anyio
@@ -138,7 +151,7 @@ async def test_body_pivots_when_head_nears_pan_limit_even_with_centered_person(t
     for index in range(2):
         await service.process_result(result(str(index), [person((0.35, 0.2, 0.65, 0.9))]))
 
-    assert ("left", 170, 600) in move_commands
+    assert ("left", 140, 500) in move_commands
 
 
 @pytest.mark.anyio
@@ -150,7 +163,31 @@ async def test_body_pivot_direction_reverses_at_opposite_pan_limit(tmp_path):
     for index in range(2):
         await service.process_result(result(str(index), [person((0.35, 0.2, 0.65, 0.9))]))
 
-    assert ("right", 170, 600) in move_commands
+    assert ("right", 140, 500) in move_commands
+
+
+@pytest.mark.anyio
+async def test_completed_pivot_discards_gaze_estimate_from_before_body_motion(tmp_path):
+    service, _, head_commands, move_commands = make_service(tmp_path)
+    centered = person((0.35, 0.40, 0.65, 1.0))
+    service._last_head_command_at = float("inf")
+    await service.process_result(result("acquire", [centered]))
+
+    service.head_pan = 60
+    service._estimator_center = (0.0, 0.5)
+    service._estimator_velocity = (0.0, 0.0)
+    service._estimator_at = 1.0
+    service._smoothed_center = (0.0, 0.5)
+
+    await service.process_result(result("pivot", [centered]))
+    assert move_commands
+    assert head_commands[-1][0] == 90
+    commands_after_recenter = len(head_commands)
+
+    service._last_head_command_at = 0.0
+    await service.process_result(result("settled", [centered]))
+
+    assert len(head_commands) == commands_after_recenter
 
 
 @pytest.mark.anyio
@@ -165,6 +202,29 @@ async def test_target_latch_prefers_matching_person_over_larger_new_person(tmp_p
 
     assert service.target is not None
     assert service.target.bounding_box == matching_person.bounding_box
+
+
+@pytest.mark.anyio
+async def test_completed_target_switch_is_maintained_on_the_next_matching_frame(tmp_path):
+    service, _, _, _ = make_service(tmp_path)
+    service._last_head_command_at = float("inf")
+    await service.process_result(
+        result("original", [person((0.02, 0.15, 0.30, 0.90), confidence=0.60)])
+    )
+
+    replacement = person((0.68, 0.15, 0.98, 0.90), confidence=0.95)
+    for frame_id in ("switch-one", "switch-two", "switch-three"):
+        await service.process_result(result(frame_id, [replacement]))
+
+    assert service.target is not None
+    switched_track_id = service.target.track_id
+    assert service.status().association_result == "switched"
+
+    await service.process_result(result("replacement-maintained", [replacement]))
+
+    assert service.target is not None
+    assert service.target.track_id == switched_track_id
+    assert service.status().association_result == "maintained"
 
 
 def test_initial_target_prefers_upright_upper_body_over_wide_reclined_box(tmp_path):
@@ -191,19 +251,6 @@ def test_initial_target_groups_person_boxes_and_ignores_separate_false_person(tm
 
 
 @pytest.mark.anyio
-async def test_searching_recenters_head_once_without_authorizing_body_motion(tmp_path):
-    service, _, head_commands, move_commands = make_service(tmp_path)
-    service.head_pan = 135
-
-    await service.process_result(result("missing-one", []))
-    await service.process_result(result("missing-two", []))
-
-    assert head_commands == [(90, 90)]
-    assert service.head_pan == 90
-    assert not move_commands
-
-
-@pytest.mark.anyio
 async def test_tracking_estimates_motion_and_leads_the_smoothed_aim_point(tmp_path):
     service, _, _, _ = make_service(tmp_path)
     service._last_head_command_at = float("inf")
@@ -216,7 +263,7 @@ async def test_tracking_estimates_motion_and_leads_the_smoothed_aim_point(tmp_pa
 
     assert service._aim_velocity[0] > 0
     assert service._smoothed_center is not None
-    assert service._smoothed_center[0] > 0.45
+    assert service._smoothed_center[0] > 0.40
 
 
 def test_tracking_preprocessing_applies_mild_contrast_boost():
@@ -268,11 +315,11 @@ async def test_detection_finishing_after_stop_cannot_restart_tracking(tmp_path):
 async def test_tracking_rate_lease_and_manual_suspension(tmp_path):
     service, broker, _, _ = make_service(tmp_path)
     assert service.mode == "track"
-    assert broker.effective_fps == pytest.approx(3.0)
+    assert broker.effective_fps == pytest.approx(2.0)
 
     service.suspend_for_manual_control()
     assert service.mode == "track"
-    assert broker.effective_fps == pytest.approx(3.0)
+    assert broker.effective_fps == pytest.approx(2.0)
 
 
 @pytest.mark.anyio
@@ -299,7 +346,7 @@ async def test_stale_detection_never_moves_and_slow_cpu_disables_body_motion(tmp
 
 
 @pytest.mark.anyio
-async def test_missing_target_immediately_revokes_motion_authorization(tmp_path):
+async def test_brief_missing_target_preserves_only_fresh_motion_authorization(tmp_path):
     service, _, _, _ = make_service(tmp_path)
     await service.process_result(result("one", [person((0.35, 0.2, 0.65, 0.8))]))
     generation = service._motion_generation
@@ -309,11 +356,13 @@ async def test_missing_target_immediately_revokes_motion_authorization(tmp_path)
 
     assert service.state == "tracking"
     assert service.target is not None
+    assert service.motion_authorized(generation, body=True)
+    await asyncio.sleep(0.51)
     assert not service.motion_authorized(generation, body=True)
 
 
 @pytest.mark.anyio
-async def test_manual_or_emergency_change_invalidates_queued_motion(tmp_path):
+async def test_manual_or_stop_change_invalidates_queued_motion(tmp_path):
     service, _, _, _ = make_service(tmp_path)
     await service.process_result(result("one", [person((0.35, 0.2, 0.65, 0.8))]))
     generation = service._motion_generation
@@ -330,17 +379,6 @@ async def test_manual_or_emergency_change_invalidates_queued_motion(tmp_path):
 
     await service.stop(reason="test stop")
     assert not service.motion_authorized(generation, body=True)
-
-    await service.enable()
-    await service.process_result(result("three", [person((0.35, 0.2, 0.65, 0.8))]))
-    generation = service._motion_generation
-    assert service.motion_authorized(generation, body=True)
-
-    service.emergency_disable()
-    assert not service.motion_authorized(generation, body=False)
-    assert service.mode == "off"
-    assert service.state == "off"
-
 
 @pytest.mark.anyio
 async def test_detector_client_rejects_mismatched_frame(monkeypatch):
@@ -377,6 +415,7 @@ async def test_detector_client_rejects_mismatched_frame(monkeypatch):
 @pytest.mark.anyio
 async def test_skipped_head_command_does_not_drift_internal_position(tmp_path):
     service, _, head_commands, _ = make_service(tmp_path, skip_head=True)
+    service.pivot_confirmation_seconds = 999
 
     await service.process_result(result("one", [person((0.72, 0.2, 0.98, 0.8))]))
 
@@ -431,6 +470,6 @@ async def test_completed_pivot_starts_cooldown_even_if_detection_ages_out_in_fli
 
     await service.process_result(result("one", [person((0.72, 0.2, 0.98, 0.8))]))
 
-    assert move_commands == [("left", 170, 434)]
+    assert move_commands == [("left", 140, 434)]
     assert service._last_pivot_at > 0
-    assert service._pivot_error_frames == 0
+    assert service._pivot_excessive_since is None

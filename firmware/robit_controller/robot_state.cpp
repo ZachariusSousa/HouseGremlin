@@ -16,7 +16,6 @@ void initializeState() {
   robotState.lastMovementCommandAt = 0;
   robotState.movementStopAt = 0;
   robotState.lastLlmCommandAt = 0;
-  robotState.emergencyStopUntil = 0;
 }
 
 void enforceSafetyTimeouts() {

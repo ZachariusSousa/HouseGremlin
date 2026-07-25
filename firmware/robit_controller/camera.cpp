@@ -15,7 +15,7 @@
 #include "config.h"
 
 #ifndef ROBIT_CAMERA_MAX_FPS
-#define ROBIT_CAMERA_MAX_FPS 5
+#define ROBIT_CAMERA_MAX_FPS 2
 #endif
 #if ROBIT_CAMERA_MAX_FPS < 1 || ROBIT_CAMERA_MAX_FPS > 5
 #error "ROBIT_CAMERA_MAX_FPS must be between 1 and 5"

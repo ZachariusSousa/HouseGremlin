@@ -2,7 +2,7 @@
 
 Robit should be built as two cooperating codebases:
 
-- **Robot firmware**: runs on the ESP board, drives motors/servos, exposes a small HTTP API, and stays responsive.
+- **Robot firmware**: runs on the ESP board, drives motors/servos, exposes status/camera HTTP plus a persistent control socket, and stays responsive.
 - **PC brain**: runs on your computer, handles camera streaming, LLM/tool calling, speech, logging, and higher-level autonomy.
 
 Do not put vision or LLM work on the motor controller. Keep the robot firmware boring and real-time-ish; offload expensive work to the PC.
@@ -23,7 +23,7 @@ Maindesign.stl                Current printable model
 
 1. Flash `firmware/robit_controller/robit_controller.ino`.
 2. Edit Wi-Fi credentials in `firmware/robit_controller/config.example.h`, save as `config.h`, and keep it private.
-3. Confirm manual control works through the robot HTTP API.
+3. Deploy the matching PC Brain and confirm its `/robot/*` controls work.
 4. Run the PC brain and point it at the robot IP.
 5. Add camera streaming.
 6. Add LLM tool calling against the PC brain API, not directly against the microcontroller.
@@ -47,33 +47,24 @@ To override it with a direct IP printed by the robot Serial Monitor:
 .\Scripts\run.bat 172.22.1.126
 ```
 
-## Robot HTTP API
+## Robot interfaces
 
-The firmware exposes:
+The firmware HTTP server exposes diagnostics and camera access only:
 
 - `GET /status`
-- `GET /cmd?move=forward|reverse|left|right|stop`
-- `GET /speed?value=0..255`
-- `GET /servo?pan=55..135`
-- `GET /servo?tilt=35..115`
-
-It also exposes first-pass JSON-style aliases for the PC brain and later LLM
-tool layer:
-
 - `GET /api/status`
-- `POST /api/move` with `direction`, optional `speed`, and optional `duration_ms`
-- `POST /api/head` with `pan`/`tilt` or `pan_delta`/`tilt_delta`
-- `POST /api/emergency-stop`
 - `GET /camera`
 - `GET /camera/capture`
 - `GET /camera/stream` is a legacy alias for the still-capture endpoint on port `81`
 
-All camera acquisition is serialized through one mutex and capped globally at
-5 FPS while tracking (`ROBIT_CAMERA_MAX_FPS=5`). The PC
-brain's shared frame broker controls demand separately. Person tracking is on
-by default and requests fresh shared frames without opening another camera
-stream. The broker returns to its low idle rate only when tracking is explicitly
-disabled.
+Actuation uses protocol v1 on TCP port `82`. It is single-client, newline-delimited
+JSON with a 512-byte limit, acknowledgements, TTL/sequence rejection, a one-second
+PC heartbeat, and firmware telemetry. Direct ESP movement/head/eyes HTTP routes
+were intentionally removed; use the stable PC Brain `/robot/*` API.
+
+All camera acquisition is serialized and capped globally at 2 FPS
+(`ROBIT_CAMERA_MAX_FPS=2`). The PC Brain shares one raw JPEG, rotated JPEG, and
+preview for each frame. Idle acquisition is 0.2 FPS.
 
 The XIAO ESP32S3 Sense camera page and still endpoint are:
 
@@ -120,11 +111,11 @@ movement or head commands in the same turn.
 RF-DETR Nano runs in its own `pc_tracking\.venv`, so its Transformers 5
 dependency cannot alter the validated voice environment. It powers one simple
 always-on person tracker: Robit turns its head toward the visible person and
-uses one proportional in-place body turn based on the estimated target bearing
-when the head alone cannot keep up. Tracking
-starts with Robit, has no timeout, and remains off only after an explicit stop
-or emergency stop. It does not replace semantic E4B scene descriptions and it
-never retains camera frames. The tracking API is:
+uses a delayed, bounded in-place body turn only when the head cannot keep up.
+RF-DETR runs at 2 FPS while searching, 1 FPS on a stable target, and 0.5 FPS
+during voice activity. Tracking starts with Robit and remains off only after an
+explicit tracking stop. It does not replace semantic E4B scene descriptions and
+it never retains routine camera frames. The tracking API is:
 
 ```text
 GET  /tracking/status

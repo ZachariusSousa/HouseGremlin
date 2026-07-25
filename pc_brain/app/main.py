@@ -1,8 +1,10 @@
 import asyncio
 import inspect
+import importlib.util
 import json
 import logging
 import re
+import shutil
 import time
 from contextlib import asynccontextmanager
 from datetime import datetime, timezone
@@ -19,6 +21,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_valida
 from .audio_utils import ensure_data_dirs
 from .brain_models import ActionIntent, ConversationState, EventSource, EyeExpression, WorkPriority
 from .config import settings
+from .control_channel import ActuatorBroker, ControlChannelClient
 from .coordinator import BrainCoordinator
 from .correlation import current_correlation_id
 from .eye_controller import EMOTIONAL_EYE_EXPRESSIONS, EyeController
@@ -46,14 +49,38 @@ eye_controller: EyeController | None = None
 frame_broker: FrameBroker | None = None
 vision_service: VisionService | None = None
 tracking_service: PersonTrackingService | None = None
+control_channel: ControlChannelClient | None = None
+actuator_broker: ActuatorBroker | None = None
+event_loop_monitor_task: asyncio.Task[None] | None = None
+event_loop_lag_ms: float = 0.0
+event_loop_lag_peak_ms: float = 0.0
+
+
+async def monitor_event_loop_lag() -> None:
+    global event_loop_lag_ms, event_loop_lag_peak_ms
+    interval = 0.1
+    expected = time.monotonic() + interval
+    while True:
+        await asyncio.sleep(interval)
+        now = time.monotonic()
+        event_loop_lag_ms = max(0.0, (now - expected) * 1000.0)
+        event_loop_lag_peak_ms = max(event_loop_lag_peak_ms, event_loop_lag_ms)
+        if event_loop_lag_ms >= 25.0:
+            logger.warning("event_loop.lag lag_ms=%.2f", event_loop_lag_ms)
+        expected = now + interval
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global robot_http_client
+    global robot_http_client, event_loop_monitor_task
     ensure_data_dirs(settings.data_dir)
     get_brain_coordinator()
     robot_http_client = httpx.AsyncClient(timeout=settings.request_timeout)
+    event_loop_monitor_task = asyncio.create_task(
+        monitor_event_loop_lag(), name="event-loop-monitor"
+    )
+    actuators = get_actuator_broker()
+    await actuators.start()
     controller = get_eye_controller()
     broker = get_frame_broker()
     vision = get_vision_service()
@@ -72,17 +99,24 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        if event_loop_monitor_task is not None:
+            event_loop_monitor_task.cancel()
+            await asyncio.gather(event_loop_monitor_task, return_exceptions=True)
+            event_loop_monitor_task = None
         if realtime_gateway is not None:
             await realtime_gateway.shutdown()
         await vision.shutdown()
         await tracking.shutdown()
         await broker.shutdown()
         await controller.shutdown()
+        await actuators.shutdown()
+        if brain_journal is not None:
+            brain_journal.close()
         await robot_http_client.aclose()
         robot_http_client = None
 
 
-app = FastAPI(title="Robit PC Brain", version="0.1.0", lifespan=lifespan)
+app = FastAPI(title="Robit PC Brain", version="0.2.0", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -154,11 +188,10 @@ class RobotActionRequest(StrictRequest):
     movement: MovementAction | None = None
     head: HeadAction | None = None
     eyes: EyeAction | None = None
-    emergency_stop: bool = False
 
     @model_validator(mode="after")
     def require_action(self):
-        if not any((self.movement, self.head, self.eyes, self.emergency_stop)):
+        if not any((self.movement, self.head, self.eyes)):
             raise ValueError("at least one robot action is required")
         return self
 
@@ -180,9 +213,40 @@ class PerceptionQueryRequest(StrictRequest):
 def get_brain_coordinator() -> BrainCoordinator:
     global brain_journal, brain_coordinator
     if brain_coordinator is None:
-        brain_journal = EventJournal(settings.data_dir / "brain.db")
+        brain_journal = EventJournal(
+            settings.data_dir / "brain.db",
+            queue_limit=getattr(settings, "journal_queue_limit", 1000),
+        )
         brain_coordinator = BrainCoordinator(brain_journal)
     return brain_coordinator
+
+
+def get_actuator_broker() -> ActuatorBroker:
+    global control_channel, actuator_broker
+    if actuator_broker is None:
+        parsed = urlparse(settings.robot_base_url)
+        control_channel = ControlChannelClient(
+            parsed.hostname or "robit.local",
+            getattr(settings, "control_tcp_port", 82),
+            heartbeat_interval_seconds=getattr(
+                settings, "control_heartbeat_interval_seconds", 1.0
+            ),
+            command_timeout_seconds=getattr(
+                settings, "control_command_timeout_seconds", 1.5
+            ),
+        )
+        actuator_broker = ActuatorBroker(
+            control_channel,
+            tracking_rate_hz=getattr(settings, "actuator_tracking_rate_hz", 4.0),
+            manual_rate_hz=getattr(settings, "actuator_manual_rate_hz", 10.0),
+            minimum_head_change_degrees=getattr(
+                settings, "actuator_head_deadband_degrees", 2.0
+            ),
+            manual_lease_seconds=getattr(
+                settings, "actuator_manual_lease_seconds", 3.0
+            ),
+        )
+    return actuator_broker
 
 
 def get_eye_controller() -> EyeController:
@@ -202,7 +266,7 @@ def get_frame_broker() -> FrameBroker:
         frame_broker = FrameBroker(
             fetch_robot_camera_frame,
             getattr(settings, "camera_frame_interval_seconds", 5.0),
-            max_fps=5.0,
+            max_fps=2.0,
         )
     return frame_broker
 
@@ -229,9 +293,11 @@ async def tracking_head_command(
 ) -> dict:
     if not tracking_motion_authorized(generation, body=False, allow_search=allow_search):
         return {"ok": False, "skipped": "tracking authorization expired"}
-    return await robot_post(
-        "/api/head",
-        {"pan": pan, "tilt": tilt},
+    return await get_actuator_broker().head_target(
+        pan,
+        tilt,
+        source="tracking",
+        wait_for_ack=False,
         authorization=lambda: tracking_motion_authorized(
             generation,
             body=False,
@@ -255,10 +321,14 @@ async def tracking_move_command(direction: str, speed: int, duration_ms: int, ge
     async def execute(payload: dict) -> dict:
         if not tracking_motion_authorized(generation, body=True):
             return {"ok": False, "skipped": "tracking authorization expired"}
-        return await robot_post(
-            "/api/move",
-            payload["movement"],
-            authorization=lambda: tracking_motion_authorized(generation, body=True),
+        movement = payload["movement"]
+        return await get_actuator_broker().tracking_drive(
+            movement["direction"],
+            movement["speed"],
+            movement["duration_ms"],
+            authorization=lambda: tracking_motion_authorized(
+                generation, body=True
+            ),
         )
 
     return await get_brain_coordinator().execute_action(intent, execute)
@@ -282,6 +352,28 @@ def get_tracking_service() -> PersonTrackingService:
             rotate_degrees=getattr(settings, "camera_rotate_degrees", 180),
             pan_sign=getattr(settings, "tracking_pan_sign", 1),
             tilt_sign=getattr(settings, "tracking_tilt_sign", 1),
+            search_fps=getattr(settings, "tracking_search_fps", 2.0),
+            stable_fps=getattr(settings, "tracking_stable_fps", 1.0),
+            voice_fps=getattr(settings, "tracking_voice_fps", 0.5),
+            acquire_window_seconds=getattr(
+                settings, "tracking_acquire_window_seconds", 2.0
+            ),
+            missing_grace_seconds=getattr(
+                settings, "tracking_missing_grace_seconds", 2.5
+            ),
+            pivot_confirmation_seconds=getattr(
+                settings, "tracking_pivot_confirmation_seconds", 1.5
+            ),
+            settling_seconds=getattr(settings, "tracking_settling_seconds", 1.0),
+            opposite_pivot_block_seconds=getattr(
+                settings, "tracking_opposite_pivot_block_seconds", 5.0
+            ),
+            lost_neutral_seconds=getattr(
+                settings, "tracking_lost_neutral_seconds", 5.0
+            ),
+            head_state_provider=lambda: (
+                control_channel.telemetry if control_channel is not None else {}
+            ),
         )
     return tracking_service
 
@@ -418,6 +510,9 @@ def get_realtime_gateway() -> RealtimeGateway:
             tracking_command=execute_explicit_tracking_request,
         )
         vision.subscribe_snapshot(realtime_gateway.refresh_scene_context)
+        get_tracking_service().subscribe_state(
+            realtime_gateway.refresh_scene_context
+        )
     return realtime_gateway
 
 
@@ -437,7 +532,7 @@ def parse_robot_response(response: httpx.Response) -> dict:
 
 def cache_robot_status(path: str, payload: dict) -> None:
     global robot_status_cache, robot_status_cache_at
-    if path in {"/status", "/api/move", "/api/head", "/api/emergency-stop"} and payload.get("ok") is True:
+    if path == "/status" and payload.get("ok") is True:
         robot_status_cache = payload
         robot_status_cache_at = time.monotonic()
 
@@ -494,31 +589,41 @@ async def robot_post(
     body: dict | None = None,
     authorization: Callable[[], bool] | None = None,
 ):
-    return await robot_request("POST", path, body=body or {}, authorization=authorization)
+    if authorization is not None and not authorization():
+        return {"ok": False, "skipped": "tracking authorization expired"}
+    payload = body or {}
+    broker = get_actuator_broker()
+    if path == "/api/move":
+        direction = str(payload.get("direction", "stop"))
+        if direction == "stop":
+            return await broker.stop()
+        return await broker.drive(
+            direction,
+            int(payload.get("speed", settings.robot_llm_default_speed)),
+            int(payload.get("duration_ms", 0)),
+        )
+    if path == "/api/head":
+        current = broker.status()["desired_head"]
+        pan = int(payload.get("pan", current["pan"])) + int(payload.get("pan_delta", 0))
+        tilt = int(payload.get("tilt", current["tilt"])) + int(payload.get("tilt_delta", 0))
+        return await broker.head_target(pan, tilt, source="manual")
+    if path == "/api/eyes":
+        return await broker.eyes(
+            str(payload.get("expression", "neutral")),
+            int(payload.get("duration_ms", 0)),
+        )
+    raise HTTPException(
+        status_code=410,
+        detail=f"ESP HTTP control endpoint removed: {path}",
+    )
 
 
 async def robot_heartbeat_post(path: str, body: dict | None = None):
-    """Heartbeat traffic shares the ESP control queue and never retries."""
-    url = f"{settings.robot_base_url}{path}"
-    async with robot_request_lock:
-        response = await robot_client().post(url, json=body or {}, timeout=settings.request_timeout)
-        response.raise_for_status()
-        return parse_robot_response(response)
-
-
-async def robot_emergency_stop_request() -> dict:
-    """Emergency stop bypasses the normal serialized robot request queue."""
-    url = f"{settings.robot_base_url}/api/emergency-stop"
-    correlation_id = current_correlation_id.get()
-    headers = {"x-robit-correlation-id": correlation_id} if correlation_id else None
-    try:
-        response = await robot_client().post(url, json={}, headers=headers)
-        response.raise_for_status()
-        payload = parse_robot_response(response)
-        cache_robot_status("/api/emergency-stop", payload)
-        return payload
-    except httpx.HTTPError as exc:
-        raise HTTPException(status_code=502, detail=f"Robot emergency stop failed: {exc}") from exc
+    """Compatibility adapter for the eye controller; TCP owns heartbeats."""
+    channel_status = get_actuator_broker().channel.status()
+    if not channel_status["ready"]:
+        raise RuntimeError(channel_status["last_error"] or "control channel not ready")
+    return {"ok": True, "heartbeat_recovered": False}
 
 
 def cached_robot_status() -> dict | None:
@@ -538,7 +643,15 @@ async def robot_fetch_bytes(path: str, base_url: str | None = None):
             response.raise_for_status()
     except httpx.HTTPError as exc:
         message = str(exc) or type(exc).__name__
-        raise HTTPException(status_code=502, detail=f"Robot camera request failed: {message}") from exc
+        logger.warning(
+            "camera.failed stage=acquisition error_class=%s error=%s",
+            type(exc).__name__,
+            message,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=f"Robot camera request failed ({type(exc).__name__}): {message}",
+        ) from exc
     return response.content, response.headers.get("content-type", "image/jpeg")
 
 
@@ -547,7 +660,14 @@ async def fetch_robot_camera_frame():
     hostname = parsed.hostname or "robit.local"
     scheme = parsed.scheme or "http"
     camera_base_url = urlunparse((scheme, f"{hostname}:81", "", "", "", ""))
-    return await robot_fetch_bytes("/capture", camera_base_url)
+    started = time.perf_counter()
+    content, media_type = await robot_fetch_bytes("/capture", camera_base_url)
+    logger.info(
+        "camera.acquired bytes=%s acquisition_ms=%.2f",
+        len(content),
+        (time.perf_counter() - started) * 1000.0,
+    )
+    return content, media_type
 
 
 def camera_urls() -> dict:
@@ -592,8 +712,6 @@ def sanitized_action_payload(action: RobotActionRequest) -> dict:
         payload["head"] = action.head.model_dump(exclude_none=True)
     if action.eyes:
         payload["eyes"] = action.eyes.model_dump(exclude_none=True)
-    if action.emergency_stop:
-        payload["emergency_stop"] = True
     return payload
 
 
@@ -634,13 +752,6 @@ async def execute_robot_action(action: RobotActionRequest, mood_source: EventSou
     executed: list[dict] = []
     skipped: list[dict] = []
 
-    if payload.get("emergency_stop"):
-        get_tracking_service().emergency_disable()
-        result = await robot_emergency_stop_request()
-        executed.append({"type": "emergency_stop", "result": result})
-        logger.info("robot.llm_action emergency_stop")
-        return {"ok": True, "action": payload, "executed": executed, "skipped": skipped}
-
     if payload.get("movement") or payload.get("head"):
         get_tracking_service().suspend_for_manual_control()
 
@@ -661,7 +772,10 @@ async def execute_robot_action(action: RobotActionRequest, mood_source: EventSou
 
     if head := payload.get("head"):
         result = await robot_post("/api/head", head)
-        get_tracking_service().sync_head_position(result.get("pan"), result.get("tilt"))
+        get_tracking_service().sync_head_position(
+            result.get("pan_target", result.get("pan")),
+            result.get("tilt_target", result.get("tilt")),
+        )
         executed.append({"type": "head", "request": head, "result": result})
 
     if mood_source is None and (eyes := payload.get("eyes")):
@@ -672,7 +786,17 @@ async def execute_robot_action(action: RobotActionRequest, mood_source: EventSou
             skipped.append({"type": "eyes", "request": eyes, "reason": exc.detail})
 
     logger.info("robot.llm_action %s", json.dumps(payload))
-    return {"ok": True, "action": payload, "executed": executed, "skipped": skipped}
+    successful = all(
+        not isinstance(item.get("result"), dict)
+        or item["result"].get("ok") is not False
+        for item in executed
+    )
+    return {
+        "ok": successful,
+        "action": payload,
+        "executed": executed,
+        "skipped": skipped,
+    }
 
 
 async def execute_action_payload(payload: dict) -> dict:
@@ -710,7 +834,7 @@ async def coordinated_action(
         origin=origin,
         correlation_id=correlation_id,
         reason=reason,
-        priority=WorkPriority.emergency if action.emergency_stop else priority,
+        priority=priority,
     )
     result = await get_brain_coordinator().execute_action(intent, executor)
     return {**result, "correlation_id": correlation_id}
@@ -729,15 +853,15 @@ async def execute_manual_drive(payload: dict) -> dict:
 
 async def execute_manual_head(payload: dict) -> dict:
     result = await robot_post("/api/head", payload["head"])
-    get_tracking_service().sync_head_position(result.get("pan"), result.get("tilt"))
+    get_tracking_service().sync_head_position(
+        result.get("pan_target", result.get("pan")),
+        result.get("tilt_target", result.get("tilt")),
+    )
     return result
 
 
 async def execute_manual_stop(payload: dict) -> dict:
-    try:
-        return await robot_emergency_stop_request()
-    except HTTPException:
-        return await robot_get("/cmd", {"move": "stop"})
+    return await robot_post("/api/move", {"direction": "stop"})
 
 
 def prompt_with_live_scene(text: str) -> str:
@@ -839,6 +963,8 @@ async def health(request: Request):
     websocket_scheme = "wss" if request.url.scheme == "https" else "ws"
     gateway_url = f"{websocket_scheme}://{request.url.netloc}/v1/realtime"
     tracking = get_tracking_service().status()
+    sox_available = shutil.which("sox") is not None
+    microphone_enhancement_available = importlib.util.find_spec("noisereduce") is not None
     return {
         "ok": True,
         "robot_base_url": settings.robot_base_url,
@@ -856,6 +982,38 @@ async def health(request: Request):
             "mode": tracking.mode,
             "backend": tracking.backend,
             "reason": tracking.reason,
+            "detector_latency_ms": tracking.detector_latency_ms,
+            "detector_queue_ms": tracking.detector_queue_ms,
+            "detector_cadence_fps": tracking.detector_cadence_fps,
+        },
+        "control_channel": get_actuator_broker().channel.status(),
+        "actuators": get_actuator_broker().status(),
+        "journal": brain_journal.status() if brain_journal is not None else None,
+        "camera": get_frame_broker().status(),
+        "workload": get_brain_coordinator().resource_lease.status(),
+        "event_loop": {
+            "lag_ms": event_loop_lag_ms,
+            "peak_lag_ms": event_loop_lag_peak_ms,
+        },
+        "voice_health": {
+            "status": (
+                "ok"
+                if sox_available and microphone_enhancement_available
+                else "degraded"
+            ),
+            "sox_available": sox_available,
+            "microphone_enhancement_available": microphone_enhancement_available,
+            "degraded_reasons": [
+                reason
+                for available, reason in (
+                    (sox_available, "SoX is unavailable"),
+                    (
+                        microphone_enhancement_available,
+                        "microphone enhancement is unavailable",
+                    ),
+                )
+                if not available
+            ],
         },
     }
 
@@ -869,11 +1027,13 @@ async def web_control():
 
 @app.get("/robot/status")
 async def robot_status():
+    channel = get_actuator_broker().channel
+    if channel.stats.ready:
+        return {"ok": True, **channel.telemetry, "control_channel": "ready"}
     if cached := cached_robot_status():
-        return cached
-    if robot_request_lock.locked() and robot_status_cache:
-        return robot_status_cache
-    return await robot_get("/status")
+        return {**cached, "control_channel": "disconnected"}
+    status = await robot_get("/status")
+    return {**status, "control_channel": "disconnected"}
 
 
 @app.get("/robot/camera")
@@ -977,13 +1137,13 @@ async def robot_head(command: HeadCommand, request: Request):
 
 @app.post("/robot/stop")
 async def robot_stop(request: Request):
-    get_tracking_service().emergency_disable()
+    get_tracking_service().suspend_for_manual_control()
     result = await coordinated_action(
-        RobotActionRequest(emergency_stop=True),
+        RobotActionRequest(movement=MovementAction(direction="stop")),
         EventSource.manual,
         correlation_from_request(request),
-        "Manual emergency stop",
-        WorkPriority.emergency,
+        "Manual stop",
+        WorkPriority.manual_action,
         execute_manual_stop,
     )
     return manual_action_response(result)
@@ -1027,24 +1187,24 @@ async def chat_action(chat_request: ChatActionRequest, request: Request):
     coordinator.record_turn("user", chat_request.text, EventSource.browser, correlation_id)
     coordinator.transition(correlation_id, EventSource.browser, conversation=ConversationState.formulating)
     explicit_action = explicit_robot_action(chat_request.text)
-    if explicit_action and explicit_action.get("emergency_stop"):
+    if explicit_action and explicit_action.get("movement", {}).get("direction") == "stop":
         action_result = await coordinated_action(
-            RobotActionRequest(emergency_stop=True),
+            RobotActionRequest(movement=MovementAction(direction="stop")),
             EventSource.browser,
             correlation_id,
-            "Explicit text emergency stop",
-            WorkPriority.emergency,
+            "Explicit text stop",
+            WorkPriority.manual_action,
             execute_text_model_action_payload,
         )
-        response_text = "I stopped Robit's movement and disabled automatic tracking."
+        response_text = "I stopped Robit's movement."
         coordinator.record_turn("assistant", response_text, EventSource.system, correlation_id)
         coordinator.transition(correlation_id, EventSource.system, conversation=ConversationState.idle)
         return {
             "response": response_text,
-            "model": "deterministic-safety",
+            "model": "deterministic-control",
             "conversation_id": chat_request.conversation_id,
             "correlation_id": correlation_id,
-            "action": {"emergency_stop": True},
+            "action": {"movement": {"direction": "stop"}},
             "action_result": action_result,
             "vision": None,
             "parse_error": None,

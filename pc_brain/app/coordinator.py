@@ -139,15 +139,9 @@ class BrainCoordinator:
             intent.causation_id,
             intent.conversation_id,
         )
-        is_emergency = bool(intent.action.get("emergency_stop"))
-        if is_emergency:
-            intent.priority = WorkPriority.emergency
-            self.transition(intent.correlation_id, intent.origin, body=BodyState.stationary, safety="stopped")
-
         async def run() -> dict[str, Any]:
             body_state = BodyState.looking if intent.action.get("head") and not intent.action.get("movement") else BodyState.executing_skill
-            if not is_emergency:
-                self.transition(intent.correlation_id, intent.origin, body=body_state)
+            self.transition(intent.correlation_id, intent.origin, body=body_state)
             self.record(
                 "action.approved",
                 EventSource.policy,
@@ -183,8 +177,6 @@ class BrainCoordinator:
             self.transition(intent.correlation_id, EventSource.system, body=BodyState.stationary)
             return result
 
-        if is_emergency:
-            return await run()
         async with self._action_lease.acquire(intent.priority):
             return await run()
 

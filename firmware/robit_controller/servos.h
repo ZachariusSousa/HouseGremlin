@@ -14,3 +14,7 @@ void setHeadPosition(int pan, int tilt);
 void moveHeadRelative(int panDelta, int tiltDelta);
 void centerHead();
 void updateServos();
+int getActualPanAngle();
+int getActualTiltAngle();
+int getTargetPanAngle();
+int getTargetTiltAngle();

@@ -25,6 +25,9 @@ constexpr unsigned long WIFI_RECONNECT_INTERVAL_MS = 5000;
 #ifndef ROBIT_HOSTNAME
 #define ROBIT_HOSTNAME "robit"
 #endif
+#ifndef ROBIT_CONTROL_TCP_PORT
+#define ROBIT_CONTROL_TCP_PORT 82
+#endif
 
 String jsonEscape(const String& value) {
   String escaped;
@@ -49,6 +52,10 @@ String statusJson() {
   json += "\"speed\":" + String(robotState.motorSpeed) + ",";
   json += "\"pan\":" + String(robotState.panAngle) + ",";
   json += "\"tilt\":" + String(robotState.tiltAngle) + ",";
+  json += "\"pan_actual\":" + String(getActualPanAngle()) + ",";
+  json += "\"tilt_actual\":" + String(getActualTiltAngle()) + ",";
+  json += "\"pan_target\":" + String(getTargetPanAngle()) + ",";
+  json += "\"tilt_target\":" + String(getTargetTiltAngle()) + ",";
   json += "\"eyes\":\"" + jsonEscape(robotState.eyeExpression) + "\",";
   json += "\"brain_heartbeat_armed\":" + String(isBrainHeartbeatArmed() ? "true" : "false") + ",";
   json += "\"brain_heartbeat_fault\":" + String(isBrainHeartbeatFaultActive() ? "true" : "false") + ",";
@@ -57,144 +64,15 @@ String statusJson() {
   return json;
 }
 
-int queryInt(const String& name, int fallback) {
-  if (!server.hasArg(name)) return fallback;
-  return server.arg(name).toInt();
-}
-
-String body() {
-  return server.hasArg("plain") ? server.arg("plain") : "";
-}
-
-String jsonStringValue(const String& source, const String& key, const String& fallback = "") {
-  const String needle = "\"" + key + "\"";
-  int keyIndex = source.indexOf(needle);
-  if (keyIndex < 0) return fallback;
-  int colonIndex = source.indexOf(':', keyIndex + needle.length());
-  if (colonIndex < 0) return fallback;
-  int startQuote = source.indexOf('"', colonIndex + 1);
-  if (startQuote < 0) return fallback;
-  int endQuote = source.indexOf('"', startQuote + 1);
-  if (endQuote < 0) return fallback;
-  return source.substring(startQuote + 1, endQuote);
-}
-
-int jsonIntValue(const String& source, const String& key, int fallback) {
-  const String needle = "\"" + key + "\"";
-  int keyIndex = source.indexOf(needle);
-  if (keyIndex < 0) return fallback;
-  int colonIndex = source.indexOf(':', keyIndex + needle.length());
-  if (colonIndex < 0) return fallback;
-  int start = colonIndex + 1;
-  while (start < source.length() && isspace(source[start])) start++;
-  int end = start;
-  while (end < source.length() && (isdigit(source[end]) || source[end] == '-')) end++;
-  if (end == start) return fallback;
-  return source.substring(start, end).toInt();
-}
-
 void sendJson(int status, const String& payload) {
   server.send(status, "application/json", payload);
 }
 
 void handleRoot() {
-  server.send(200, "text/plain", "Robit controller online. Use /status, /cmd, /speed, /servo, or /api/status.");
+  server.send(200, "text/plain", "Robit controller online. Control uses TCP port 82; HTTP provides status and camera only.");
 }
 
 void handleStatus() {
-  sendJson(200, statusJson());
-}
-
-void handleCmd() {
-  const String move = server.arg("move");
-  commandMovement(move, -1, 0);
-  server.send(200, "text/plain", "OK");
-}
-
-void handleSpeed() {
-  if (server.hasArg("value")) {
-    setMotorSpeed(server.arg("value").toInt());
-  }
-  server.send(200, "text/plain", "OK");
-}
-
-void handleServo() {
-  if (server.hasArg("pan")) setPanAngle(server.arg("pan").toInt());
-  if (server.hasArg("tilt")) setTiltAngle(server.arg("tilt").toInt());
-  server.send(200, "text/plain", "OK");
-}
-
-void handleApiMove() {
-  const String payload = body();
-  const String direction = server.hasArg("direction")
-    ? server.arg("direction")
-    : jsonStringValue(payload, "direction", "stop");
-  const int speed = queryInt("speed", jsonIntValue(payload, "speed", -1));
-  const int durationMs = queryInt("duration_ms", jsonIntValue(payload, "duration_ms", 0));
-
-  if (
-    direction != "forward" &&
-    direction != "reverse" &&
-    direction != "left" &&
-    direction != "right" &&
-    direction != "stop"
-  ) {
-    sendJson(400, "{\"ok\":false,\"error\":\"unknown direction\"}");
-    return;
-  }
-
-  commandMovement(direction, speed, durationMs);
-  sendJson(200, statusJson());
-}
-
-void handleApiHead() {
-  const String payload = body();
-  const int pan = queryInt("pan", jsonIntValue(payload, "pan", robotState.panAngle));
-  const int tilt = queryInt("tilt", jsonIntValue(payload, "tilt", robotState.tiltAngle));
-  const int panDelta = queryInt("pan_delta", jsonIntValue(payload, "pan_delta", 0));
-  const int tiltDelta = queryInt("tilt_delta", jsonIntValue(payload, "tilt_delta", 0));
-
-  if (panDelta != 0 || tiltDelta != 0) {
-    moveHeadRelative(panDelta, tiltDelta);
-  } else {
-    setHeadPosition(pan, tilt);
-  }
-  sendJson(200, statusJson());
-}
-
-void handleApiEyes() {
-  const String payload = body();
-  const String expression = server.hasArg("expression")
-    ? server.arg("expression")
-    : jsonStringValue(payload, "expression", "");
-  const int durationMs = queryInt("duration_ms", jsonIntValue(payload, "duration_ms", 0));
-
-  if (!isEyeExpressionSupported(expression)) {
-    sendJson(400, "{\"ok\":false,\"error\":\"unknown eye expression\"}");
-    return;
-  }
-  if (durationMs < 0 || durationMs > 10000) {
-    sendJson(400, "{\"ok\":false,\"error\":\"duration_ms must be between 0 and 10000\"}");
-    return;
-  }
-  if (!setEyeExpression(expression, static_cast<unsigned long>(durationMs))) {
-    sendJson(503, "{\"ok\":false,\"error\":\"eye displays unavailable\"}");
-    return;
-  }
-
-  sendJson(200, statusJson());
-}
-
-void handleBrainHeartbeat() {
-  const bool recovered = recordBrainHeartbeat();
-  String json = statusJson();
-  json.remove(json.length() - 1);
-  json += ",\"heartbeat_recovered\":" + String(recovered ? "true" : "false") + "}";
-  sendJson(200, json);
-}
-
-void handleEmergencyStop() {
-  emergencyStopMotors();
   sendJson(200, statusJson());
 }
 
@@ -215,6 +93,7 @@ void startMdns() {
   if (MDNS.begin(ROBIT_HOSTNAME)) {
     MDNS.addService("http", "tcp", 80);
     MDNS.addService("robit-camera", "tcp", 81);
+    MDNS.addService("robit-control", "tcp", ROBIT_CONTROL_TCP_PORT);
     mdnsStarted = true;
     Serial.print("[WIFI] mDNS started: http://");
     Serial.print(ROBIT_HOSTNAME);
@@ -276,19 +155,11 @@ void updateWifi() {
 void initializeHttpServer() {
   server.on("/", HTTP_GET, handleRoot);
   server.on("/status", HTTP_GET, handleStatus);
-  server.on("/cmd", HTTP_GET, handleCmd);
-  server.on("/speed", HTTP_GET, handleSpeed);
-  server.on("/servo", HTTP_GET, handleServo);
   server.on("/api/status", HTTP_GET, handleStatus);
-  server.on("/api/move", HTTP_ANY, handleApiMove);
-  server.on("/api/head", HTTP_ANY, handleApiHead);
-  server.on("/api/eyes", HTTP_ANY, handleApiEyes);
-  server.on("/api/brain-heartbeat", HTTP_ANY, handleBrainHeartbeat);
-  server.on("/api/emergency-stop", HTTP_ANY, handleEmergencyStop);
   server.on("/camera", HTTP_GET, []() { handleCameraPage(server); });
   // Camera acquisition runs only in the dedicated port-81 task. Never call
   // esp_camera_fb_get() from the main control HTTP loop: a stalled sensor must
-  // not make status, heartbeat, or emergency-stop endpoints unresponsive.
+  // not make status or control-channel servicing unresponsive.
   server.on("/camera/capture", HTTP_GET, handleCameraCaptureRedirect);
   server.on("/camera/stream", HTTP_GET, handleCameraStreamRedirect);
   server.begin();

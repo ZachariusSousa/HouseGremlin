@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import os
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -27,6 +28,8 @@ class DetectionResponse(BaseModel):
     model: str = MODEL_NAME
     backend: str
     latency_ms: float
+    queue_ms: float = 0.0
+    request_bytes: int = 0
     people: list[PersonDetection]
 
 
@@ -116,6 +119,12 @@ class RFDetrBackend:
 
 backend = RFDetrBackend()
 inference_lock = asyncio.Lock()
+logger = logging.getLogger("uvicorn.error")
+last_metrics: dict[str, float | int | None] = {
+    "queue_ms": None,
+    "inference_ms": None,
+    "request_bytes": None,
+}
 
 
 @asynccontextmanager
@@ -135,6 +144,7 @@ async def health() -> dict[str, Any]:
         "reason": backend.status.reason,
         "backend": backend.status.backend,
         "model": MODEL_NAME,
+        "last_detection": last_metrics,
     }
 
 
@@ -151,14 +161,39 @@ async def detect(
     if not jpeg:
         raise HTTPException(status_code=400, detail="JPEG body is required")
     try:
+        queued_at = perf_counter()
         async with inference_lock:
+            queue_ms = (perf_counter() - queued_at) * 1000.0
             people, latency_ms = await asyncio.to_thread(backend.detect, jpeg, x_robit_threshold)
     except Exception as exc:
-        raise HTTPException(status_code=500, detail=f"RF-DETR inference failed: {exc}") from exc
+        logger.exception(
+            "detector.fault stage=inference error_class=%s request_bytes=%s",
+            type(exc).__name__,
+            len(jpeg),
+        )
+        raise HTTPException(
+            status_code=500,
+            detail=f"RF-DETR inference failed ({type(exc).__name__}): {exc}",
+        ) from exc
+    last_metrics.update(
+        queue_ms=queue_ms,
+        inference_ms=latency_ms,
+        request_bytes=len(jpeg),
+    )
+    logger.info(
+        "detector.sample frame_id=%s request_bytes=%s queue_ms=%.2f inference_ms=%.2f people=%s",
+        x_robit_frame_id,
+        len(jpeg),
+        queue_ms,
+        latency_ms,
+        len(people),
+    )
     return DetectionResponse(
         frame_id=x_robit_frame_id,
         captured_at=x_robit_captured_at,
         backend=backend.status.backend,
         latency_ms=latency_ms,
+        queue_ms=queue_ms,
+        request_bytes=len(jpeg),
         people=people,
     )

@@ -14,7 +14,6 @@ struct RobotState {
   unsigned long lastMovementCommandAt;
   unsigned long movementStopAt;
   unsigned long lastLlmCommandAt;
-  unsigned long emergencyStopUntil;
 };
 
 extern RobotState robotState;

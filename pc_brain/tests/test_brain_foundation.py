@@ -76,7 +76,7 @@ async def test_action_trace_keeps_one_correlation_id(tmp_path):
 
 
 @pytest.mark.anyio
-async def test_emergency_action_bypasses_a_busy_normal_action(tmp_path):
+async def test_stop_is_an_ordinary_serialized_action(tmp_path):
     coordinator = BrainCoordinator(EventJournal(tmp_path / "brain.db"))
     normal_started = asyncio.Event()
     release_normal = asyncio.Event()
@@ -88,8 +88,8 @@ async def test_emergency_action_bypasses_a_busy_normal_action(tmp_path):
         completed.append("normal")
         return {"ok": True}
 
-    async def emergency_executor(action):
-        completed.append("emergency")
+    async def stop_executor(action):
+        completed.append("stop")
         return {"ok": True}
 
     normal_task = asyncio.create_task(
@@ -103,20 +103,22 @@ async def test_emergency_action_bypasses_a_busy_normal_action(tmp_path):
         )
     )
     await normal_started.wait()
-    await coordinator.execute_action(
-        ActionIntent(
-            action={"emergency_stop": True},
+    stop_task = asyncio.create_task(
+        coordinator.execute_action(
+            ActionIntent(
+            action={"movement": {"direction": "stop"}},
             origin=EventSource.manual,
             correlation_id="stop",
-            priority=WorkPriority.emergency,
-        ),
-        emergency_executor,
+            priority=WorkPriority.manual_action,
+            ),
+            stop_executor,
+        )
     )
-    assert completed == ["emergency"]
+    await asyncio.sleep(0)
+    assert not stop_task.done()
     release_normal.set()
-    await normal_task
-    assert completed == ["emergency", "normal"]
-    assert coordinator.state.safety == "stopped"
+    await asyncio.gather(normal_task, stop_task)
+    assert completed == ["normal", "stop"]
 
 
 @pytest.mark.anyio
