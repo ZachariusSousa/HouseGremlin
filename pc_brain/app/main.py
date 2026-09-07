@@ -29,6 +29,7 @@ from .frame_broker import FrameBroker
 from .journal import EventJournal
 from .llm import OpenAICompatibleChatClient
 from .realtime_gateway import RealtimeGateway, explicit_robot_action
+from .robot_status import normalize_robot_status
 from .timing import timed
 from .tracking import PersonTrackingService, RFDetrClient
 from .vision import VisionService, VisionUnavailable
@@ -40,7 +41,7 @@ robot_request_lock = asyncio.Lock()
 robot_http_client: httpx.AsyncClient | None = None
 robot_status_cache: dict | None = None
 robot_status_cache_at = 0.0
-ROBOT_STATUS_CACHE_SECONDS = 3.0
+ROBOT_STATUS_CACHE_SECONDS = 15.0
 robot_camera_request_lock = asyncio.Lock()
 brain_journal: EventJournal | None = None
 brain_coordinator: BrainCoordinator | None = None
@@ -221,6 +222,24 @@ def get_brain_coordinator() -> BrainCoordinator:
     return brain_coordinator
 
 
+async def handle_control_connection_change(connected: bool) -> None:
+    coordinator = get_brain_coordinator()
+    if connected:
+        coordinator.clear_fault("control_transport")
+        return
+    channel = control_channel
+    message = (
+        channel.stats.last_error
+        if channel is not None and channel.stats.last_error
+        else "robot control channel disconnected"
+    )
+    coordinator.register_fault(
+        "control_transport",
+        "critical",
+        message,
+    )
+
+
 def get_actuator_broker() -> ActuatorBroker:
     global control_channel, actuator_broker
     if actuator_broker is None:
@@ -246,6 +265,7 @@ def get_actuator_broker() -> ActuatorBroker:
                 settings, "actuator_manual_lease_seconds", 3.0
             ),
         )
+        control_channel.add_connection_listener(handle_control_connection_change)
     return actuator_broker
 
 
@@ -532,7 +552,7 @@ def parse_robot_response(response: httpx.Response) -> dict:
 
 def cache_robot_status(path: str, payload: dict) -> None:
     global robot_status_cache, robot_status_cache_at
-    if path == "/status" and payload.get("ok") is True:
+    if path in {"/status", "/api/status"} and payload.get("ok") is True:
         robot_status_cache = payload
         robot_status_cache_at = time.monotonic()
 
@@ -620,10 +640,16 @@ async def robot_post(
 
 async def robot_heartbeat_post(path: str, body: dict | None = None):
     """Compatibility adapter for the eye controller; TCP owns heartbeats."""
-    channel_status = get_actuator_broker().channel.status()
+    channel = get_actuator_broker().channel
+    channel_status = channel.status()
     if not channel_status["ready"]:
         raise RuntimeError(channel_status["last_error"] or "control channel not ready")
-    return {"ok": True, "heartbeat_recovered": False}
+    consume_recovery = getattr(channel, "consume_watchdog_recovery", None)
+    recovered = bool(consume_recovery()) if callable(consume_recovery) else bool(
+        channel_status.get("watchdog_recovered")
+        or channel_status.get("telemetry", {}).get("heartbeat_recovered")
+    )
+    return {"ok": True, "heartbeat_recovered": recovered}
 
 
 def cached_robot_status() -> dict | None:
@@ -1026,14 +1052,56 @@ async def web_control():
 
 
 @app.get("/robot/status")
-async def robot_status():
-    channel = get_actuator_broker().channel
-    if channel.stats.ready:
-        return {"ok": True, **channel.telemetry, "control_channel": "ready"}
-    if cached := cached_robot_status():
-        return {**cached, "control_channel": "disconnected"}
-    status = await robot_get("/status")
-    return {**status, "control_channel": "disconnected"}
+async def robot_status(refresh: bool = False):
+    broker = get_actuator_broker()
+    channel = broker.channel
+    channel_status = channel.status()
+    broker_status = broker.status()
+    now = time.monotonic()
+
+    if refresh:
+        sample = await robot_get("/status")
+        source = "http"
+        sample_age_ms = 0.0
+        connected = sample.get("ok") is True
+        ready = connected
+    elif channel.telemetry:
+        sample = channel.telemetry
+        source = "tcp"
+        received_at = getattr(channel, "telemetry_received_at", None)
+        sample_age_ms = (
+            max(0.0, (now - received_at) * 1000.0)
+            if received_at is not None
+            else (0.0 if channel.stats.ready else None)
+        )
+        connected = bool(channel.stats.connected)
+        ready = bool(channel.stats.ready)
+    elif (cached := cached_robot_status()) is not None:
+        sample = cached
+        source = "cache"
+        sample_age_ms = max(0.0, (now - robot_status_cache_at) * 1000.0)
+        connected = False
+        ready = False
+    else:
+        sample = None
+        source = "none"
+        sample_age_ms = None
+        connected = bool(channel.stats.connected)
+        ready = bool(channel.stats.ready)
+
+    coordinator = get_brain_coordinator()
+    return normalize_robot_status(
+        sample,
+        source=source,
+        sample_age_ms=sample_age_ms,
+        connected=connected,
+        ready=ready,
+        desired_head=broker_status.get("desired_head"),
+        desired_eyes=broker_status.get("desired_eyes"),
+        override_reason=coordinator.critical_fault_reason,
+        control=channel_status,
+        critical_fault=coordinator.has_critical_fault,
+    )
 
 
 @app.get("/robot/camera")

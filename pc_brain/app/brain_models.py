@@ -85,6 +85,15 @@ EyeExpression = Literal[
     "speaking",
 ]
 
+FaultSeverity = Literal["degraded", "critical"]
+
+
+class ActiveFault(BaseModel):
+    source: str = Field(min_length=1, max_length=80)
+    severity: FaultSeverity
+    message: str = Field(min_length=1, max_length=500)
+    timestamp: datetime = Field(default_factory=utc_now)
+
 
 class EyeState(BaseModel):
     base_expression: EmotionalEyeExpression = "neutral"

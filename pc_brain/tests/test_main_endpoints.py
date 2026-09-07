@@ -453,11 +453,262 @@ def test_robot_request_retries_transient_http_errors(monkeypatch):
     )
     monkeypatch.setattr(main, "robot_http_client", FlakyRobotClient())
 
-    response = TestClient(main.app).get("/robot/status")
+    class DisconnectedBroker:
+        channel = SimpleNamespace(
+            stats=SimpleNamespace(connected=False, ready=False),
+            telemetry={},
+            telemetry_received_at=None,
+            status=lambda: {
+                "connected": False,
+                "ready": False,
+                "reconnect_count": 0,
+                "last_round_trip_ms": None,
+                "last_error": "not connected",
+                "protocol": 1,
+                "telemetry": {},
+            },
+        )
+
+        def status(self):
+            return {"desired_head": {"pan": 90, "tilt": 90}, "desired_eyes": "neutral"}
+
+    monkeypatch.setattr(main, "get_actuator_broker", lambda: DisconnectedBroker())
+
+    response = TestClient(main.app).get("/robot/status?refresh=true")
 
     assert response.status_code == 200
-    assert response.json() == {"ok": True, "control_channel": "disconnected"}
+    assert response.json()["source"] == "http"
+    assert response.json()["status"] == "online"
     assert calls == 2
+
+
+@pytest.mark.anyio
+async def test_live_heartbeat_adapter_reports_observed_watchdog_recovery(monkeypatch):
+    recoveries = iter((True, False))
+
+    class Channel:
+        def status(self):
+            return {"ready": True, "last_error": None, "telemetry": {}}
+
+        def consume_watchdog_recovery(self):
+            return next(recoveries)
+
+    broker = SimpleNamespace(channel=Channel())
+    monkeypatch.setattr(main, "get_actuator_broker", lambda: broker)
+
+    assert (await main.robot_heartbeat_post("/api/brain-heartbeat"))["heartbeat_recovered"] is True
+    assert (await main.robot_heartbeat_post("/api/brain-heartbeat"))["heartbeat_recovered"] is False
+
+
+@pytest.mark.anyio
+async def test_confirmed_control_disconnect_fault_clears_on_reconnect(monkeypatch):
+    channel = SimpleNamespace(
+        stats=SimpleNamespace(last_error="ControlChannelError: connection closed")
+    )
+    monkeypatch.setattr(main, "control_channel", channel)
+    coordinator = main.get_brain_coordinator()
+
+    await main.handle_control_connection_change(False)
+
+    assert [(fault.source, fault.severity) for fault in coordinator.active_faults] == [
+        ("control_transport", "critical")
+    ]
+    assert coordinator.state.safety == "fault"
+
+    await main.handle_control_connection_change(True)
+
+    assert coordinator.active_faults == []
+    assert coordinator.state.safety == "normal"
+
+
+def test_api_status_success_populates_fallback_cache(monkeypatch):
+    monkeypatch.setattr(main.time, "monotonic", lambda: 42.0)
+
+    main.cache_robot_status("/api/status", {"ok": True, "pan": 90, "tilt": 90})
+
+    assert main.robot_status_cache == {"ok": True, "pan": 90, "tilt": 90}
+    assert main.robot_status_cache_at == 42.0
+
+
+@pytest.mark.anyio
+async def test_cached_robot_status_returns_promptly_without_direct_http(monkeypatch):
+    class DisconnectedBroker:
+        channel = SimpleNamespace(
+            stats=SimpleNamespace(connected=False, ready=False),
+            telemetry={},
+            telemetry_received_at=None,
+            status=lambda: {
+                "connected": False,
+                "ready": False,
+                "reconnect_count": 2,
+                "last_round_trip_ms": 12.5,
+                "last_error": "connection refused",
+                "protocol": 1,
+                "telemetry": {},
+            },
+        )
+
+        def status(self):
+            return {"desired_head": {"pan": 95, "tilt": 85}, "desired_eyes": "content"}
+
+    direct_http_called = False
+
+    async def unavailable_http(path, params=None):
+        nonlocal direct_http_called
+        direct_http_called = True
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(main, "get_actuator_broker", lambda: DisconnectedBroker())
+    monkeypatch.setattr(main, "robot_get", unavailable_http)
+    monkeypatch.setattr(
+        main,
+        "robot_status_cache",
+        {
+            "ok": True,
+            "movement": "stop",
+            "speed": 0,
+            "pan": 95,
+            "tilt": 85,
+            "eyes": "content",
+            "brain_heartbeat_armed": True,
+            "brain_heartbeat_fault": False,
+        },
+    )
+    monkeypatch.setattr(main, "robot_status_cache_at", main.time.monotonic())
+
+    result = await asyncio.wait_for(main.robot_status(), timeout=0.05)
+
+    assert result["source"] == "cache"
+    assert result["head"] == {
+        "actual": {"pan": 95, "tilt": 85},
+        "target": {"pan": 95, "tilt": 85},
+    }
+    assert direct_http_called is False
+
+
+@pytest.mark.parametrize(
+    ("age_ms", "expected"),
+    [
+        (0.0, "online"),
+        (3000.0, "online"),
+        (3000.001, "stale"),
+        (15000.0, "stale"),
+        (15000.001, "offline"),
+    ],
+)
+def test_robot_status_freshness_boundaries(age_ms, expected):
+    result = main.normalize_robot_status(
+        {"ok": True, "pan_actual": 90, "tilt_actual": 90},
+        source="tcp",
+        sample_age_ms=age_ms,
+        connected=True,
+        ready=True,
+    )
+
+    assert result["status"] == expected
+
+
+def test_tcp_http_and_cache_samples_share_canonical_head_eyes_watchdog_shape():
+    samples = [
+        (
+            "tcp",
+            {
+                "movement": "stop",
+                "speed": 0,
+                "pan_actual": 91,
+                "tilt_actual": 89,
+                "pan_target": 95,
+                "tilt_target": 85,
+                "eyes": "happy",
+                "fault": False,
+            },
+        ),
+        (
+            "tcp",
+            {
+                "movement": "stop",
+                "speed": 0,
+                "pan_actual": 91,
+                "tilt_actual": 89,
+                "pan_target": 95,
+                "tilt_target": 85,
+                "eyes": "happy",
+                "heartbeat_armed": True,
+                "heartbeat_fault": False,
+                "control_last_receive_age_ms": 25,
+            },
+        ),
+        (
+            "http",
+            {
+                "ok": True,
+                "movement": "stop",
+                "speed": 0,
+                "pan_actual": 91,
+                "tilt_actual": 89,
+                "pan_target": 95,
+                "tilt_target": 85,
+                "eyes": "happy",
+                "brain_heartbeat_armed": True,
+                "brain_heartbeat_fault": False,
+            },
+        ),
+        (
+            "cache",
+            {
+                "ok": True,
+                "move": "stop",
+                "speed": 0,
+                "pan": 91,
+                "tilt": 89,
+                "eyes": "happy",
+                "brain_heartbeat_armed": True,
+                "brain_heartbeat_fault": False,
+            },
+        ),
+    ]
+
+    normalized = [
+        main.normalize_robot_status(
+            sample,
+            source=source,
+            sample_age_ms=10.0,
+            connected=True,
+            ready=True,
+            desired_head={"pan": 95, "tilt": 85},
+            desired_eyes="happy",
+        )
+        for source, sample in samples
+    ]
+
+    for result in normalized:
+        assert result["head"] == {
+            "actual": {"pan": 91, "tilt": 89},
+            "target": {"pan": 95, "tilt": 85},
+        }
+        assert result["eyes"] == {
+            "actual": "happy",
+            "requested": "happy",
+            "override_reason": None,
+        }
+        assert set(result["watchdog"]) == {
+            "armed",
+            "fault",
+            "control_last_receive_age_ms",
+        }
+
+
+def test_active_critical_robot_fault_overrides_freshness_status():
+    result = main.normalize_robot_status(
+        {"ok": True, "pan": 90, "tilt": 90},
+        source="http",
+        sample_age_ms=0.0,
+        connected=True,
+        ready=True,
+        critical_fault=True,
+    )
+
+    assert result["status"] == "fault"
 
 
 @pytest.mark.anyio

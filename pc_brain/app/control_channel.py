@@ -53,6 +53,9 @@ class ControlChannelClient:
         self.session_id = uuid.uuid4().hex
         self.stats = ControlChannelStats()
         self.telemetry: dict[str, Any] = {}
+        self.telemetry_received_at: float | None = None
+        self._watchdog_fault_observed = False
+        self._watchdog_recovered = False
         self._sequence = 0
         self._server_clock_offset_ms = 0.0
         self._reader: asyncio.StreamReader | None = None
@@ -180,7 +183,7 @@ class ControlChannelClient:
                     raise ControlChannelError(
                         f"firmware protocol mismatch: {hello!r}"
                     )
-                self.telemetry = dict(hello.get("state") or {})
+                self._store_telemetry(hello.get("state"))
                 self._server_clock_offset_ms = (
                     float(hello.get("uptime_ms") or 0.0)
                     - time.monotonic() * 1000.0
@@ -242,7 +245,7 @@ class ControlChannelClient:
             message = await self._read_message()
             message_type = message.get("type")
             if message_type == "telemetry":
-                self.telemetry = dict(message.get("state") or {})
+                self._store_telemetry(message.get("state"))
                 self.telemetry["last_seq"] = message.get("last_seq")
                 continue
             if message_type != "ack":
@@ -252,6 +255,7 @@ class ControlChannelClient:
             if pending is None:
                 continue
             future, sent_at = pending
+            self._store_telemetry(message.get("state"))
             self.stats.last_round_trip_ms = (
                 time.monotonic() - sent_at
             ) * 1000.0
@@ -309,6 +313,32 @@ class ControlChannelClient:
             except Exception:
                 logger.exception("control.connection_listener_failed")
 
+    def _store_telemetry(self, sample: Any) -> None:
+        if not isinstance(sample, dict) or not sample:
+            return
+        previous_fault = self._watchdog_fault_observed
+        self.telemetry = dict(sample)
+        self.telemetry_received_at = time.monotonic()
+        heartbeat_fault = self.telemetry.get(
+            "heartbeat_fault",
+            self.telemetry.get(
+                "brain_heartbeat_fault",
+                self.telemetry.get("fault"),
+            ),
+        )
+        if heartbeat_fault is True:
+            self._watchdog_fault_observed = True
+        elif heartbeat_fault is False and previous_fault:
+            self._watchdog_fault_observed = False
+            self._watchdog_recovered = True
+        if self.telemetry.get("heartbeat_recovered") is True:
+            self._watchdog_recovered = True
+
+    def consume_watchdog_recovery(self) -> bool:
+        recovered = self._watchdog_recovered
+        self._watchdog_recovered = False
+        return recovered
+
     def _fail_pending(self, exc: Exception) -> None:
         pending, self._pending = self._pending, {}
         for future, _ in pending.values():
@@ -331,6 +361,8 @@ class ControlChannelClient:
             "protocol": PROTOCOL_VERSION,
             "session": self.session_id,
             "telemetry": self.telemetry,
+            "telemetry_received_at": self.telemetry_received_at,
+            "watchdog_recovered": self._watchdog_recovered,
         }
 
 

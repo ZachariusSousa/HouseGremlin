@@ -2,7 +2,7 @@ import asyncio
 
 import pytest
 
-from app.brain_models import BodyState, ConversationState, EventSource
+from app.brain_models import ConversationState, EventSource
 from app.coordinator import BrainCoordinator
 from app.eye_controller import EyeController
 from app.journal import EventJournal
@@ -56,14 +56,62 @@ async def test_fault_has_priority_and_recovery_restores_mood(tmp_path):
     await controller.start()
     controller.select_mood("content", 10000, EventSource.text_model, "corr-fault")
     controller.set_server_fault("realtime_upstream", True, "corr-fault")
+    assert coordinator.state.eyes.effective_expression == "content"
+    assert coordinator.state.safety == "normal"
+
+    fault = coordinator.register_fault(
+        "actuation",
+        "critical",
+        "control acknowledgement timeout",
+        "corr-fault",
+    )
+    assert fault.timestamp.tzinfo is not None
+    assert coordinator.state.safety == "fault"
     assert coordinator.state.eyes.effective_expression == "fault"
 
-    coordinator.transition("corr-fault", EventSource.system, body=BodyState.fault, safety="fault")
     controller.set_server_fault("realtime_upstream", False, "corr-fault")
     assert coordinator.state.eyes.effective_expression == "fault"
 
-    coordinator.transition("corr-fault", EventSource.system, body=BodyState.stationary, safety="normal")
+    assert coordinator.clear_fault("actuation", "corr-fault") is True
+    assert coordinator.state.safety == "normal"
     assert coordinator.state.eyes.effective_expression == "content"
+    await controller.shutdown()
+
+
+@pytest.mark.anyio
+async def test_heartbeat_fault_is_critical_and_clears_on_recovery(tmp_path):
+    coordinator = BrainCoordinator(EventJournal(tmp_path / "brain.db"))
+    heartbeat_calls = 0
+    recovered = asyncio.Event()
+
+    async def post(path, body):
+        return {"ok": True}
+
+    async def heartbeat(path, body):
+        nonlocal heartbeat_calls
+        heartbeat_calls += 1
+        if heartbeat_calls == 1:
+            raise RuntimeError("control channel not ready")
+        recovered.set()
+        return {"ok": True, "heartbeat_recovered": True}
+
+    controller = EyeController(
+        coordinator,
+        post,
+        heartbeat_post=heartbeat,
+        heartbeat_interval_seconds=0.01,
+    )
+    await controller.start()
+    while not coordinator.active_faults:
+        await asyncio.sleep(0)
+    assert coordinator.active_faults[0].source == "esp_heartbeat"
+    assert coordinator.state.eyes.effective_expression == "fault"
+
+    await asyncio.wait_for(recovered.wait(), 1)
+    while coordinator.active_faults:
+        await asyncio.sleep(0)
+    assert coordinator.state.safety == "normal"
+    assert coordinator.state.eyes.effective_expression == "neutral"
     await controller.shutdown()
 
 

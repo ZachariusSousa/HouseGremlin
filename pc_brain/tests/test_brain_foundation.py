@@ -4,6 +4,7 @@ import pytest
 
 from app.brain_models import (
     ActionIntent,
+    BodyState,
     ConversationState,
     EventSource,
     WorkPriority,
@@ -35,6 +36,36 @@ def test_journal_is_ordered_and_restores_state_and_turns(tmp_path):
     assert [event.sequence for event in events] == sorted(event.sequence for event in events)
     assert journal.recent_turns()[0].text == "hello"
     assert BrainCoordinator(EventJournal(tmp_path / "brain.db")).state.conversation == ConversationState.listening
+
+
+def test_journaled_transient_fault_is_not_reactivated_on_restart(tmp_path):
+    journal_path = tmp_path / "brain.db"
+    coordinator = BrainCoordinator(EventJournal(journal_path))
+    coordinator.state = coordinator.state.model_copy(
+        update={"body": BodyState.fault, "safety": "fault"}
+    )
+    coordinator.record(
+        "state.changed",
+        EventSource.system,
+        "corr-old-fault",
+        {"state": coordinator.state.model_dump(mode="json")},
+    )
+    coordinator.journal.close()
+
+    restored = BrainCoordinator(EventJournal(journal_path))
+
+    assert restored.active_faults == []
+    assert restored.state.safety == "normal"
+    assert restored.state.body == BodyState.stationary
+
+
+def test_compatibility_safety_field_is_derived_from_active_faults(tmp_path):
+    coordinator = BrainCoordinator(EventJournal(tmp_path / "brain.db"))
+
+    coordinator.transition("corr-legacy", EventSource.system, safety="fault")
+
+    assert coordinator.active_faults == []
+    assert coordinator.state.safety == "normal"
 
 
 def test_recent_model_context_is_bounded_to_twenty_turns(tmp_path):
@@ -73,6 +104,33 @@ async def test_action_trace_keeps_one_correlation_id(tmp_path):
         "action.completed",
     }
     assert {event.correlation_id for event in events} == {"corr-action"}
+
+
+@pytest.mark.anyio
+async def test_successful_action_clears_its_previous_actuation_fault(tmp_path):
+    coordinator = BrainCoordinator(EventJournal(tmp_path / "brain.db"))
+    intent = ActionIntent(
+        action={"movement": {"direction": "left"}},
+        origin=EventSource.text_model,
+        correlation_id="corr-action-recovery",
+    )
+
+    async def failing_executor(action):
+        raise RuntimeError("control acknowledgement timeout")
+
+    with pytest.raises(RuntimeError, match="acknowledgement timeout"):
+        await coordinator.execute_action(intent, failing_executor)
+
+    assert [fault.source for fault in coordinator.active_faults] == ["actuation"]
+    assert coordinator.state.safety == "fault"
+
+    async def successful_executor(action):
+        return {"ok": True}
+
+    assert await coordinator.execute_action(intent, successful_executor) == {"ok": True}
+    assert coordinator.active_faults == []
+    assert coordinator.state.safety == "normal"
+    assert coordinator.state.body == BodyState.stationary
 
 
 @pytest.mark.anyio
