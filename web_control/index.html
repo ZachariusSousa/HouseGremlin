@@ -1,2564 +1,431 @@
 <!doctype html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Robit Operator Console</title>
-    <style>
-      :root {
-        color-scheme: light;
-        font-family:
-          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-          sans-serif;
-        background: #e8edf1;
-        color: #172027;
-        --panel: #ffffff;
-        --soft: #f5f7f9;
-        --line: #d2dbe3;
-        --muted: #64717d;
-        --ink: #172027;
-        --accent: #167d77;
-        --accent-dark: #0f5f5a;
-        --accent-soft: #dff3f0;
-        --danger: #b42318;
-        --warn: #a15c07;
-        --shadow: 0 18px 44px rgba(21, 35, 48, 0.12);
-      }
-
-      * {
-        box-sizing: border-box;
-      }
-
-      body {
-        margin: 0;
-        min-height: 100vh;
-        background:
-          linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(232, 237, 241, 0.96)),
-          #e8edf1;
-      }
-
-      button,
-      input,
-      select,
-      textarea {
-        font: inherit;
-      }
-
-      button {
-        min-height: 38px;
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        background: #ffffff;
-        color: var(--ink);
-        cursor: pointer;
-        font-weight: 750;
-      }
-
-      button:hover:not(:disabled) {
-        border-color: #9fb0bd;
-      }
-
-      button:active:not(:disabled) {
-        transform: translateY(1px);
-      }
-
-      button:disabled {
-        cursor: not-allowed;
-        opacity: 0.56;
-      }
-
-      input,
-      select,
-      textarea {
-        width: 100%;
-        border: 1px solid #bfccd6;
-        border-radius: 8px;
-        background: #ffffff;
-        color: var(--ink);
-        outline: none;
-      }
-
-      input,
-      select {
-        min-height: 38px;
-        padding: 8px 10px;
-      }
-
-      textarea {
-        min-height: 74px;
-        max-height: 180px;
-        resize: vertical;
-        padding: 11px 12px;
-        line-height: 1.45;
-      }
-
-      input:focus,
-      select:focus,
-      textarea:focus {
-        border-color: var(--accent);
-        box-shadow: 0 0 0 3px rgba(22, 125, 119, 0.14);
-      }
-
-      label {
-        display: block;
-        color: #33404c;
-        font-size: 13px;
-        font-weight: 800;
-      }
-
-      h1,
-      h2,
-      h3,
-      p {
-        margin: 0;
-      }
-
-      h1 {
-        font-size: 22px;
-        line-height: 1.2;
-      }
-
-      h2 {
-        font-size: 16px;
-      }
-
-      h3 {
-        font-size: 14px;
-      }
-
-      main {
-        width: min(1440px, 100%);
-        margin: 0 auto;
-        padding: 18px;
-      }
-
-      .console {
-        display: grid;
-        grid-template-rows: auto minmax(620px, calc(100vh - 124px));
-        overflow: hidden;
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        background: var(--panel);
-        box-shadow: var(--shadow);
-      }
-
-      .topbar {
-        display: grid;
-        grid-template-columns: 1fr minmax(260px, 420px) auto;
-        gap: 14px;
-        align-items: center;
-        padding: 16px 18px;
-        border-bottom: 1px solid var(--line);
-      }
-
-      .brand {
-        display: flex;
-        align-items: center;
-        min-width: 0;
-        gap: 12px;
-      }
-
-      .avatar {
-        display: grid;
-        width: 42px;
-        height: 42px;
-        flex: 0 0 auto;
-        place-items: center;
-        border-radius: 8px;
-        background: var(--accent-soft);
-        color: var(--accent-dark);
-        font-weight: 900;
-      }
-
-      .subtitle {
-        margin-top: 2px;
-        color: var(--muted);
-        font-size: 13px;
-      }
-
-      .connection {
-        display: grid;
-        grid-template-columns: auto 1fr;
-        gap: 10px;
-        align-items: center;
-      }
-
-      .pill {
-        display: inline-flex;
-        min-height: 34px;
-        align-items: center;
-        gap: 8px;
-        padding: 0 11px;
-        border: 1px solid var(--line);
-        border-radius: 999px;
-        background: var(--soft);
-        color: var(--muted);
-        font-size: 13px;
-        white-space: nowrap;
-      }
-
-      .dot {
-        width: 8px;
-        height: 8px;
-        border-radius: 50%;
-        background: #9aa7b2;
-      }
-
-      .pill.ready .dot {
-        background: var(--accent);
-      }
-
-      .pill.error .dot {
-        background: var(--danger);
-      }
-
-      .stop-button {
-        border-color: var(--danger);
-        background: var(--danger);
-        color: #ffffff;
-      }
-
-      .workspace {
-        display: grid;
-        grid-template-columns: minmax(360px, 1.2fr) minmax(420px, 1fr) 330px;
-        min-height: 0;
-      }
-
-      .camera-pane,
-      .chat-pane,
-      .side-panel {
-        min-width: 0;
-        min-height: 0;
-      }
-
-      .camera-pane {
-        display: grid;
-        grid-template-rows: auto minmax(280px, 1fr) auto;
-        border-right: 1px solid var(--line);
-        background: #101820;
-        color: #eaf0f4;
-      }
-
-      .panel-head {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        min-height: 52px;
-        gap: 12px;
-        padding: 0 15px;
-        border-bottom: 1px solid rgba(255, 255, 255, 0.12);
-      }
-
-      .camera-frame {
-        display: grid;
-        min-height: 0;
-        place-items: center;
-        background: #0b1117;
-      }
-
-      .camera-frame img {
-        display: block;
-        width: 100%;
-        height: 100%;
-        object-fit: contain;
-      }
-
-      .camera-frame img.camera-rotated {
-        transform: rotate(180deg);
-      }
-
-      .camera-empty {
-        max-width: 380px;
-        padding: 20px;
-        color: #aebbc5;
-        text-align: center;
-        line-height: 1.45;
-      }
-
-      .telemetry {
-        display: grid;
-        grid-template-columns: repeat(4, 1fr);
-        gap: 1px;
-        border-top: 1px solid rgba(255, 255, 255, 0.12);
-        background: rgba(255, 255, 255, 0.12);
-      }
-
-      .metric {
-        padding: 10px;
-        background: #14212b;
-      }
-
-      .metric span {
-        display: block;
-        color: #9fb0bd;
-        font-size: 11px;
-        font-weight: 800;
-        text-transform: uppercase;
-      }
-
-      .metric strong {
-        display: block;
-        margin-top: 4px;
-        overflow: hidden;
-        color: #ffffff;
-        font-size: 15px;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      .chat-pane {
-        display: grid;
-        grid-template-rows: minmax(0, 1fr) auto;
-        background: var(--soft);
-      }
-
-      .transcript {
-        display: flex;
-        flex-direction: column;
-        gap: 12px;
-        min-height: 0;
-        overflow-y: auto;
-        padding: 18px;
-      }
-
-      .empty-state {
-        display: grid;
-        min-height: 100%;
-        place-items: center;
-        color: var(--muted);
-        text-align: center;
-      }
-
-      .empty-state strong {
-        display: block;
-        margin-bottom: 6px;
-        color: var(--ink);
-        font-size: 20px;
-      }
-
-      .message-row {
-        display: flex;
-      }
-
-      .message-row.user {
-        justify-content: flex-end;
-      }
-
-      .message {
-        max-width: min(680px, 90%);
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        padding: 11px 13px;
-        background: #ffffff;
-      }
-
-      .message-row.user .message {
-        border-color: rgba(22, 125, 119, 0.34);
-        background: var(--accent);
-        color: #ffffff;
-      }
-
-      .message-meta {
-        margin-bottom: 5px;
-        color: var(--muted);
-        font-size: 12px;
-        font-weight: 800;
-      }
-
-      .message-row.user .message-meta {
-        color: rgba(255, 255, 255, 0.82);
-      }
-
-      .message-body {
-        white-space: pre-wrap;
-        word-break: break-word;
-        line-height: 1.45;
-      }
-
-      .composer {
-        display: grid;
-        gap: 12px;
-        padding: 14px;
-        border-top: 1px solid var(--line);
-        background: #ffffff;
-      }
-
-      .composer-tools {
-        display: grid;
-        grid-template-columns: auto minmax(126px, 170px) 1fr auto;
-        gap: 10px;
-        align-items: end;
-      }
-
-      .segmented {
-        display: inline-grid;
-        grid-template-columns: 1fr 1fr;
-        min-width: 174px;
-        overflow: hidden;
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        background: var(--soft);
-      }
-
-      .segmented button {
-        border: 0;
-        border-radius: 0;
-        background: transparent;
-      }
-
-      .segmented button.active {
-        background: var(--accent);
-        color: #ffffff;
-      }
-
-      .send-button,
-      .secondary-button {
-        border-color: var(--accent);
-        background: var(--accent);
-        color: #ffffff;
-      }
-
-      .secondary-button {
-        border-color: #c8d1d9;
-        background: #ffffff;
-        color: var(--ink);
-      }
-
-      .status-text {
-        min-height: 20px;
-        color: var(--muted);
-        font-size: 13px;
-      }
-
-      .status-text.error {
-        color: var(--danger);
-      }
-
-      .side-panel {
-        display: grid;
-        grid-template-rows: auto auto auto minmax(0, 1fr);
-        border-left: 1px solid var(--line);
-        background: #ffffff;
-      }
-
-      details {
-        border-bottom: 1px solid var(--line);
-      }
-
-      summary {
-        display: flex;
-        align-items: center;
-        justify-content: space-between;
-        min-height: 50px;
-        padding: 0 14px;
-        cursor: pointer;
-        font-weight: 900;
-        list-style: none;
-      }
-
-      summary::-webkit-details-marker {
-        display: none;
-      }
-
-      .panel-content {
-        display: grid;
-        gap: 14px;
-        padding: 0 14px 14px;
-      }
-
-      .check-row {
-        display: flex;
-        align-items: center;
-        gap: 8px;
-      }
-
-      .check-row input {
-        width: 18px;
-        height: 18px;
-      }
-
-      .control-group {
-        display: grid;
-        gap: 9px;
-      }
-
-      .scene-summary {
-        color: var(--ink);
-        line-height: 1.45;
-      }
-
-      .scene-meta,
-      .scene-entities {
-        color: var(--muted);
-        font-size: 12px;
-        line-height: 1.45;
-      }
-
-      .drive-grid {
-        display: grid;
-        grid-template-columns: repeat(3, minmax(58px, 1fr));
-        gap: 8px;
-      }
-
-      .drive-grid button,
-      .center-button {
-        min-height: 44px;
-      }
-
-      .spacer {
-        visibility: hidden;
-      }
-
-      .button-row {
-        display: flex;
-        flex-wrap: wrap;
-        gap: 8px;
-      }
-
-      .action-log {
-        display: grid;
-        grid-template-rows: auto minmax(0, 1fr);
-        min-height: 0;
-        padding: 14px;
-      }
-
-      .log-list {
-        display: flex;
-        flex-direction: column;
-        gap: 8px;
-        min-height: 0;
-        overflow-y: auto;
-        padding-top: 10px;
-      }
-
-      .log-item {
-        border: 1px solid var(--line);
-        border-radius: 8px;
-        padding: 9px;
-        background: var(--soft);
-        color: #33404c;
-        font-family: Consolas, "Courier New", monospace;
-        font-size: 12px;
-        line-height: 1.35;
-        white-space: pre-wrap;
-        word-break: break-word;
-      }
-
-      @media (max-width: 1120px) {
-        main {
-          padding: 0;
-        }
-
-        .console {
-          min-height: 100vh;
-          border-width: 0;
-          border-radius: 0;
-        }
-
-        .topbar,
-        .workspace {
-          grid-template-columns: 1fr;
-        }
-
-        .workspace {
-          overflow-y: auto;
-        }
-
-        .camera-pane {
-          min-height: 420px;
-          border-right: 0;
-        }
-
-        .side-panel {
-          border-left: 0;
-          border-top: 1px solid var(--line);
-        }
-
-        .composer-tools,
-        .connection {
-          grid-template-columns: 1fr;
-        }
-      }
-
-      /* Dark operator-console theme. Keep the control surface calm and readable
-         while giving critical state and emergency actions unmistakable weight. */
-      :root {
-        color-scheme: dark;
-        background: #070a0f;
-        color: #edf4f6;
-        --panel: #10151d;
-        --panel-raised: #151c26;
-        --panel-deep: #0a0e14;
-        --soft: #121923;
-        --line: rgba(222, 241, 244, 0.1);
-        --line-strong: rgba(222, 241, 244, 0.18);
-        --muted: #8c9aa8;
-        --ink: #edf4f6;
-        --accent: #52d6c3;
-        --accent-dark: #071713;
-        --accent-soft: rgba(82, 214, 195, 0.12);
-        --danger: #ff655f;
-        --warn: #f4b65d;
-        --shadow: 0 28px 80px rgba(0, 0, 0, 0.46);
-      }
-
-      body {
-        background:
-          radial-gradient(circle at 12% -10%, rgba(49, 166, 155, 0.16), transparent 32rem),
-          radial-gradient(circle at 90% 110%, rgba(57, 89, 148, 0.12), transparent 34rem),
-          #070a0f;
-      }
-
-      body::before {
-        position: fixed;
-        z-index: -1;
-        inset: 0;
-        background-image:
-          linear-gradient(rgba(255, 255, 255, 0.018) 1px, transparent 1px),
-          linear-gradient(90deg, rgba(255, 255, 255, 0.018) 1px, transparent 1px);
-        background-size: 32px 32px;
-        content: "";
-        mask-image: linear-gradient(to bottom, black, transparent 78%);
-      }
-
-      ::selection {
-        background: rgba(82, 214, 195, 0.32);
-      }
-
-      * {
-        scrollbar-color: #34414e transparent;
-        scrollbar-width: thin;
-      }
-
-      button {
-        min-height: 40px;
-        border-color: var(--line-strong);
-        border-radius: 10px;
-        background: #18202b;
-        color: var(--ink);
-        transition:
-          border-color 150ms ease,
-          background 150ms ease,
-          box-shadow 150ms ease,
-          transform 100ms ease;
-      }
-
-      button:hover:not(:disabled) {
-        border-color: rgba(82, 214, 195, 0.5);
-        background: #1d2834;
-        box-shadow: 0 0 0 3px rgba(82, 214, 195, 0.07);
-      }
-
-      button:focus-visible,
-      input:focus-visible,
-      textarea:focus-visible,
-      summary:focus-visible {
-        outline: 2px solid var(--accent);
-        outline-offset: 2px;
-      }
-
-      button:disabled {
-        opacity: 0.38;
-      }
-
-      input,
-      select,
-      textarea {
-        border-color: var(--line-strong);
-        border-radius: 10px;
-        background: #0d131b;
-        color: var(--ink);
-      }
-
-      input::placeholder,
-      textarea::placeholder {
-        color: #647281;
-      }
-
-      input:focus,
-      select:focus,
-      textarea:focus {
-        border-color: var(--accent);
-        box-shadow: 0 0 0 3px rgba(82, 214, 195, 0.12);
-      }
-
-      input[type="checkbox"] {
-        accent-color: var(--accent);
-      }
-
-      input[type="range"] {
-        accent-color: var(--accent);
-      }
-
-      label {
-        color: #aebbc6;
-        letter-spacing: 0.01em;
-      }
-
-      h1 {
-        color: #f5fbfc;
-        font-size: 21px;
-        letter-spacing: -0.025em;
-      }
-
-      h2,
-      h3 {
-        color: #e8f0f2;
-        letter-spacing: -0.01em;
-      }
-
-      main {
-        width: min(1540px, 100%);
-        padding: 20px;
-      }
-
-      .console {
-        grid-template-rows: auto minmax(650px, calc(100vh - 126px));
-        border-color: var(--line-strong);
-        border-radius: 18px;
-        background: var(--panel);
-        box-shadow: var(--shadow);
-      }
-
-      .topbar {
-        grid-template-columns: 1fr minmax(270px, 430px) auto;
-        gap: 18px;
-        min-height: 76px;
-        padding: 14px 18px;
-        border-bottom-color: var(--line);
-        background: rgba(16, 21, 29, 0.94);
-        backdrop-filter: blur(16px);
-      }
-
-      .brand {
-        gap: 13px;
-      }
-
-      .avatar {
-        position: relative;
-        width: 46px;
-        height: 46px;
-        overflow: hidden;
-        border: 1px solid rgba(82, 214, 195, 0.24);
-        border-radius: 13px;
-        background:
-          radial-gradient(circle at 35% 40%, #8ef5e4 0 2px, transparent 3px),
-          radial-gradient(circle at 65% 40%, #8ef5e4 0 2px, transparent 3px),
-          linear-gradient(145deg, rgba(82, 214, 195, 0.18), rgba(82, 214, 195, 0.05));
-        color: transparent;
-        box-shadow: inset 0 0 24px rgba(82, 214, 195, 0.08);
-      }
-
-      .avatar::after {
-        position: absolute;
-        width: 17px;
-        height: 5px;
-        border: 2px solid var(--accent);
-        border-top: 0;
-        border-radius: 0 0 10px 10px;
-        content: "";
-      }
-
-      .subtitle {
-        margin-top: 4px;
-        color: var(--muted);
-      }
-
-      .connection {
-        gap: 10px;
-      }
-
-      .pill {
-        min-height: 34px;
-        border-color: var(--line-strong);
-        background: rgba(255, 255, 255, 0.035);
-        color: #a8b4bf;
-        font-weight: 700;
-      }
-
-      .dot {
-        background: #65717c;
-        box-shadow: 0 0 0 4px rgba(101, 113, 124, 0.1);
-      }
-
-      .pill.ready {
-        border-color: rgba(82, 214, 195, 0.22);
-        background: rgba(82, 214, 195, 0.08);
-        color: #b6f3e8;
-      }
-
-      .pill.ready .dot {
-        background: var(--accent);
-        box-shadow: 0 0 10px rgba(82, 214, 195, 0.7);
-      }
-
-      .pill.error {
-        border-color: rgba(255, 101, 95, 0.28);
-        background: rgba(255, 101, 95, 0.08);
-        color: #ffaaa6;
-      }
-
-      .pill.error .dot {
-        background: var(--danger);
-        box-shadow: 0 0 10px rgba(255, 101, 95, 0.68);
-      }
-
-      .stop-button {
-        min-height: 44px;
-        padding: 0 17px;
-        border-color: rgba(255, 101, 95, 0.45);
-        background: rgba(255, 101, 95, 0.12);
-        color: #ffaaa6;
-        box-shadow: inset 0 0 0 1px rgba(255, 101, 95, 0.05);
-      }
-
-      .stop-button:hover:not(:disabled) {
-        border-color: var(--danger);
-        background: var(--danger);
-        color: #170606;
-        box-shadow: 0 0 24px rgba(255, 101, 95, 0.25);
-      }
-
-      .workspace {
-        grid-template-columns: minmax(360px, 1.18fr) minmax(420px, 1fr) 340px;
-        background: var(--panel-deep);
-      }
-
-      .camera-pane {
-        border-right-color: var(--line);
-        background: #080c12;
-        color: var(--ink);
-      }
-
-      .panel-head {
-        min-height: 56px;
-        padding: 0 17px;
-        border-bottom-color: var(--line);
-        background: rgba(14, 20, 28, 0.86);
-      }
-
-      .panel-head h2,
-      .action-log h2 {
-        font-size: 13px;
-        letter-spacing: 0.075em;
-        text-transform: uppercase;
-      }
-
-      .camera-frame {
-        position: relative;
-        overflow: hidden;
-        background:
-          radial-gradient(circle at center, rgba(64, 83, 102, 0.12), transparent 52%),
-          #06090e;
-      }
-
-      .camera-frame img {
-        position: relative;
-        z-index: 1;
-      }
-
-      .tracking-overlay {
-        position: absolute;
-        z-index: 2;
-        width: 100%;
-        height: 100%;
-        pointer-events: none;
-        inset: 0;
-      }
-
-      .camera-frame::after {
-        position: absolute;
-        z-index: 3;
-        pointer-events: none;
-        inset: 0;
-        border: 1px solid rgba(255, 255, 255, 0.025);
-        content: "";
-        box-shadow: inset 0 0 80px rgba(0, 0, 0, 0.42);
-      }
-
-      .camera-empty {
-        color: #73818e;
-      }
-
-      .telemetry {
-        border-top-color: var(--line);
-        background: var(--line);
-      }
-
-      .metric {
-        padding: 12px 13px;
-        background: #101721;
-      }
-
-      .metric span {
-        color: #6f7e8c;
-        font-size: 10px;
-        letter-spacing: 0.1em;
-      }
-
-      .metric strong {
-        margin-top: 5px;
-        color: #dff8f3;
-        font-size: 14px;
-        font-variant-numeric: tabular-nums;
-      }
-
-      .chat-pane {
-        background: #0e141c;
-      }
-
-      .transcript {
-        gap: 14px;
-        padding: 22px 18px;
-        background:
-          linear-gradient(180deg, rgba(255, 255, 255, 0.012), transparent 14rem),
-          #0e141c;
-      }
-
-      .empty-state {
-        color: var(--muted);
-      }
-
-      .empty-state strong {
-        color: var(--ink);
-      }
-
-      .message {
-        max-width: min(680px, 88%);
-        border-color: var(--line);
-        border-radius: 14px 14px 14px 4px;
-        padding: 12px 14px;
-        background: #171f2a;
-        box-shadow: 0 5px 18px rgba(0, 0, 0, 0.14);
-      }
-
-      .message-row.user .message {
-        border-color: rgba(82, 214, 195, 0.22);
-        border-radius: 14px 14px 4px 14px;
-        background: linear-gradient(145deg, #1d8176, #176a63);
-        color: #f3fffd;
-      }
-
-      .message-meta {
-        color: #7f91a0;
-        font-size: 11px;
-        letter-spacing: 0.04em;
-        text-transform: uppercase;
-      }
-
-      .message-row.user .message-meta {
-        color: rgba(230, 255, 251, 0.7);
-      }
-
-      .message-body {
-        color: #dce5e9;
-        line-height: 1.55;
-      }
-
-      .message-row.user .message-body {
-        color: #ffffff;
-      }
-
-      .composer {
-        gap: 10px;
-        padding: 15px 16px 16px;
-        border-top-color: var(--line);
-        background: #121923;
-        box-shadow: 0 -14px 38px rgba(0, 0, 0, 0.14);
-      }
-
-      .composer textarea {
-        min-height: 82px;
-        background: #0b1118;
-      }
-
-      .composer-tools {
-        grid-template-columns: auto minmax(120px, 160px) 1fr auto;
-      }
-
-      .segmented {
-        border-color: var(--line-strong);
-        border-radius: 10px;
-        background: #0b1118;
-      }
-
-      .segmented button.active {
-        background: var(--accent);
-        color: #061412;
-        box-shadow: 0 0 18px rgba(82, 214, 195, 0.16);
-      }
-
-      .send-button {
-        border-color: var(--accent);
-        background: var(--accent);
-        color: #061412;
-      }
-
-      .send-button:hover:not(:disabled) {
-        border-color: #82eadb;
-        background: #82eadb;
-        color: #061412;
-      }
-
-      .secondary-button {
-        border-color: var(--line-strong);
-        background: #18202b;
-        color: var(--ink);
-      }
-
-      .status-text {
-        color: #7f8d9a;
-      }
-
-      .status-text.error {
-        color: #ff8b86;
-      }
-
-      .tracking-panel {
-        gap: 12px;
-      }
-
-      .tracking-toggle-copy {
-        display: grid;
-        min-width: 0;
-        gap: 2px;
-      }
-
-      .tracking-toggle-copy strong {
-        color: var(--ink);
-        font-size: 13px;
-      }
-
-      .tracking-toggle-copy small {
-        color: var(--muted);
-        font-size: 11px;
-        line-height: 1.35;
-      }
-
-      .tracking-reason {
-        min-height: 1.4em;
-        margin: 0;
-        line-height: 1.4;
-      }
-
-      .side-panel {
-        border-left-color: var(--line);
-        background: #10161f;
-      }
-
-      details {
-        border-bottom-color: var(--line);
-        background: #111821;
-      }
-
-      details[open] {
-        background: #121a24;
-      }
-
-      summary {
-        min-height: 54px;
-        padding: 0 16px;
-        color: #dfe9ec;
-        font-size: 13px;
-        letter-spacing: 0.02em;
-      }
-
-      summary span:last-child {
-        display: grid;
-        width: 24px;
-        height: 24px;
-        place-items: center;
-        border: 1px solid var(--line);
-        border-radius: 7px;
-        color: var(--muted);
-        transition: transform 160ms ease;
-      }
-
-      details[open] summary span:last-child {
-        transform: rotate(45deg);
-      }
-
-      .panel-content {
-        gap: 16px;
-        padding: 2px 16px 17px;
-      }
-
-      .check-row {
-        padding: 10px 11px;
-        border: 1px solid var(--line);
-        border-radius: 10px;
-        background: rgba(255, 255, 255, 0.025);
-      }
-
-      .check-row input {
-        flex: 0 0 auto;
-      }
-
-      .control-group {
-        gap: 10px;
-      }
-
-      .drive-grid {
-        gap: 7px;
-      }
-
-      .drive-grid button,
-      .center-button {
-        min-height: 46px;
-        border-color: var(--line);
-        background: #161f2a;
-      }
-
-      .drive-grid button[data-move="stop"] {
-        color: #ff9b96;
-      }
-
-      .action-log {
-        padding: 16px;
-        background: #0d131b;
-      }
-
-      .log-list {
-        gap: 9px;
-      }
-
-      .log-item {
-        border-color: var(--line);
-        border-radius: 10px;
-        background: #121a24;
-        color: #9fb1bd;
-      }
-
-      @media (max-width: 1120px) {
-        body {
-          background: #070a0f;
-        }
-
-        main {
-          padding: 0;
-        }
-
-        .console {
-          border-radius: 0;
-        }
-
-        .topbar {
-          grid-template-columns: 1fr;
-        }
-
-        .workspace {
-          grid-template-columns: 1fr;
-        }
-
-        .camera-pane {
-          border-right: 0;
-        }
-
-        .side-panel {
-          border-top-color: var(--line);
-        }
-      }
-
-      @media (max-width: 640px) {
-        .topbar {
-          padding: 14px;
-        }
-
-        .connection,
-        .composer-tools {
-          grid-template-columns: 1fr;
-        }
-
-        .camera-pane {
-          min-height: 360px;
-        }
-
-        .telemetry {
-          grid-template-columns: repeat(2, 1fr);
-        }
-
-        .message {
-          max-width: 94%;
-        }
-
-        .button-row .send-button,
-        .button-row .secondary-button {
-          flex: 1;
-        }
-      }
-    </style>
-  </head>
-  <body>
-    <main>
-      <div class="console">
-        <header class="topbar">
-          <div class="brand">
-            <div class="avatar" aria-hidden="true">R</div>
-            <div>
-              <h1>Robit Operator Console</h1>
-              <p class="subtitle">Camera, LLM actions, voice, and manual control</p>
-            </div>
-          </div>
-
-          <div class="connection" aria-label="PC brain connection">
-            <div id="connectionStatus" class="pill">
-              <span class="dot" aria-hidden="true"></span>
-              <span id="connectionText">Starting</span>
-            </div>
-            <input id="brainUrl" type="url" value="http://localhost:8080" aria-label="PC brain URL">
-          </div>
-
-          <button id="stopButton" class="stop-button" type="button">Emergency Stop</button>
-        </header>
-
-        <section class="workspace">
-          <section class="camera-pane" aria-label="Camera and telemetry">
-            <div class="panel-head">
-              <h2>Live Camera</h2>
-              <div id="cameraStatus" class="pill">
-                <span class="dot" aria-hidden="true"></span>
-                <span id="cameraText">Waiting</span>
-              </div>
-            </div>
-            <div class="camera-frame">
-              <img id="cameraStream" class="camera-rotated" alt="Robit live camera feed">
-              <canvas id="trackingOverlay" class="tracking-overlay" hidden aria-hidden="true"></canvas>
-              <div id="cameraEmpty" class="camera-empty">
-                Camera feed will appear here when the firmware camera is available.
-              </div>
-            </div>
-            <div class="telemetry">
-              <div class="metric"><span>Mode</span><strong id="metricMode">-</strong></div>
-              <div class="metric"><span>Move</span><strong id="metricMove">-</strong></div>
-              <div class="metric"><span>Speed</span><strong id="metricSpeed">-</strong></div>
-              <div class="metric"><span>Head</span><strong id="metricHead">-</strong></div>
-            </div>
-          </section>
-
-          <section class="chat-pane" aria-label="LLM chat and actions">
-            <div id="transcript" class="transcript" aria-live="polite">
-              <div id="emptyState" class="empty-state">
-                <div>
-                  <strong>Talk to Robit.</strong>
-                  <p>Text is silent. Voice speaks. LLM actions can move the robot through the PC brain.</p>
-                </div>
-              </div>
-            </div>
-
-            <form id="chatForm" class="composer">
-              <label for="messageInput">Message</label>
-              <textarea id="messageInput" placeholder="Look left and move forward a little." autocomplete="off" required></textarea>
-              <div class="composer-tools">
-                <div class="segmented" role="group" aria-label="Conversation mode">
-                  <button id="textModeButton" class="active" type="button">Text</button>
-                  <button id="voiceModeButton" type="button">Voice</button>
-                </div>
-                <div>
-                  <label for="realtimeVoice">Voice</label>
-                  <input id="realtimeVoice" type="text" value="serena" autocomplete="off">
-                </div>
-                <p id="playbackStatus" class="status-text">Ready</p>
-                <div class="button-row">
-                  <button id="replayButton" class="secondary-button" type="button" hidden>Replay</button>
-                  <button id="sendButton" class="send-button" type="submit">Send</button>
-                </div>
-              </div>
-            </form>
-          </section>
-
-          <aside class="side-panel" aria-label="Controls and logs">
-            <details open>
-              <summary><span>Person Tracking</span><span aria-hidden="true">+</span></summary>
-              <div class="panel-content tracking-panel">
-                <label class="check-row" for="trackingToggle">
-                  <input id="trackingToggle" type="checkbox">
-                  <span class="tracking-toggle-copy">
-                    <strong>Always track a visible person</strong>
-                    <small>Uses the head first, then a short body pivot when needed.</small>
-                  </span>
-                </label>
-                <p id="trackingReason" class="status-text tracking-reason">Checking tracking service…</p>
-              </div>
-            </details>
-
-            <details open>
-              <summary><span>Manual Controls</span><span aria-hidden="true">+</span></summary>
-              <div class="panel-content">
-                <label class="check-row" for="controlsEnabled">
-                  <input id="controlsEnabled" type="checkbox">
-                  <span>Enable manual controls and hotkeys</span>
-                </label>
-                <div class="control-group">
-                  <h3>Drive</h3>
-                  <div class="drive-grid">
-                    <button class="spacer" tabindex="-1" type="button"></button>
-                    <button data-control data-move="forward" type="button">W</button>
-                    <button class="spacer" tabindex="-1" type="button"></button>
-                    <button data-control data-move="left" type="button">A</button>
-                    <button data-control data-move="stop" type="button">Stop</button>
-                    <button data-control data-move="right" type="button">D</button>
-                    <button class="spacer" tabindex="-1" type="button"></button>
-                    <button data-control data-move="reverse" type="button">S</button>
-                    <button class="spacer" tabindex="-1" type="button"></button>
-                  </div>
-                  <label for="speed">Speed: <span id="speedValue">180</span></label>
-                  <input id="speed" data-control type="range" min="0" max="255" value="180">
-                </div>
-                <div class="control-group">
-                  <h3>Head</h3>
-                  <label for="pan">Pan: <span id="panValue">90</span></label>
-                  <input id="pan" data-control type="range" min="55" max="135" value="90">
-                  <label for="tilt">Tilt: <span id="tiltValue">90</span></label>
-                  <input id="tilt" data-control type="range" min="35" max="115" value="90">
-                  <button id="centerButton" data-control class="center-button" type="button">Center</button>
-                </div>
-                <p id="controlStatus" class="status-text">Manual controls disabled</p>
-              </div>
-            </details>
-
-            <details>
-              <summary><span>Realtime Voice</span><span aria-hidden="true">+</span></summary>
-              <div class="panel-content">
-                <div class="control-group">
-                  <label for="realtimeUrl">Brain gateway</label>
-                  <input id="realtimeUrl" type="text" value="ws://localhost:8080/v1/realtime" autocomplete="off" readonly>
-                  <div class="button-row">
-                    <button id="realtimeButton" class="send-button" type="button">Connect</button>
-                  </div>
-                </div>
-                <p id="realtimeStatus" class="status-text">Disconnected</p>
-              </div>
-            </details>
-
-            <details open>
-              <summary><span>Scene Awareness</span><span aria-hidden="true">+</span></summary>
-              <div class="panel-content">
-                <p id="sceneSummary" class="scene-summary">No scene snapshot yet.</p>
-                <p id="sceneEntities" class="scene-entities">Entities: none</p>
-                <p id="sceneMeta" class="scene-meta">Vision waiting</p>
-              </div>
-            </details>
-
-            <section class="action-log" aria-label="LLM action log">
-              <div class="button-row">
-                <h2>Action Log</h2>
-              </div>
-              <div id="actionLog" class="log-list"></div>
-            </section>
-          </aside>
-        </section>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ROBIT RB-01 // OPERATIONS CONSOLE</title>
+<style>
+:root{
+  --void:#050505;--black:#080808;--panel:#0d0d0d;--panel2:#11100d;
+  --amber:#cf8528;--hot:#ffe0a1;--orange:#ff8c28;--red:#ed244f;
+  --muted:#705427;--grid:#30381d;--paper:#ead9aa;--dim:#a47a43;
+  --cyan:#5ee0c1;--acid:#a8e84a;--cobalt:#243268;--magenta:#92144c;
+  --display:"Agency FB","Bahnschrift SemiCondensed","Arial Narrow",Impact,sans-serif;
+  --digits:"Agency FB","Bahnschrift SemiCondensed","Arial Narrow",sans-serif;
+  --stencil:"OCR A Extended","Cascadia Mono",Consolas,monospace;
+  --mono:"Cascadia Mono","MS Gothic",Consolas,"Lucida Console",monospace;
+  --jp-display:"BIZ UDPMincho","Yu Mincho","MS Mincho",serif;
+  --jp-ui:"BIZ UDGothic","Yu Gothic UI",Meiryo,sans-serif;
+  --cond:var(--display);
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;min-height:100%;background:var(--void);color:var(--paper)}
+body{font-family:var(--mono);overflow-x:hidden;background-image:linear-gradient(90deg,rgba(94,224,193,.018) 1px,transparent 1px),linear-gradient(rgba(168,232,74,.012) 1px,transparent 1px);background-size:64px 64px;text-shadow:.35px 0 rgba(255,140,40,.18),-.3px 0 rgba(94,224,193,.1),0 0 1.2px currentColor;font-variant-numeric:tabular-nums}
+body:before{content:"";position:fixed;z-index:100;pointer-events:none;inset:0;background:repeating-linear-gradient(0deg,rgba(0,0,0,.22) 0,rgba(0,0,0,.22) 1px,transparent 1px,transparent 4px);mix-blend-mode:multiply;opacity:.48}
+body:after{content:"";position:fixed;z-index:101;pointer-events:none;inset:0;box-shadow:inset 0 0 140px #000,inset 0 0 36px rgba(0,0,0,.85);background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.95' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.16'/%3E%3C/svg%3E");opacity:.18}
+button,input{font:inherit}
+button{border:0;border-radius:0}
+button:focus-visible,input:focus-visible{outline:1px solid var(--hot);outline-offset:2px}
+.screen{position:relative;width:min(1740px,100%);height:100vh;min-height:840px;margin:auto;display:grid;grid-template-rows:9px 86px 39px minmax(0,1fr) 47px;overflow:hidden;border-left:2px solid var(--acid);border-right:2px solid var(--magenta);background:rgba(5,5,5,.95);box-shadow:-5px 0 18px rgba(168,232,74,.1),5px 0 18px rgba(146,20,76,.12),0 0 44px rgba(94,224,193,.045);animation:power-on .65s steps(6,end) both}
+.screen:before{content:"";position:fixed;z-index:90;pointer-events:none;inset:0;background:repeating-linear-gradient(90deg,rgba(255,140,40,.044) 0 1px,rgba(255,224,161,.016) 1px 2px,rgba(94,224,193,.03) 2px 3px,rgba(146,20,76,.008) 3px 4px);mix-blend-mode:screen;opacity:.7;filter:blur(.42px);animation:phosphor-drift 6s steps(2,end) infinite}
+.screen:after{content:"";position:fixed;z-index:91;pointer-events:none;inset:0;background:linear-gradient(180deg,transparent 42%,rgba(94,224,193,.006) 47%,rgba(255,224,161,.038) 50%,rgba(255,140,40,.01) 53%,transparent 58%);background-size:100% 260%;background-position:0 -130%;background-repeat:no-repeat;mix-blend-mode:screen;animation:refresh-roll 11s linear infinite}
+.screen.lockdown{--amber:#d93622;--hot:#ff5a3d;--orange:#d93622;--muted:#5f1d14;--grid:#2d130f}
+@keyframes power-on{0%{opacity:0;transform:scaleY(.02)}36%{opacity:.9;transform:scaleY(.02)}55%{transform:scaleY(1)}77%{opacity:.76}100%{opacity:1}}
+@keyframes pulse{50%{opacity:.25}}
+@keyframes crawl{to{stroke-dashoffset:-120}}
+@keyframes tick{50%{filter:brightness(1.16)}}
+@keyframes phosphor-drift{0%,100%{transform:translateX(0);opacity:.66}50%{transform:translateX(.45px);opacity:.78}}
+@keyframes refresh-roll{from{background-position:0 -130%}to{background-position:0 130%}}
+
+.topline{height:9px;background:linear-gradient(90deg,var(--acid) 0 17%,#060606 17% 18%,var(--cyan) 18% 27%,#060606 27% 28%,var(--orange) 28% 43%,#060606 43% 44%,var(--magenta) 44% 60%,#060606 60% 61%,var(--cobalt) 61% 76%,#060606 76% 87%,#bd2b68 87% 91%,#060606 91% 92%,var(--hot) 92%);border-bottom:2px solid #000;box-shadow:0 1px 4px rgba(94,224,193,.26),0 2px 9px rgba(146,20,76,.13)}
+.masthead{display:grid;grid-template-columns:390px 1fr 360px;min-height:86px;border-bottom:1px solid var(--amber);background:#080704}
+.identity{display:grid;grid-template-columns:66px 1fr;border-right:1px solid var(--muted);position:relative;overflow:hidden}
+.unit-no{display:grid;place-items:center;background:var(--acid);color:#071004;font-family:var(--digits);font-size:48px;font-weight:900;line-height:1;border-right:5px solid #050505;text-shadow:-1px 0 rgba(94,224,193,.36)}
+.wordmark{padding:8px 16px 6px;position:relative}
+.wordmark h1{margin:0;color:var(--hot);font:900 52px/.78 var(--display);letter-spacing:.055em;transform:scaleX(.92);transform-origin:left center;text-shadow:.8px 0 rgba(237,36,79,.2),-.8px 0 rgba(94,224,193,.2),0 0 2px var(--hot),0 0 9px rgba(255,140,40,.42),0 0 20px rgba(168,232,74,.1)}
+.wordmark p{margin:8px 0 0;color:#8ea35e;font:9px var(--stencil);letter-spacing:.17em}
+.wordmark:after{content:"機体制御";position:absolute;right:8px;bottom:5px;color:var(--cyan);font:700 10px var(--jp-ui);writing-mode:vertical-rl;letter-spacing:.12em;text-shadow:0 0 5px rgba(94,224,193,.38)}
+.mast-status{display:grid;grid-template-rows:31px 1fr;min-width:0}
+.status-ribbon{display:grid;grid-template-columns:repeat(4,1fr);border-bottom:1px solid var(--grid)}
+.status-cell{display:flex;align-items:center;gap:7px;padding:0 11px;border-right:1px solid var(--grid);color:#9a8355;font:8px var(--stencil);letter-spacing:.045em;white-space:nowrap}
+.lamp{width:6px;height:6px;background:var(--orange);box-shadow:0 0 3px var(--orange),0 0 8px rgba(255,140,40,.4)}
+.lamp.red{background:var(--red);box-shadow:0 0 7px rgba(217,54,34,.7)}
+.lamp.cyan{background:var(--cyan);box-shadow:0 0 5px var(--cyan),0 0 12px rgba(85,230,154,.6)}
+.lamp.acid{background:var(--acid);box-shadow:0 0 5px var(--acid),0 0 12px rgba(168,232,74,.52)}
+.system-title{display:grid;grid-template-columns:1fr auto;align-items:end;padding:7px 14px 8px;overflow:hidden}
+.system-title strong{font:900 clamp(21px,2.3vw,34px)/.88 var(--display);letter-spacing:.06em;color:var(--paper);white-space:nowrap;transform:scaleX(.94);transform-origin:left bottom;text-shadow:.75px 0 rgba(237,36,79,.16),-.75px 0 rgba(94,224,193,.18),0 0 5px rgba(255,140,40,.18)}
+.system-title small{color:var(--muted);font-size:8px;line-height:1.55;text-align:right}
+.clockblock{display:grid;grid-template-columns:1fr 92px;border-left:1px solid var(--muted)}
+.clock{padding:11px 14px;border-right:1px solid var(--grid)}
+.clock label{display:block;color:var(--muted);font-size:8px;letter-spacing:.18em}
+.clock output{display:block;color:var(--orange);font:900 34px/.94 var(--digits);letter-spacing:.105em;text-shadow:1px 0 var(--hot),0 0 3px var(--orange),0 0 10px rgba(255,140,40,.42)}
+.clock small{display:block;color:var(--dim);font-size:8px}
+.build{display:grid;place-items:center;text-align:center;color:var(--hot);background:linear-gradient(145deg,var(--magenta) 0 38%,#4c174e 38% 62%,var(--cobalt) 62%);border-left:4px solid var(--orange);font:900 13px/1.1 var(--stencil);letter-spacing:.08em;clip-path:polygon(0 0,100% 0,100% 100%,14px 100%,0 calc(100% - 14px));box-shadow:inset 0 0 0 1px rgba(255,140,40,.34),inset 0 0 18px rgba(36,50,104,.4),0 0 8px rgba(146,20,76,.2);text-shadow:0 0 5px rgba(255,140,40,.42)}
+
+.modebar{display:grid;grid-template-columns:66px repeat(6,minmax(72px,125px)) 1fr 180px;height:39px;border-bottom:1px solid var(--muted);background:#0b0906}
+.mode-index{display:grid;place-items:center;color:var(--amber);border-right:1px solid var(--muted);font-size:10px}
+.mode{background:transparent;color:#978158;border-right:1px solid var(--grid);font:400 10px var(--stencil);letter-spacing:.045em;cursor:pointer;position:relative}
+.mode:before{content:attr(data-key);position:absolute;left:5px;top:4px;color:var(--muted);font-size:6px}
+.mode:hover{background:#0c1417;color:#c9aa68;box-shadow:inset 0 -1px 0 #45665c}
+.mode.active{background:linear-gradient(90deg,#171a3b,var(--cobalt));color:var(--orange);box-shadow:inset 0 -3px 0 var(--orange),inset 4px 0 0 var(--magenta),inset 0 0 13px rgba(36,50,104,.54);text-shadow:0 0 4px rgba(255,140,40,.58)}
+.mode.active:after{content:"";position:absolute;bottom:-5px;left:50%;width:7px;height:7px;background:var(--orange);transform:translateX(-50%) rotate(45deg);z-index:3}
+.mode-spacer{display:flex;align-items:center;justify-content:flex-end;padding-right:10px;gap:3px;background:repeating-linear-gradient(135deg,transparent 0 7px,rgba(107,69,8,.18) 7px 8px)}
+.ink-key{display:flex;gap:3px}.ink-key i{width:18px;height:5px}.ink-key .k1{background:var(--cyan)}.ink-key .k2{background:var(--acid)}.ink-key .k3{background:var(--magenta)}.ink-key .k4{background:var(--orange)}
+.operator-link{display:flex;align-items:center;justify-content:flex-end;gap:9px;padding-right:13px;color:var(--cyan);font-size:8px;letter-spacing:.08em;border-left:1px solid #315b50;background:#050b09;text-shadow:0 0 3px var(--cyan),0 0 8px rgba(94,224,193,.28)}
+.signal{display:flex;align-items:end;gap:2px;height:14px}.signal i{display:block;width:3px;background:var(--cyan)}.signal i:nth-child(1){height:4px}.signal i:nth-child(2){height:7px}.signal i:nth-child(3){height:10px}.signal i:nth-child(4){height:14px}
+
+.console-grid{display:grid;grid-template-columns:206px minmax(580px,1fr) 324px;grid-template-rows:minmax(0,1fr) 214px;min-height:0;overflow:hidden;border-bottom:1px solid var(--muted)}
+.rail{grid-row:1/3;border-right:1px solid var(--muted);background:#080704;min-width:0}
+.section-tag{height:24px;display:flex;align-items:center;justify-content:space-between;padding:0 8px;border-bottom:1px solid var(--grid);background:#0d0e09;color:#bd9a55;font:400 8px var(--stencil);letter-spacing:.065em}
+.section-tag span{display:flex;align-items:center;gap:7px;min-width:0}
+.jp-micro{font:700 7px var(--jp-ui);font-style:normal;letter-spacing:.08em;color:var(--cyan);white-space:nowrap;text-shadow:0 0 4px rgba(94,224,193,.4)}
+.section-tag b{color:var(--paper);font-weight:400}
+.section-tag.cyan{border-left:4px solid var(--cyan);background:#071713;color:var(--cyan);text-shadow:0 0 3px var(--cyan),0 0 8px rgba(94,224,193,.25);box-shadow:inset 0 -1px 0 rgba(94,224,193,.28)}
+.section-tag.acid{border-left:4px solid var(--acid);background:#172306;color:var(--acid);text-shadow:0 0 3px rgba(168,232,74,.76),0 0 9px rgba(168,232,74,.24);box-shadow:inset -26px 0 24px rgba(94,224,193,.035)}
+.section-tag.cobalt{border-left:4px solid var(--magenta);background:linear-gradient(90deg,#591039 0 22%,#292250 22% 63%,var(--cobalt) 63% 86%,#090b0b 86%);color:var(--hot);box-shadow:inset 0 0 12px rgba(36,50,104,.46),inset 0 -1px 0 rgba(237,36,79,.34)}
+.section-tag.orange{border-left:4px solid var(--orange);background:#210b02;color:var(--orange);text-shadow:0 0 2px var(--orange),0 0 7px rgba(255,140,40,.54)}
+.section-tag.magenta{border-left:4px solid var(--magenta);background:linear-gradient(90deg,#4e0c31,var(--cobalt));color:#df8aac;text-shadow:none}
+.rail-id{height:97px;display:grid;grid-template-columns:65px 1fr;border-bottom:1px solid var(--grid)}
+.rail-id .serial{display:grid;place-items:center;border-right:1px solid var(--grid);color:var(--hot);font:900 37px/.78 var(--display);letter-spacing:.02em;text-shadow:0 0 5px rgba(255,140,40,.24)}
+.rail-id dl{margin:0;padding:10px 9px;display:grid;grid-template-columns:1fr auto;gap:4px;color:var(--dim);font-size:7px}
+.rail-id dd{margin:0;color:var(--paper);text-align:right}
+.sys-list{padding:8px 0 5px;border-bottom:1px solid var(--grid)}
+.sys-row{display:grid;grid-template-columns:25px 1fr auto;align-items:center;height:28px;padding:0 9px;border-left:3px solid transparent;color:var(--dim);font-size:8px}
+.sys-row:hover{background:#151007;border-left-color:var(--amber)}
+.sys-row .n{color:var(--muted)}.sys-row b{color:var(--paper);font-weight:400;letter-spacing:.05em}.sys-row em{font-style:normal;color:var(--amber);font-size:7px}.sys-row em.hold{color:var(--orange)}
+.sys-row:nth-child(1) em,.sys-row:nth-child(5) em{color:var(--acid)}.sys-row:nth-child(2) em,.sys-row:nth-child(3) em{color:var(--cyan)}
+.local-core{margin:9px;border:1px solid #728d27;position:relative;padding:9px 8px 8px;background:linear-gradient(90deg,rgba(168,232,74,.055),transparent 38%),repeating-linear-gradient(0deg,transparent 0 9px,rgba(168,232,74,.035) 10px);box-shadow:inset 3px 0 0 rgba(168,232,74,.22)}
+.local-core:before{content:"LOCAL ONLY";position:absolute;right:-1px;top:-1px;background:var(--acid);color:#050505;padding:3px 5px;font:bold 7px var(--mono);letter-spacing:.1em}
+.local-core .core-num{color:var(--acid);font:900 43px/.78 var(--digits);letter-spacing:.03em;text-shadow:0 0 2px var(--acid),0 0 6px rgba(168,232,74,.8),0 0 16px rgba(168,232,74,.28)}
+.local-core small{display:block;margin-top:4px;color:var(--dim);font-size:7px;line-height:1.45}
+.bar{height:5px;margin-top:7px;border:1px solid #69751e;padding:1px}.bar i{display:block;height:100%;background:var(--acid)}
+.privacy{margin:0 9px 9px;border-left:4px solid var(--cyan);padding:7px 7px 7px 9px;background:#061411;color:#77967d;font-size:7px;line-height:1.6;box-shadow:inset 9px 0 16px rgba(94,224,193,.055)}.privacy b{display:block;color:var(--acid);font:400 8px var(--stencil);letter-spacing:.045em;text-shadow:0 0 4px rgba(168,232,74,.55),0 0 10px rgba(168,232,74,.2)}
+.side-actions{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:0 9px}
+.machine-btn{min-height:32px;background:#080b08;border:1px solid #42552d;color:#a6a06b;font:400 8px var(--stencil);letter-spacing:.035em;cursor:pointer;position:relative}
+.machine-btn:hover,.machine-btn.active{background:#321007;color:var(--orange);border-color:var(--orange);box-shadow:inset 4px 0 0 var(--orange),inset 0 0 9px rgba(255,140,40,.14),0 0 5px rgba(255,140,40,.17);text-shadow:0 0 4px rgba(255,140,40,.5)}
+.machine-btn:after{content:"›";position:absolute;right:4px;bottom:2px;color:inherit}
+
+.vision{min-width:0;border-right:1px solid var(--muted);background:#050505;display:grid;grid-template-rows:34px minmax(0,1fr) 42px;position:relative}
+.module-head{display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-bottom:1px solid var(--cyan);border-left:5px solid var(--acid);background:linear-gradient(90deg,#101805 0 19%,#07100d 42%,#090609 100%);color:var(--cyan);font-size:8px;letter-spacing:.08em;box-shadow:inset 0 -1px 0 rgba(94,224,193,.25)}
+.module-head strong{font:400 12px var(--stencil);letter-spacing:.055em;color:var(--paper)}
+.module-head strong .jp-micro{margin-right:8px;color:var(--acid)}
+.module-head span{display:flex;gap:14px}.module-head i{font-style:normal;color:var(--orange);text-shadow:0 0 4px rgba(255,140,40,.45)}
+.viewport{position:relative;overflow:hidden;background:#020402;isolation:isolate;box-shadow:inset 0 0 45px rgba(85,230,154,.04)}
+.viewport:before{content:"";position:absolute;z-index:5;inset:9px;border:1px solid rgba(85,230,154,.3);pointer-events:none;box-shadow:inset 0 0 9px rgba(85,230,154,.09)}
+.viewport:after{content:"CAMERA BUS / ROT:180 / CAP:02.00FPS";position:absolute;z-index:6;left:15px;bottom:10px;color:var(--cyan);font-size:7px;letter-spacing:.08em;text-shadow:0 0 5px rgba(85,230,154,.72)}
+.camera-svg{width:100%;height:100%;display:block;filter:drop-shadow(0 0 .6px var(--cyan)) drop-shadow(0 0 2.4px rgba(255,140,40,.17))}
+.camera-svg .architecture{stroke:#5ee0c1;stroke-width:1;fill:none}.camera-svg .dimline{stroke:#15433e;stroke-width:1;fill:none}.camera-svg .hotline{stroke:#5ee0c1;stroke-width:1.2;fill:none}.camera-svg .subject{stroke:#a8e84a;stroke-width:1.4;fill:rgba(168,232,74,.025)}.camera-svg text{font-family:"Cascadia Mono","MS Gothic",Consolas,monospace;fill:#5ee0c1;font-size:7px}.camera-svg .target{stroke:#ff8c28;stroke-dasharray:7 4;animation:crawl 7s linear infinite;filter:drop-shadow(0 0 1px #ffe0a1) drop-shadow(0 0 5px rgba(255,140,40,.7))}.camera-svg .trace{stroke:#92144c;stroke-width:1;fill:none;stroke-dasharray:2 5}.camera-svg .noise{fill:#5ee0c1;opacity:.36}.camera-svg .dropout{fill:#243268;opacity:.24}.camera-svg .blank-label{fill:#ffe0a1;font:700 15px "OCR A Extended","Cascadia Mono",monospace;letter-spacing:1px;filter:drop-shadow(0 0 1px #ffe0a1) drop-shadow(0 0 5px rgba(94,224,193,.42))}.camera-svg .sub-label{fill:#7ca495;font:8px "Cascadia Mono",monospace;letter-spacing:1px}.camera-svg .reticle-rings{fill:none;stroke:#5ee0c1;stroke-width:1;opacity:.32;stroke-dasharray:9 8}.camera-svg .hexfield{fill:url(#hex);opacity:.12}
+.vision-flags{position:absolute;z-index:8;right:17px;top:14px;width:122px;border-left:3px solid var(--orange);background:rgba(18,8,2,.92);padding:6px 7px;color:#d58f43;font-size:7px;line-height:1.6;box-shadow:-7px 0 14px rgba(255,140,40,.08)}.vision-flags b{color:var(--orange);font:400 8px var(--stencil);text-shadow:0 0 2px var(--orange),0 0 7px rgba(255,140,40,.42)}.vision-coord{position:absolute;z-index:8;left:16px;top:14px;color:var(--cyan);font-size:7px;line-height:1.6;text-shadow:0 0 2px var(--cyan),0 0 6px rgba(94,224,193,.36)}
+.vision-bottom{display:grid;grid-template-columns:repeat(5,1fr);border-top:1px solid var(--grid)}
+.vstat{padding:5px 8px;border-right:1px solid #173839;color:#497b77;font-size:7px}.vstat b{display:block;margin-top:3px;color:var(--paper);font-size:10px;font-weight:400}.vstat.live b{color:var(--cyan)}
+
+.rightstack{grid-row:1/3;grid-column:3;border-left:0;background:#080704;display:grid;grid-template-rows:24px 160px 24px minmax(210px,1fr) 24px 142px 71px;min-width:0;min-height:0;overflow:hidden}
+.diagnostic{border-bottom:1px solid var(--grid);padding:8px}
+.diag-main{display:grid;grid-template-columns:88px 1fr;gap:9px}
+.radar{aspect-ratio:1;border:1px solid #426147;position:relative;background:repeating-radial-gradient(circle,transparent 0 14px,rgba(168,232,74,.12) 15px 16px)}
+.radar:before,.radar:after{content:"";position:absolute;background:#4f7136}.radar:before{width:1px;top:0;bottom:0;left:50%}.radar:after{height:1px;left:0;right:0;top:50%}.radar i{position:absolute;width:5px;height:5px;background:var(--acid);left:63%;top:34%;box-shadow:0 0 5px var(--acid),0 0 13px var(--acid);animation:pulse 1.3s steps(2,end) infinite}.radar small{position:absolute;left:4px;bottom:3px;color:#739b78;font:6px/1.25 var(--stencil);letter-spacing:.02em;text-shadow:none}
+.diag-copy{display:grid;grid-template-columns:1fr auto;align-content:start;gap:5px;color:var(--dim);font-size:7px}.diag-copy b{color:var(--paper);font-weight:400}.diag-copy strong{grid-column:1/-1;color:var(--acid);font:900 31px/.76 var(--display);letter-spacing:.035em;margin-bottom:5px;text-shadow:0 0 2px var(--acid),0 0 7px rgba(168,232,74,.46)}.diag-copy em{font-style:normal;color:var(--acid)}
+.trace-chart{height:55px;margin-top:8px;border:1px solid var(--grid);background:linear-gradient(rgba(107,69,8,.13) 1px,transparent 1px),linear-gradient(90deg,rgba(107,69,8,.13) 1px,transparent 1px);background-size:100% 13px,18px 100%}.trace-chart svg{width:100%;height:100%}.trace-chart polyline{fill:none;stroke:var(--acid);stroke-width:1;vector-effect:non-scaling-stroke}
+.drive{border-bottom:1px solid var(--grid);padding:8px;display:grid;grid-template-columns:124px 1fr;gap:10px}
+.dpad{display:grid;grid-template-columns:repeat(3,38px);grid-template-rows:repeat(3,38px);gap:3px;align-self:start}
+.dpad button{background:#0e0b07;border:1px solid #713a12;color:var(--orange);font:900 12px var(--mono);cursor:pointer}
+.dpad button:hover,.dpad button.pressed{background:var(--orange);color:#050505}.dpad .blank{visibility:hidden}.dpad .stop{background:#1a0805;border-color:var(--red);color:var(--red)}
+.motion-state{grid-column:1/-1;height:26px;border:1px solid var(--grid);display:flex;align-items:center;justify-content:center;color:var(--paper);font-size:8px;letter-spacing:.12em;background:#050505}
+.control-readout{display:grid;align-content:start;gap:7px}
+.control-readout h3{margin:0;color:var(--orange);font:900 28px/.8 var(--display);letter-spacing:.04em;text-shadow:0 0 2px var(--orange),0 0 7px rgba(255,140,40,.62)}
+.scale label{display:flex;justify-content:space-between;color:var(--dim);font-size:7px;margin-bottom:3px}.ticks{height:9px;border-left:1px solid var(--orange);border-right:1px solid var(--orange);background:repeating-linear-gradient(90deg,var(--muted) 0 1px,transparent 1px 9px);position:relative}.ticks i{position:absolute;top:0;bottom:0;width:3px;background:var(--hot);box-shadow:0 0 4px rgba(255,140,40,.5)}
+.arming{display:grid;grid-template-columns:1fr auto;gap:6px;align-items:center;margin-top:2px;padding-top:6px;border-top:1px solid var(--grid);color:var(--dim);font-size:7px}.arming button{padding:5px 7px;background:var(--orange);color:#100500;font:400 7px var(--stencil);cursor:pointer;box-shadow:0 0 2px var(--orange),0 0 7px rgba(255,140,40,.28)}
+.arming button:disabled,.dpad button:disabled{opacity:.32;cursor:not-allowed;filter:saturate(.35)}
+.comms-mini{border-bottom:1px solid var(--grid);padding:8px;overflow:hidden}.comm-row{display:grid;grid-template-columns:21px 1fr auto;align-items:center;height:25px;border-bottom:1px dotted var(--grid);font-size:7px;color:var(--dim)}.comm-row b{color:var(--paper);font-weight:400}.comm-row em{font-style:normal;color:var(--cyan)}.comm-row:nth-child(1) em,.comm-row:nth-child(5) em{color:var(--acid)}
+.emergency-wrap{padding:8px}.emergency{width:100%;height:55px;border:1px solid var(--red);background:repeating-linear-gradient(135deg,#210b07 0 8px,#120705 8px 16px);color:#ff654b;cursor:pointer;font:900 17px var(--cond);letter-spacing:.09em;position:relative}.emergency:before{content:"SAFETY INTERLOCK // 01";position:absolute;left:5px;top:4px;color:#8e2a1d;font:700 6px var(--mono);letter-spacing:.1em}.emergency:hover{background:var(--red);color:#050505}.emergency.armed{animation:tick .55s steps(2,end) infinite}
+
+.comms{border-right:1px solid var(--muted);display:grid;grid-template-columns:minmax(0,1.4fr) minmax(235px,.6fr);background:#080704;min-width:0}
+.conversation{display:grid;grid-template-rows:24px 1fr 47px;min-width:0;border-right:1px solid var(--grid)}
+.transcript{padding:7px 10px;overflow-y:auto;scrollbar-width:thin;scrollbar-color:#405f54 #050706;font-size:9px;line-height:1.55;background:repeating-linear-gradient(0deg,transparent 0 22px,rgba(48,56,29,.13) 23px)}
+.msg{display:grid;grid-template-columns:78px 1fr;gap:6px;margin-bottom:3px;color:var(--dim)}.msg label{color:var(--muted);font-size:7px;padding-top:2px}.msg.robit span{color:#e3efb4;text-shadow:0 0 3px rgba(168,232,74,.25)}.msg.robit span:before{content:"› ";color:var(--acid)}.msg.operator span{color:#cbbd9e}.msg.operator label{color:var(--orange);text-shadow:0 0 4px rgba(255,140,40,.34)}
+.composer{display:grid;grid-template-columns:88px 1fr 70px;border-top:1px solid var(--muted);background:#050505}
+.channel{display:grid;place-items:center;border-right:1px solid #28463d;color:var(--cyan);font:7px var(--stencil);line-height:1.4;text-align:center}.composer input{min-width:0;background:transparent;color:var(--paper);border:0;padding:0 10px;font:10px var(--mono);text-transform:uppercase}.composer input::placeholder{color:#4f6f65}.send{background:var(--orange);color:#120700;font:400 9px var(--stencil);cursor:pointer;box-shadow:inset 0 0 10px rgba(255,224,161,.34),0 0 7px rgba(255,140,40,.28)}.send:hover{background:var(--hot)}
+.events{display:grid;grid-template-rows:24px 1fr;min-width:0}.event-list{padding:6px 8px;overflow:hidden;color:var(--dim);font-size:7px;line-height:1.65}.event-list p{margin:0;border-bottom:1px dotted var(--grid);white-space:nowrap}.event-list time{display:inline-block;width:55px;color:var(--muted)}.event-list b{color:var(--amber);font-weight:400}.event-list .optic{color:var(--cyan)}.event-list .mind{color:var(--acid)}.event-list .link{color:var(--cyan)}.event-list .warn{color:var(--orange)}
+
+.footer{display:grid;grid-template-columns:206px 1fr 324px;min-height:47px;background:#050908;border-bottom:3px solid var(--cyan)}
+.footer > div{border-right:1px solid var(--grid);padding:7px 9px;color:var(--muted);font-size:7px;line-height:1.5}.footer strong{color:var(--amber);font-weight:400}.footer-center{display:grid!important;grid-template-columns:repeat(4,1fr);gap:8px}.footer-center span{border-left:3px solid var(--grid);padding-left:6px}.footer-center span:nth-child(1){border-color:var(--orange)}.footer-center span:nth-child(2){border-color:var(--cyan)}.footer-center span:nth-child(3){border-color:var(--acid)}.footer-center span:nth-child(4){border-color:#7f4c19}.footer-center b{display:block;color:var(--paper);font-weight:400;font-size:8px}.warning-copy{color:var(--orange)!important}.cursor{display:inline-block;width:6px;height:9px;background:var(--amber);vertical-align:-2px;animation:pulse .8s steps(2,end) infinite;box-shadow:0 0 5px var(--amber)}
+.concept-stamp{position:absolute;z-index:20;right:335px;top:139px;width:166px;height:35px;display:grid;grid-template-columns:42px 1fr 25px;grid-template-rows:17px 11px;padding:3px;border:1px solid var(--orange);color:var(--orange);font:400 7px var(--stencil);letter-spacing:.045em;transform:rotate(-.7deg);background:#080506;box-shadow:3px 3px 0 #35102a,0 0 7px rgba(146,20,76,.22);overflow:hidden;pointer-events:none}.concept-stamp .jp-major{grid-row:1/3;display:grid;place-items:center;border-right:1px solid var(--orange);font:900 18px/.8 var(--jp-display);letter-spacing:0;color:var(--orange);text-shadow:0 0 5px rgba(255,140,40,.48)}.concept-stamp b{align-self:end;padding-left:5px;font:400 8px var(--stencil);color:var(--hot)}.concept-stamp small{padding-left:5px;color:#b67a40;font:5px var(--mono);letter-spacing:.02em}.concept-stamp:after{content:"";grid-column:3;grid-row:1/3;margin:-3px;background:repeating-linear-gradient(135deg,#bd2b68 0 6px,#10040a 6px 12px)}
+.repair-note{margin:9px;padding:6px 7px;border:1px dashed var(--cyan);color:var(--cyan);background:#041111;font-size:7px;line-height:1.45;transform:rotate(-.65deg);box-shadow:3px 3px 0 #092e2c;position:relative}.repair-note b{display:block;color:var(--acid);font-size:8px;letter-spacing:.08em}.repair-note:before,.repair-note:after{content:"";position:absolute;width:3px;height:3px;background:#988861;box-shadow:inset 0 0 0 1px #302b1d}.repair-note:before{left:2px;top:2px}.repair-note:after{right:2px;bottom:2px}
+.patch-cables{position:absolute;z-index:19;left:194px;top:396px;width:26px;height:185px;pointer-events:none}.patch-cables i{position:absolute;top:0;width:12px;border-left:2px solid;border-bottom:2px solid;filter:drop-shadow(0 0 3px currentColor)}.patch-cables .c1{left:0;height:136px;color:var(--cyan)}.patch-cables .c2{left:6px;height:167px;color:var(--magenta)}.patch-cables .c3{left:12px;height:151px;color:var(--acid)}.patch-cables:before,.patch-cables:after{content:"";position:absolute;left:-3px;width:18px;height:7px;border:1px solid #88744d;background:#15110a}.patch-cables:before{top:-5px}.patch-cables:after{bottom:12px;left:9px}
+.registration{position:absolute;z-index:22;left:208px;top:135px;display:flex;gap:2px;pointer-events:none}.registration i{width:3px;height:18px;display:block}.registration i:nth-child(1){background:var(--cyan)}.registration i:nth-child(2){background:var(--magenta);transform:translateY(3px)}.registration i:nth-child(3){background:var(--acid);transform:translateY(1px)}
+.mode-panel{display:none;min-width:0;min-height:0;overflow:hidden}.mode-panel.active{display:grid}.subsystem-screen{grid-template-columns:minmax(0,1fr) 340px;background:#050505}.subsystem-main{min-width:0;min-height:0;border-right:1px solid var(--muted);display:grid;grid-template-rows:25px minmax(0,1fr)}.subsystem-side{min-width:0;min-height:0;background:#080704;display:grid;grid-template-rows:25px minmax(0,1fr);overflow:hidden}.subsystem-body{min-height:0;padding:12px;overflow:auto;background-image:linear-gradient(rgba(34,86,73,.08) 1px,transparent 1px),linear-gradient(90deg,rgba(34,86,73,.08) 1px,transparent 1px);background-size:18px 18px}.control-block{border:1px solid var(--grid);background:rgba(5,5,5,.9);padding:10px;margin-bottom:10px}.control-block h2{margin:0 0 8px;color:var(--hot);font:700 22px var(--cond);letter-spacing:.08em}.control-block h3{margin:0 0 7px;color:var(--cyan);font:700 12px var(--cond);letter-spacing:.08em}.machine-line{display:grid;grid-template-columns:125px 1fr;gap:8px;padding:5px 0;border-bottom:1px dotted var(--grid);font-size:9px}.machine-line span{color:var(--dim)}.machine-line b,.machine-line output{color:var(--paper);font-weight:400;overflow-wrap:anywhere}.machine-actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:10px}.machine-actions button,.hud-button{min-height:30px;padding:0 12px;border:1px solid var(--muted);background:#090806;color:var(--amber);font:700 9px var(--mono);letter-spacing:.06em;cursor:pointer}.machine-actions button:hover,.hud-button:hover{background:var(--amber);color:#050505}.hud-button.cyan{border-color:var(--cyan);color:var(--cyan)}.hud-button.danger{border-color:var(--red);color:#ff654b}.hud-button.active{background:var(--orange);color:#050505}.status-bad{color:#ff654b!important}.status-good{color:var(--acid)!important}.status-warn{color:var(--hot)!important}.optical-live{position:relative;min-height:0;overflow:hidden;background:#010303}.optical-live img{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;z-index:1}.optical-live .camera-svg{position:absolute;inset:0;z-index:2;pointer-events:none}.optical-live canvas{position:absolute;inset:0;width:100%;height:100%;z-index:3;pointer-events:none}.optical-live .vision-coord,.optical-live .vision-flags{z-index:4}.camera-empty-live{position:absolute;z-index:1;inset:0;display:grid;place-items:center;color:var(--dim);font:700 15px var(--cond);letter-spacing:.12em}.optical-layout{display:grid;grid-template-rows:minmax(0,1fr) 58px;min-height:0}.telemetry-strip{display:grid;grid-template-columns:repeat(5,1fr);border-top:1px solid var(--grid)}.telemetry-strip div{padding:8px;border-right:1px solid var(--grid);color:var(--dim);font-size:7px}.telemetry-strip b{display:block;margin-top:4px;color:var(--paper);font-size:10px}.manual-layout{display:grid;grid-template-columns:minmax(300px,.8fr) minmax(340px,1.2fr);gap:12px}.manual-pad{display:grid;place-items:center;min-height:320px;border:1px solid var(--grid);background:radial-gradient(circle,rgba(255,140,40,.06),transparent 55%)}.manual-pad .dpad{transform:scale(1.8)}.range-row{margin:12px 0}.range-row label{display:flex;justify-content:space-between;color:var(--amber);font-size:9px}.range-row input{width:100%;accent-color:var(--orange);border-radius:0}.voice-layout{display:grid;grid-template-columns:minmax(0,1.4fr) minmax(280px,.6fr);gap:12px;height:100%}.voice-transcript,.memory-list{min-height:250px;max-height:100%;overflow:auto;border:1px solid var(--grid);padding:10px;background:rgba(2,4,3,.88)}.voice-compose{display:grid;grid-template-columns:1fr auto;margin-top:8px}.voice-compose input{min-width:0;border:1px solid var(--grid);background:#080806;color:var(--paper);padding:10px;font:9px var(--mono)}.voice-compose button{border:1px solid var(--orange);background:var(--orange);color:#050505;padding:0 16px;font:700 9px var(--mono)}.diag-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.json-readout{white-space:pre-wrap;overflow-wrap:anywhere;color:var(--cyan);font:8px/1.55 var(--mono)}.mode-empty{color:var(--dim);padding:18px;font-size:9px}.screen[data-live="true"] .concept-stamp small{color:var(--acid)}.screen[data-live="true"] .concept-stamp small:after{content:"LIVE CONTROL LINK"}.screen[data-live="true"] .concept-stamp small{font-size:0}.screen[data-live="true"] .concept-stamp small:after{font-size:5px}
+@media(max-width:1120px){.masthead{grid-template-columns:300px 1fr 265px}.console-grid{grid-template-columns:170px minmax(0,1fr) 270px}.footer{grid-template-columns:170px 1fr 270px}.rightstack{grid-template-rows:auto 170px 218px 1fr auto}.concept-stamp{right:280px}.registration{left:172px}.patch-cables{left:160px}}
+@media(max-width:900px){body{overflow:auto}.screen{min-width:820px}.masthead{grid-template-columns:280px 1fr 230px}.console-grid{grid-template-columns:170px 1fr 270px}.footer{grid-template-columns:170px 1fr 270px}.status-ribbon .status-cell:nth-child(3){display:none}.status-ribbon{grid-template-columns:repeat(3,1fr)}}
+@media(prefers-reduced-motion:reduce){.screen,.screen:before,.screen:after,.camera-svg .target,.radar i,.cursor,.emergency.armed{animation:none!important}}
+</style>
+</head>
+<body>
+<div class="screen" id="screen">
+  <div class="topline spectrum-bus"></div>
+  <header class="masthead">
+    <section class="identity">
+      <div class="unit-no">01</div>
+      <div class="wordmark"><h1>ROBIT</h1><p>HOUSE GREMLIN / COMPANION PLATFORM</p></div>
+    </section>
+    <section class="mast-status">
+      <div class="status-ribbon">
+        <div class="status-cell"><i class="lamp acid"></i>LOCAL INFERENCE: ACTIVE</div>
+        <div class="status-cell"><i class="lamp acid"></i>MEMORY CORE: ONLINE</div>
+        <div class="status-cell"><i class="lamp cyan"></i>OPERATOR LINK: ESTABLISHED</div>
+        <div class="status-cell"><i class="lamp acid"></i>FAILSAFE: ARMED</div>
       </div>
-    </main>
-
-    <script>
-      const state = {
-        mode: "text",
-        isSending: false,
-        controlsEnabled: false,
-        camera: null,
-        cameraLoopTimer: null,
-        cameraFrameInFlight: false,
-        cameraFrameStartedAt: 0,
-        cameraAbortController: null,
-        cameraLoopGeneration: 0,
-        cameraObjectUrl: null,
-        cameraFrameId: null,
-        tracking: {
-          status: null,
-          statusInFlight: false,
-          actionInFlight: false,
-          refreshTimer: null,
-          enabledRequested: true,
-          lastError: null
-        },
-        realtime: {
-          ws: null,
-          audioContext: null,
-          micStream: null,
-          micSource: null,
-          captureNode: null,
-          captureSink: null,
-          playbackSources: [],
-          nextPlaybackTime: 0,
-          connected: false,
-          connecting: false,
-          manualClose: false,
-          reconnectTimer: null,
-          instructions: "",
-          userTranscript: null,
-          assistantTranscript: null,
-          userTranscriptText: "",
-          assistantTranscriptText: ""
-        },
-        activeMove: null,
-        activeSpeed: null,
-        driveInFlight: false,
-        pendingDrive: null,
-        headInFlight: false,
-        headUpdateTimer: null,
-        pendingHead: {},
-        activeHead: { pan: null, tilt: null }
-      };
-
-      const els = {
-        brainUrl: document.getElementById("brainUrl"),
-        connectionStatus: document.getElementById("connectionStatus"),
-        connectionText: document.getElementById("connectionText"),
-        cameraStatus: document.getElementById("cameraStatus"),
-        cameraText: document.getElementById("cameraText"),
-        cameraStream: document.getElementById("cameraStream"),
-        cameraEmpty: document.getElementById("cameraEmpty"),
-        trackingOverlay: document.getElementById("trackingOverlay"),
-        trackingToggle: document.getElementById("trackingToggle"),
-        trackingReason: document.getElementById("trackingReason"),
-        metricMode: document.getElementById("metricMode"),
-        metricMove: document.getElementById("metricMove"),
-        metricSpeed: document.getElementById("metricSpeed"),
-        metricHead: document.getElementById("metricHead"),
-        transcript: document.getElementById("transcript"),
-        emptyState: document.getElementById("emptyState"),
-        chatForm: document.getElementById("chatForm"),
-        messageInput: document.getElementById("messageInput"),
-        textModeButton: document.getElementById("textModeButton"),
-        voiceModeButton: document.getElementById("voiceModeButton"),
-        realtimeVoice: document.getElementById("realtimeVoice"),
-        realtimeUrl: document.getElementById("realtimeUrl"),
-        realtimeButton: document.getElementById("realtimeButton"),
-        realtimeStatus: document.getElementById("realtimeStatus"),
-        playbackStatus: document.getElementById("playbackStatus"),
-        replayButton: document.getElementById("replayButton"),
-        sendButton: document.getElementById("sendButton"),
-        controlsEnabled: document.getElementById("controlsEnabled"),
-        controlInputs: [...document.querySelectorAll("[data-control]")],
-        controlStatus: document.getElementById("controlStatus"),
-        speedInput: document.getElementById("speed"),
-        speedValue: document.getElementById("speedValue"),
-        panInput: document.getElementById("pan"),
-        panValue: document.getElementById("panValue"),
-        tiltInput: document.getElementById("tilt"),
-        tiltValue: document.getElementById("tiltValue"),
-        actionLog: document.getElementById("actionLog")
-      };
-      els.sceneSummary = document.getElementById("sceneSummary");
-      els.sceneEntities = document.getElementById("sceneEntities");
-      els.sceneMeta = document.getElementById("sceneMeta");
-
-      function brainUrl(path) {
-        return els.brainUrl.value.replace(/\/$/, "") + path;
-      }
-
-      function setPill(element, textElement, kind, text) {
-        element.classList.toggle("ready", kind === "ready");
-        element.classList.toggle("error", kind === "error");
-        textElement.textContent = text;
-      }
-
-      function setPlaybackStatus(text, isError = false) {
-        els.playbackStatus.textContent = text;
-        els.playbackStatus.classList.toggle("error", isError);
-      }
-
-      function addLog(label, payload) {
-        const item = document.createElement("div");
-        item.className = "log-item";
-        const body = typeof payload === "string" ? payload : JSON.stringify(payload, null, 2);
-        item.textContent = `[${new Date().toLocaleTimeString()}] ${label}\n${body}`;
-        els.actionLog.prepend(item);
-      }
-
-      async function getJson(path) {
-        const response = await fetch(brainUrl(path));
-        if (!response.ok) throw new Error(await response.text());
-        return response.json();
-      }
-
-      async function postJson(path, body = {}) {
-        const response = await fetch(brainUrl(path), {
-          method: "POST",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify(body)
-        });
-        if (!response.ok) throw new Error(await response.text());
-        return response.json();
-      }
-
-      function addMessage(role, body, metadata = "") {
-        els.emptyState?.remove();
-        const row = document.createElement("div");
-        row.className = `message-row ${role}`;
-        const message = document.createElement("article");
-        message.className = "message";
-        const meta = document.createElement("div");
-        meta.className = "message-meta";
-        meta.textContent = metadata || (role === "user" ? "You" : "Robit");
-        const messageBody = document.createElement("div");
-        messageBody.className = "message-body";
-        messageBody.textContent = body || "";
-        message.append(meta, messageBody);
-        row.append(message);
-        els.transcript.append(row);
-        els.transcript.scrollTop = els.transcript.scrollHeight;
-        return messageBody;
-      }
-
-      function setMode(mode) {
-        state.mode = mode;
-        window.localStorage.setItem("robitMode", mode);
-        els.textModeButton.classList.toggle("active", mode === "text");
-        els.voiceModeButton.classList.toggle("active", mode === "voice");
-        els.realtimeVoice.disabled = mode !== "voice";
-        setPlaybackStatus(mode === "voice" ? "Voice ready" : "Ready");
-        if (mode === "voice") {
-          connectRealtime().catch((error) => {
-            setRealtimeStatus(error instanceof Error ? error.message : String(error), true);
-          });
-        } else if (state.realtime.connected || state.realtime.connecting) {
-          disconnectRealtime();
-        }
-      }
-
-      function setControlsEnabled(enabled) {
-        state.controlsEnabled = enabled;
-        els.controlInputs.forEach((control) => {
-          control.disabled = !enabled;
-        });
-        els.controlStatus.textContent = enabled ? "Manual controls enabled" : "Manual controls disabled";
-      }
-
-      function setSending(isSending) {
-        state.isSending = isSending;
-        els.sendButton.disabled = isSending;
-        els.messageInput.disabled = isSending;
-        els.textModeButton.disabled = isSending;
-        els.voiceModeButton.disabled = isSending;
-      }
-
-      function applyRobotStatus(status) {
-        els.metricMode.textContent = status.mode || "-";
-        els.metricMove.textContent = status.movement || status.move || "-";
-        els.metricSpeed.textContent = String(status.speed ?? "-");
-        els.metricHead.textContent = `${status.pan ?? "-"}, ${status.tilt ?? "-"}`;
-      }
-
-      function cameraFrameIntervalMs() {
-        const seconds = Number(state.camera?.frame_interval_seconds);
-        // RF-DETR consumes the broker internally at up to 3 FPS. The operator
-        // preview only needs one cached frame per second and should not flood
-        // the HTTP access log.
-        return Number.isFinite(seconds) && seconds > 0 ? Math.max(1000, seconds * 1000) : 5000;
-      }
-
-      function cameraCadenceText() {
-        const intervalMs = cameraFrameIntervalMs();
-        if (intervalMs <= 1000) {
-          return `Camera ${(1000 / intervalMs).toFixed(1)} FPS`;
-        }
-        return `Camera every ${(intervalMs / 1000).toFixed(intervalMs % 1000 === 0 ? 0 : 1)}s`;
-      }
-
-      function clearTrackingOverlay() {
-        const canvas = els.trackingOverlay;
-        const context = canvas.getContext("2d");
-        context.clearRect(0, 0, canvas.width, canvas.height);
-        canvas.hidden = true;
-      }
-
-      function renderTrackingOverlay() {
-        const target = state.tracking.status?.target;
-        const targetFrameId = target?.frame_id === null || target?.frame_id === undefined
-          ? null
-          : String(target.frame_id);
-        if (
-          !target ||
-          !state.cameraFrameId ||
-          targetFrameId !== state.cameraFrameId ||
-          !Array.isArray(target.bounding_box) ||
-          target.bounding_box.length !== 4 ||
-          !els.cameraStream.naturalWidth ||
-          !els.cameraStream.naturalHeight
-        ) {
-          clearTrackingOverlay();
-          return;
-        }
-
-        const rawBox = target.bounding_box.map(Number);
-        if (!rawBox.every(Number.isFinite)) {
-          clearTrackingOverlay();
-          return;
-        }
-
-        const sourceWidth = els.cameraStream.naturalWidth;
-        const sourceHeight = els.cameraStream.naturalHeight;
-        if (rawBox.some((value) => value < 0 || value > 1)) {
-          clearTrackingOverlay();
-          return;
-        }
-        let [x1, y1, x2, y2] = rawBox;
-        x1 *= sourceWidth;
-        x2 *= sourceWidth;
-        y1 *= sourceHeight;
-        y2 *= sourceHeight;
-
-        const sourceLeft = Math.max(0, Math.min(sourceWidth, Math.min(x1, x2)));
-        const sourceRight = Math.max(0, Math.min(sourceWidth, Math.max(x1, x2)));
-        const sourceTop = Math.max(0, Math.min(sourceHeight, Math.min(y1, y2)));
-        const sourceBottom = Math.max(0, Math.min(sourceHeight, Math.max(y1, y2)));
-        if (sourceRight <= sourceLeft || sourceBottom <= sourceTop) {
-          clearTrackingOverlay();
-          return;
-        }
-
-        const canvas = els.trackingOverlay;
-        const displayWidth = canvas.parentElement?.clientWidth || 0;
-        const displayHeight = canvas.parentElement?.clientHeight || 0;
-        if (!displayWidth || !displayHeight) {
-          clearTrackingOverlay();
-          return;
-        }
-
-        const pixelRatio = Math.min(2, window.devicePixelRatio || 1);
-        const expectedWidth = Math.round(displayWidth * pixelRatio);
-        const expectedHeight = Math.round(displayHeight * pixelRatio);
-        if (canvas.width !== expectedWidth || canvas.height !== expectedHeight) {
-          canvas.width = expectedWidth;
-          canvas.height = expectedHeight;
-        }
-
-        const context = canvas.getContext("2d");
-        context.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
-        context.clearRect(0, 0, displayWidth, displayHeight);
-
-        const scale = Math.min(displayWidth / sourceWidth, displayHeight / sourceHeight);
-        const offsetX = (displayWidth - sourceWidth * scale) / 2;
-        const offsetY = (displayHeight - sourceHeight * scale) / 2;
-
-        // Tracking boxes are produced from the same 180-degree-corrected view
-        // shown to the operator, so they can be mapped directly to the canvas.
-        const boxX = offsetX + sourceLeft * scale;
-        const boxY = offsetY + sourceTop * scale;
-        const boxWidth = (sourceRight - sourceLeft) * scale;
-        const boxHeight = (sourceBottom - sourceTop) * scale;
-
-        context.strokeStyle = "#52d6c3";
-        context.lineWidth = 2;
-        context.setLineDash([7, 4]);
-        context.strokeRect(boxX, boxY, boxWidth, boxHeight);
-        context.setLineDash([]);
-
-        const confidence = Number(target.confidence);
-        const confidenceText = Number.isFinite(confidence) ? ` ${Math.round(confidence * 100)}%` : "";
-        const trackText = target.track_id === null || target.track_id === undefined ? "person" : `person ${target.track_id}`;
-        const label = `${trackText}${confidenceText}`;
-        context.font = "600 12px system-ui, sans-serif";
-        const labelWidth = Math.ceil(context.measureText(label).width) + 12;
-        const labelHeight = 22;
-        const labelX = Math.max(0, Math.min(displayWidth - labelWidth, boxX));
-        const labelY = boxY >= labelHeight ? boxY - labelHeight : Math.min(displayHeight - labelHeight, boxY + 2);
-        context.fillStyle = "rgba(6, 20, 18, 0.88)";
-        context.fillRect(labelX, labelY, labelWidth, labelHeight);
-        context.fillStyle = "#dff8f3";
-        context.fillText(label, labelX + 6, labelY + 15);
-        canvas.hidden = false;
-      }
-
-      function loadCameraBlob(objectUrl) {
-        return new Promise((resolve, reject) => {
-          let settled = false;
-          const timeout = window.setTimeout(() => finish(new Error("Camera image decode timed out")), 5000);
-
-          function cleanup() {
-            window.clearTimeout(timeout);
-            els.cameraStream.removeEventListener("load", handleLoad);
-            els.cameraStream.removeEventListener("error", handleError);
-          }
-
-          function finish(error) {
-            if (settled) return;
-            settled = true;
-            cleanup();
-            if (error) reject(error);
-            else resolve();
-          }
-
-          function handleLoad() {
-            finish();
-          }
-
-          function handleError() {
-            finish(new Error("Camera image could not be decoded"));
-          }
-
-          els.cameraStream.addEventListener("load", handleLoad);
-          els.cameraStream.addEventListener("error", handleError);
-          els.cameraStream.src = objectUrl;
-        });
-      }
-
-      function stopCameraLoop() {
-        state.cameraLoopGeneration += 1;
-        window.clearTimeout(state.cameraLoopTimer);
-        state.cameraLoopTimer = null;
-        state.cameraAbortController?.abort();
-        state.cameraAbortController = null;
-        state.cameraFrameInFlight = false;
-      }
-
-      function scheduleCameraFrame(delayMs = 0, generation = state.cameraLoopGeneration) {
-        window.clearTimeout(state.cameraLoopTimer);
-        if (generation !== state.cameraLoopGeneration || document.hidden || !state.camera) return;
-        state.cameraLoopTimer = window.setTimeout(() => fetchCameraFrame(generation), Math.max(0, delayMs));
-      }
-
-      function startCameraLoop() {
-        stopCameraLoop();
-        if (document.hidden || !state.camera) return;
-        scheduleCameraFrame(0, state.cameraLoopGeneration);
-      }
-
-      async function refreshCamera() {
-        try {
-          const camera = await getJson("/robot/camera");
-          state.camera = camera;
-          startCameraLoop();
-        } catch (error) {
-          stopCameraLoop();
-          state.camera = null;
-          state.cameraFrameId = null;
-          clearTrackingOverlay();
-          els.cameraStream.hidden = true;
-          els.cameraEmpty.hidden = false;
-          setPill(els.cameraStatus, els.cameraText, "error", "Unavailable");
-          addLog("camera error", error instanceof Error ? error.message : String(error));
-        }
-      }
-
-      async function fetchCameraFrame(generation) {
-        if (generation !== state.cameraLoopGeneration || document.hidden || !state.camera) return;
-        if (state.cameraFrameInFlight) {
-          scheduleCameraFrame(cameraFrameIntervalMs(), generation);
-          return;
-        }
-
-        state.cameraFrameInFlight = true;
-        state.cameraFrameStartedAt = Date.now();
-        const controller = new AbortController();
-        state.cameraAbortController = controller;
-        let failed = false;
-
-        try {
-          const response = await fetch(brainUrl(`/robot/camera/capture?t=${Date.now()}`), {
-            cache: "no-store",
-            signal: controller.signal
-          });
-          if (!response.ok) throw new Error(await response.text());
-
-          const frameIdHeader = response.headers.get("X-Robit-Frame-Id");
-          const reportedIntervalSeconds = Number(response.headers.get("X-Robit-Frame-Interval"));
-          if (
-            generation === state.cameraLoopGeneration &&
-            Number.isFinite(reportedIntervalSeconds) &&
-            reportedIntervalSeconds > 0
-          ) {
-            state.camera = {
-              ...state.camera,
-              frame_interval_seconds: reportedIntervalSeconds
-            };
-          }
-          const blob = await response.blob();
-          if (!blob.type.startsWith("image/")) {
-            throw new Error(`Unexpected camera content type: ${blob.type || "unknown"}`);
-          }
-
-          const objectUrl = URL.createObjectURL(blob);
-          try {
-            await loadCameraBlob(objectUrl);
-          } catch (error) {
-            URL.revokeObjectURL(objectUrl);
-            throw error;
-          }
-
-          if (generation !== state.cameraLoopGeneration) {
-            URL.revokeObjectURL(objectUrl);
-            return;
-          }
-
-          const previousObjectUrl = state.cameraObjectUrl;
-          state.cameraObjectUrl = objectUrl;
-          state.cameraFrameId = frameIdHeader === null ? null : String(frameIdHeader);
-          if (previousObjectUrl) URL.revokeObjectURL(previousObjectUrl);
-
-          els.cameraStream.hidden = false;
-          els.cameraEmpty.hidden = true;
-          setPill(els.cameraStatus, els.cameraText, "ready", cameraCadenceText());
-          renderTrackingOverlay();
-        } catch (error) {
-          if (error?.name === "AbortError" || generation !== state.cameraLoopGeneration) return;
-          failed = true;
-          state.cameraFrameId = null;
-          clearTrackingOverlay();
-          if (!state.cameraObjectUrl) {
-            els.cameraStream.hidden = true;
-            els.cameraEmpty.hidden = false;
-          }
-          setPill(els.cameraStatus, els.cameraText, "error", "Camera retrying");
-          addLog("camera frame error", error instanceof Error ? error.message : String(error));
-        } finally {
-          if (state.cameraAbortController === controller) state.cameraAbortController = null;
-          state.cameraFrameInFlight = false;
-          if (generation === state.cameraLoopGeneration && !document.hidden && state.camera) {
-            const elapsed = Date.now() - state.cameraFrameStartedAt;
-            const targetInterval = cameraFrameIntervalMs();
-            const retryFloor = failed ? 1000 : 0;
-            scheduleCameraFrame(Math.max(retryFloor, targetInterval - elapsed), generation);
-          }
-        }
-      }
-
-      function trackingPollIntervalMs() {
-        return Math.max(1000, Math.min(2500, cameraFrameIntervalMs()));
-      }
-
-      function updateTrackingControls() {
-        const busy = state.tracking.actionInFlight;
-        els.trackingToggle.disabled = busy;
-      }
-
-      function trackingReasonText(status) {
-        if (!status?.available) return status?.reason || "Tracking service unavailable.";
-        if (status.state === "fault") return status.reason || "Tracking fault.";
-        if (!status.enabled) {
-          return status.stop_reason ? `Tracking off: ${status.stop_reason}` : "Tracking is off.";
-        }
-        if (status.target) {
-          const confidence = Number(status.target.confidence);
-          const detail = Number.isFinite(confidence) ? ` (${Math.round(confidence * 100)}%)` : "";
-          return `Following a visible person${detail}.`;
-        }
-        return "Tracking is on; looking for a visible person.";
-      }
-
-      function applyTrackingStatus(status) {
-        state.tracking.status = status || {
-          available: false,
-          enabled: false,
-          state: "off",
-          reason: "Tracking service unavailable."
-        };
-        const current = state.tracking.status;
-        const available = current.available === true;
-
-        if (typeof current.enabled === "boolean") {
-          state.tracking.enabledRequested = current.enabled;
-        }
-        els.trackingToggle.checked = state.tracking.enabledRequested;
-
-        els.trackingReason.textContent = trackingReasonText(current);
-        els.trackingReason.classList.toggle("error", !available || current.state === "fault");
-        updateTrackingControls();
-        renderTrackingOverlay();
-      }
-
-      function scheduleTrackingRefresh(delayMs = trackingPollIntervalMs()) {
-        window.clearTimeout(state.tracking.refreshTimer);
-        if (document.hidden) return;
-        state.tracking.refreshTimer = window.setTimeout(refreshTrackingStatus, Math.max(0, delayMs));
-      }
-
-      async function refreshTrackingStatus() {
-        window.clearTimeout(state.tracking.refreshTimer);
-        if (document.hidden || state.tracking.statusInFlight) return;
-        state.tracking.statusInFlight = true;
-        try {
-          const status = await getJson("/tracking/status");
-          state.tracking.lastError = null;
-          applyTrackingStatus(status);
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          applyTrackingStatus({
-            available: false,
-            enabled: false,
-            state: "off",
-            reason: message
-          });
-          if (message !== state.tracking.lastError) {
-            addLog("tracking status error", message);
-            state.tracking.lastError = message;
-          }
-        } finally {
-          state.tracking.statusInFlight = false;
-          scheduleTrackingRefresh();
-        }
-      }
-
-      async function runTrackingCommand(path, body, label) {
-        if (state.tracking.actionInFlight) return;
-        state.tracking.actionInFlight = true;
-        updateTrackingControls();
-        try {
-          const result = await postJson(path, body);
-          addLog(label, result);
-          const returnedStatus =
-            result?.status ||
-            result?.tracking ||
-            (result?.available !== undefined && result?.state ? result : null);
-          if (returnedStatus && typeof returnedStatus === "object") applyTrackingStatus(returnedStatus);
-          await refreshCamera();
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          els.trackingReason.textContent = message;
-          els.trackingReason.classList.add("error");
-          addLog(`${label} error`, message);
-        } finally {
-          state.tracking.actionInFlight = false;
-          updateTrackingControls();
-          scheduleTrackingRefresh(0);
-        }
-      }
-
-      function updateScenePanel(payload) {
-        const snapshot = payload?.snapshot || null;
-        if (!snapshot) {
-          els.sceneSummary.textContent = payload?.reason || payload?.warning || "No scene snapshot yet.";
-          els.sceneEntities.textContent = "Entities: none";
-          els.sceneMeta.textContent = payload?.enabled === false ? "Vision unavailable" : "Vision waiting";
-          return;
-        }
-        const entities = (snapshot.entities || []).map((entity) => `${entity.label} ${Math.round((entity.confidence || 0) * 100)}%`);
-        const observed = new Date(snapshot.observed_at);
-        const ageSeconds = Number.isNaN(observed.getTime()) ? "?" : Math.max(0, Math.round((Date.now() - observed.getTime()) / 1000));
-        const stalePrefix = payload.stale ? "Last seen: " : "";
-        els.sceneSummary.textContent = `${stalePrefix}${snapshot.summary || "unknown"}`;
-        els.sceneEntities.textContent = `${payload.stale ? "Last seen entities" : "Entities"}: ${entities.join(", ") || "none"}`;
-        els.sceneMeta.textContent = `${payload.fresh === true ? "Fresh" : payload.stale ? "Stale" : "Cached"} - ${ageSeconds}s old - uncertainty ${Math.round((snapshot.uncertainty || 0) * 100)}%`;
-      }
-
-      async function refreshPerception() {
-        try {
-          updateScenePanel(await getJson("/perception/latest"));
-        } catch (error) {
-          updateScenePanel({ warning: error instanceof Error ? error.message : String(error) });
-        }
-      }
-
-      function setRealtimeStatus(text, isError = false) {
-        els.realtimeStatus.textContent = text;
-        els.realtimeStatus.classList.toggle("error", isError);
-        els.realtimeButton.textContent = state.realtime.connected || state.realtime.connecting ? "Disconnect" : "Connect";
-      }
-
-      function bytesToBase64(bytes) {
-        let binary = "";
-        const chunkSize = 0x8000;
-        for (let i = 0; i < bytes.length; i += chunkSize) {
-          binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
-        }
-        return btoa(binary);
-      }
-
-      function base64ToBytes(base64) {
-        const binary = atob(base64);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i += 1) bytes[i] = binary.charCodeAt(i);
-        return bytes;
-      }
-
-      function pcm16ToFloat32(bytes) {
-        const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-        const samples = new Float32Array(bytes.byteLength / 2);
-        for (let i = 0; i < samples.length; i += 1) {
-          const sample = view.getInt16(i * 2, true);
-          samples[i] = sample < 0 ? sample / 0x8000 : sample / 0x7fff;
-        }
-        return samples;
-      }
-
-      function clearRealtimePlayback() {
-        for (const source of state.realtime.playbackSources.splice(0)) {
-          try {
-            source.stop();
-          } catch {
-            // Already stopped.
-          }
-        }
-        if (state.realtime.audioContext) {
-          state.realtime.nextPlaybackTime = state.realtime.audioContext.currentTime;
-        }
-      }
-
-      function playRealtimeAudioDelta(base64Audio) {
-        const ctx = state.realtime.audioContext;
-        if (!ctx || !base64Audio) return;
-        const samples = pcm16ToFloat32(base64ToBytes(base64Audio));
-        const buffer = ctx.createBuffer(1, samples.length, 16000);
-        buffer.copyToChannel(samples, 0);
-        const source = ctx.createBufferSource();
-        source.buffer = buffer;
-        source.connect(ctx.destination);
-        const startAt = Math.max(ctx.currentTime + 0.02, state.realtime.nextPlaybackTime || ctx.currentTime);
-        source.start(startAt);
-        state.realtime.nextPlaybackTime = startAt + buffer.duration;
-        state.realtime.playbackSources.push(source);
-        source.addEventListener("ended", () => {
-          state.realtime.playbackSources = state.realtime.playbackSources.filter((item) => item !== source);
-        });
-        setPlaybackStatus("Speaking");
-      }
-
-      function setRealtimeTranscript(role, text, partial = true) {
-        const key = role === "user" ? "userTranscript" : "assistantTranscript";
-        if (!state.realtime[key]) {
-          state.realtime[key] = addMessage(role === "user" ? "user" : "robit", text, role === "user" ? "You" : "Robit");
-        } else {
-          state.realtime[key].textContent = text;
-          els.transcript.scrollTop = els.transcript.scrollHeight;
-        }
-        if (!partial) state.realtime[key] = null;
-      }
-
-      function sendRealtime(payload) {
-        const ws = state.realtime.ws;
-        if (!ws || ws.readyState !== WebSocket.OPEN) return false;
-        ws.send(JSON.stringify(payload));
-        return true;
-      }
-
-      function sendRealtimeSessionUpdate() {
-        sendRealtime({
-          type: "session.update",
-          session: {
-            type: "realtime",
-            audio: { output: { voice: els.realtimeVoice.value.trim() || "serena" } }
-          }
-        });
-      }
-
-      async function setupRealtimeAudio() {
-        const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-        const ctx = state.realtime.audioContext || new AudioContextClass();
-        state.realtime.audioContext = ctx;
-        await ctx.resume();
-        if (!state.realtime.micStream) {
-          state.realtime.micStream = await navigator.mediaDevices.getUserMedia({
-            audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true }
-          });
-        }
-        if (state.realtime.captureNode) return;
-
-        const workletCode = `
-          class RobitMicCapture extends AudioWorkletProcessor {
-            constructor() {
-              super();
-              this.buffer = [];
-              this.frameSize = Math.max(1, Math.round(sampleRate * 0.04));
-            }
-            process(inputs) {
-              const input = inputs[0]?.[0];
-              if (!input) return true;
-              for (let i = 0; i < input.length; i += 1) this.buffer.push(input[i]);
-              while (this.buffer.length >= this.frameSize) {
-                const frame = this.buffer.splice(0, this.frameSize);
-                const outLength = Math.max(1, Math.round(frame.length * 16000 / sampleRate));
-                const pcm = new Int16Array(outLength);
-                for (let i = 0; i < outLength; i += 1) {
-                  const src = Math.min(frame.length - 1, Math.round(i * sampleRate / 16000));
-                  const sample = Math.max(-1, Math.min(1, frame[src]));
-                  pcm[i] = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
-                }
-                this.port.postMessage(pcm.buffer, [pcm.buffer]);
-              }
-              return true;
-            }
-          }
-          registerProcessor("robit-mic-capture", RobitMicCapture);
-        `;
-        const url = URL.createObjectURL(new Blob([workletCode], { type: "application/javascript" }));
-        await ctx.audioWorklet.addModule(url);
-        URL.revokeObjectURL(url);
-        state.realtime.micSource = ctx.createMediaStreamSource(state.realtime.micStream);
-        state.realtime.captureNode = new AudioWorkletNode(ctx, "robit-mic-capture");
-        state.realtime.captureSink = ctx.createGain();
-        state.realtime.captureSink.gain.value = 0;
-        state.realtime.captureNode.port.onmessage = (event) => {
-          if (!state.realtime.connected) return;
-          sendRealtime({ type: "input_audio_buffer.append", audio: bytesToBase64(new Uint8Array(event.data)) });
-        };
-        state.realtime.micSource.connect(state.realtime.captureNode);
-        state.realtime.captureNode.connect(state.realtime.captureSink);
-        state.realtime.captureSink.connect(ctx.destination);
-      }
-
-      async function loadRealtimeConfig() {
-        const health = await getJson("/health");
-        if (!health.realtime) return;
-        els.realtimeUrl.value = health.realtime.ws_url || els.realtimeUrl.value;
-        els.realtimeUrl.readOnly = true;
-        els.realtimeVoice.value = health.realtime.voice || els.realtimeVoice.value;
-        state.realtime.instructions = health.realtime.instructions || state.realtime.instructions;
-      }
-
-      async function loadBrainState() {
-        const snapshot = await getJson("/brain/state");
-        restoreConversation(snapshot);
-      }
-
-      async function connectRealtime() {
-        if (state.realtime.connected || state.realtime.connecting) return;
-        if (state.realtime.reconnectTimer) {
-          window.clearTimeout(state.realtime.reconnectTimer);
-          state.realtime.reconnectTimer = null;
-        }
-        state.realtime.manualClose = false;
-        state.realtime.connecting = true;
-        setRealtimeStatus("Connecting");
-        let ws;
-        try {
-          await loadRealtimeConfig();
-          await setupRealtimeAudio();
-          ws = new WebSocket(els.realtimeUrl.value.trim());
-        } catch (error) {
-          state.realtime.connecting = false;
-          setRealtimeStatus(error instanceof Error ? error.message : String(error), true);
-          throw error;
-        }
-        state.realtime.ws = ws;
-        ws.addEventListener("open", () => {
-          state.realtime.connected = true;
-          state.realtime.connecting = false;
-          state.realtime.nextPlaybackTime = state.realtime.audioContext.currentTime;
-          sendRealtimeSessionUpdate();
-          setRealtimeStatus("Connected");
-          setPlaybackStatus("Listening");
-          setPill(els.connectionStatus, els.connectionText, "ready", "Voice connected");
-        });
-        ws.addEventListener("message", (event) => handleRealtimeEvent(JSON.parse(event.data)));
-        ws.addEventListener("close", (event) => {
-          state.realtime.connected = false;
-          state.realtime.connecting = false;
-          if (state.realtime.ws === ws) state.realtime.ws = null;
-          const reason = event.reason || `code ${event.code}`;
-          addLog("voice disconnected", { code: event.code, reason });
-          if (event.code === 4001) {
-            setRealtimeStatus("Voice active in another tab", true);
-            setPlaybackStatus("Voice active in another tab", true);
-            return;
-          }
-          const shouldReconnect = state.mode === "voice" && !state.realtime.manualClose;
-          setRealtimeStatus(shouldReconnect ? "Reconnecting" : "Disconnected", shouldReconnect);
-          setPlaybackStatus(shouldReconnect ? "Voice reconnecting" : state.mode === "voice" ? "Voice disconnected" : "Ready", shouldReconnect);
-          if (shouldReconnect && !state.realtime.reconnectTimer) {
-            state.realtime.reconnectTimer = window.setTimeout(() => {
-              state.realtime.reconnectTimer = null;
-              connectRealtime().catch((error) => {
-                setRealtimeStatus(error instanceof Error ? error.message : String(error), true);
-              });
-            }, 1000);
-          }
-        });
-        ws.addEventListener("error", () => {
-          state.realtime.connecting = false;
-          setRealtimeStatus("Realtime connection error", true);
-          setPill(els.connectionStatus, els.connectionText, "error", "Voice error");
-        });
-      }
-
-      async function waitForRealtimeOpen() {
-        if (state.realtime.connected) return;
-        await new Promise((resolve, reject) => {
-          const startedAt = Date.now();
-          const timer = window.setInterval(() => {
-            if (state.realtime.connected) {
-              window.clearInterval(timer);
-              resolve();
-            } else if (Date.now() - startedAt > 8000) {
-              window.clearInterval(timer);
-              reject(new Error("Realtime connection timed out"));
-            }
-          }, 50);
-        });
-      }
-
-      function disconnectRealtime() {
-        clearRealtimePlayback();
-        state.realtime.manualClose = true;
-        if (state.realtime.reconnectTimer) {
-          window.clearTimeout(state.realtime.reconnectTimer);
-          state.realtime.reconnectTimer = null;
-        }
-        state.realtime.connected = false;
-        state.realtime.connecting = false;
-        if (state.realtime.ws) state.realtime.ws.close(1000);
-        state.realtime.ws = null;
-        for (const node of [state.realtime.captureNode, state.realtime.micSource, state.realtime.captureSink]) {
-          try {
-            node?.disconnect();
-          } catch {
-            // already disconnected
-          }
-        }
-        if (state.realtime.micStream) {
-          state.realtime.micStream.getTracks().forEach((track) => track.stop());
-        }
-        state.realtime.micStream = null;
-        state.realtime.captureNode = null;
-        state.realtime.micSource = null;
-        state.realtime.captureSink = null;
-        setRealtimeStatus("Disconnected");
-      }
-
-      function restoreConversation(snapshot) {
-        els.transcript.replaceChildren();
-        els.actionLog.replaceChildren();
-        state.realtime.userTranscript = null;
-        state.realtime.assistantTranscript = null;
-        for (const turn of snapshot.conversation || []) {
-          addMessage(turn.role === "user" ? "user" : "robit", turn.text, turn.role === "user" ? "You" : "Robit");
-        }
-        for (const event of snapshot.events || []) {
-          if (["action.completed", "action.failed", "action.rejected"].includes(event.event_type)) {
-            addLog(`${event.event_type} - ${event.correlation_id.slice(0, 8)}`, event.payload);
-          }
-        }
-      }
-
-      function handleRealtimeEvent(event) {
-        const type = event.type || "";
-        if (type === "robit.session.snapshot") {
-          if (!state.isSending) restoreConversation(event);
-          addLog("session restored", {
-            conversation_id: event.state?.conversation_id || "default",
-            latest_sequence: event.latest_sequence || 0
-          });
-          return;
-        }
-        if (type === "robit.action") {
-          addLog(event.ok ? "voice action" : "voice action rejected", event);
-          return;
-        }
-        if (type === "robit.perception") {
-          updateScenePanel(event);
-          addLog(event.ok ? "voice perception" : "voice perception failed", event);
-          return;
-        }
-        if (type === "session.created") {
-          return;
-        }
-        if (type === "input_audio_buffer.speech_started") {
-          clearRealtimePlayback();
-          setPlaybackStatus("Listening");
-          return;
-        }
-        if (type === "input_audio_buffer.speech_stopped") {
-          setPlaybackStatus("Thinking");
-          return;
-        }
-        if (type === "response.output_audio.delta") {
-          playRealtimeAudioDelta(event.delta);
-          return;
-        }
-        if (type.includes("input_audio_transcription") && (event.delta || event.transcript)) {
-          if (type.endsWith(".delta")) {
-            state.realtime.userTranscriptText += event.delta || "";
-            setRealtimeTranscript("user", state.realtime.userTranscriptText, true);
-          } else {
-            setRealtimeTranscript("user", event.transcript || state.realtime.userTranscriptText, false);
-            state.realtime.userTranscriptText = "";
-          }
-          return;
-        }
-        if (type.includes("transcript") && (event.delta || event.transcript)) {
-          if (type.endsWith(".delta")) {
-            state.realtime.assistantTranscriptText += event.delta || "";
-            setRealtimeTranscript("assistant", state.realtime.assistantTranscriptText, true);
-          } else {
-            setRealtimeTranscript("assistant", event.transcript || state.realtime.assistantTranscriptText, false);
-            state.realtime.assistantTranscriptText = "";
-          }
-          return;
-        }
-        if (type === "response.done") {
-          setPlaybackStatus("Listening");
-        }
-        if (type === "error") {
-          addLog("voice error", event.error || event);
-          setRealtimeStatus(event.error?.message || "Realtime error", true);
-        }
-      }
-
-      async function sendRealtimeText(text) {
-        await connectRealtime();
-        await waitForRealtimeOpen();
-        sendRealtime({
-          type: "conversation.item.create",
-          item: {
-            type: "message",
-            role: "user",
-            content: [{ type: "input_text", text }]
-          }
-        });
-        sendRealtime({ type: "response.create" });
-      }
-
-      async function sendMessage(messageText) {
-        const isVoice = state.mode === "voice";
-        setSending(true);
-        setPill(els.connectionStatus, els.connectionText, "ready", "Thinking");
-        setPlaybackStatus("Thinking");
-        addMessage("user", messageText);
-        try {
-          if (isVoice) {
-            await sendRealtimeText(messageText);
-            setPill(els.connectionStatus, els.connectionText, "ready", "Voice connected");
-            setPlaybackStatus("Listening");
-            return;
-          }
-          const result = await postJson("/chat/action", {
-            text: messageText,
-            conversation_id: "default"
-          });
-          const trace = result.correlation_id ? ` - trace ${result.correlation_id.slice(0, 8)}` : "";
-          const metadata = result.model ? `Robit - ${result.model}${trace}` : `Robit${trace}`;
-          const responseText = result.response || result.parse_error || "Done.";
-          addMessage("robit", responseText, metadata);
-          if (result.action_result) addLog("llm action", result.action_result);
-          if (result.vision) updateScenePanel(result.vision);
-          if (result.parse_error) addLog("llm parse fallback", result.parse_error);
-          setPill(els.connectionStatus, els.connectionText, "ready", "Ready");
-          setPlaybackStatus("Ready");
-        } catch (error) {
-          const message = error instanceof Error ? error.message : String(error);
-          setPill(els.connectionStatus, els.connectionText, "error", "Error");
-          setPlaybackStatus(message, true);
-          addMessage("robit", message, "Error");
-          addLog("chat error", message);
-        } finally {
-          setSending(false);
-          els.messageInput.focus();
-        }
-      }
-
-      function sameDriveCommand(left, right) {
-        return left && right && left.move === right.move && left.speed === right.speed;
-      }
-
-      async function flushDriveQueue() {
-        if (state.driveInFlight) return;
-        state.driveInFlight = true;
-        try {
-          while (state.pendingDrive) {
-            const command = state.pendingDrive;
-            state.pendingDrive = null;
-            const activeCommand = { move: state.activeMove, speed: state.activeSpeed };
-            if (sameDriveCommand(command, activeCommand)) continue;
-
-            try {
-              const result = await postJson("/robot/drive", command);
-              state.activeMove = command.move;
-              state.activeSpeed = command.speed;
-              els.controlStatus.textContent = `move=${command.move}`;
-              applyRobotStatus(result);
-              setPill(els.connectionStatus, els.connectionText, "ready", "Robot online");
-            } catch (error) {
-              els.controlStatus.textContent = error instanceof Error ? error.message : String(error);
-            }
-          }
-        } finally {
-          state.driveInFlight = false;
-          if (state.pendingDrive) flushDriveQueue();
-        }
-      }
-
-      function drive(move) {
-        if (!state.controlsEnabled) {
-          els.controlStatus.textContent = "Manual controls disabled";
-          return;
-        }
-        const speed = Number(els.speedInput.value);
-        const command = { move, speed };
-        const activeCommand = { move: state.activeMove, speed: state.activeSpeed };
-        if (sameDriveCommand(command, activeCommand) || sameDriveCommand(command, state.pendingDrive)) return;
-
-        state.pendingDrive = command;
-        els.controlStatus.textContent = state.driveInFlight ? `queued ${move}` : `move=${move}`;
-        flushDriveQueue();
-      }
-
-      function queueHead(update) {
-        if (!state.controlsEnabled) {
-          els.controlStatus.textContent = "Manual controls disabled";
-          return;
-        }
-        state.pendingHead = { ...state.pendingHead, ...update };
-        window.clearTimeout(state.headUpdateTimer);
-        state.headUpdateTimer = window.setTimeout(() => {
-          flushHeadQueue();
-        }, 80);
-      }
-
-      async function flushHeadQueue() {
-        if (state.headInFlight) return;
-        state.headInFlight = true;
-        try {
-          while (Object.keys(state.pendingHead).length) {
-            const command = state.pendingHead;
-            state.pendingHead = {};
-            const activePan = state.activeHead.pan;
-            const activeTilt = state.activeHead.tilt;
-            if (
-              (command.pan === undefined || command.pan === activePan) &&
-              (command.tilt === undefined || command.tilt === activeTilt)
-            ) {
-              continue;
-            }
-
-            try {
-              const result = await postJson("/robot/head", command);
-              state.activeHead = {
-                pan: result.pan ?? command.pan ?? state.activeHead.pan,
-                tilt: result.tilt ?? command.tilt ?? state.activeHead.tilt
-              };
-              els.metricHead.textContent = `${state.activeHead.pan ?? "-"}, ${state.activeHead.tilt ?? "-"}`;
-              els.controlStatus.textContent = `head=${els.metricHead.textContent}`;
-              if (result.ok) setPill(els.connectionStatus, els.connectionText, "ready", "Robot online");
-            } catch (error) {
-              els.controlStatus.textContent = error instanceof Error ? error.message : String(error);
-            }
-          }
-        } finally {
-          state.headInFlight = false;
-          if (Object.keys(state.pendingHead).length) flushHeadQueue();
-        }
-      }
-
-      async function emergencyStop() {
-        try {
-          const result = await postJson("/robot/stop", {});
-          state.activeMove = "stop";
-          state.activeSpeed = null;
-          addLog("emergency stop", result);
-          applyRobotStatus(result);
-        } catch (error) {
-          addLog("emergency stop error", error instanceof Error ? error.message : String(error));
-        }
-      }
-
-      els.chatForm.addEventListener("submit", (event) => {
-        event.preventDefault();
-        const text = els.messageInput.value.trim();
-        if (!text || state.isSending) return;
-        els.messageInput.value = "";
-        sendMessage(text);
-      });
-
-      els.messageInput.addEventListener("keydown", (event) => {
-        if (event.key === "Enter" && !event.shiftKey) {
-          event.preventDefault();
-          els.chatForm.requestSubmit();
-        }
-      });
-
-      els.textModeButton.addEventListener("click", () => setMode("text"));
-      els.voiceModeButton.addEventListener("click", () => setMode("voice"));
-      els.controlsEnabled.addEventListener("change", () => setControlsEnabled(els.controlsEnabled.checked));
-      document.getElementById("stopButton").addEventListener("click", emergencyStop);
-      els.realtimeButton.addEventListener("click", () => {
-        if (state.realtime.connected || state.realtime.connecting) {
-          disconnectRealtime();
-        } else {
-          connectRealtime().catch((error) => setRealtimeStatus(error instanceof Error ? error.message : String(error), true));
-        }
-      });
-
-      els.replayButton.hidden = true;
-
-      els.trackingToggle.addEventListener("change", () => {
-        state.tracking.enabledRequested = els.trackingToggle.checked;
-        if (state.tracking.enabledRequested) {
-          runTrackingCommand("/tracking/start", {}, "tracking enabled");
-        } else {
-          runTrackingCommand("/tracking/stop", {}, "tracking disabled");
-        }
-      });
-
-      document.querySelectorAll("[data-move]").forEach((button) => {
-        const move = button.dataset.move;
-        button.addEventListener("mousedown", () => drive(move));
-        button.addEventListener("mouseup", () => drive("stop"));
-        button.addEventListener("mouseleave", () => drive("stop"));
-        button.addEventListener("touchstart", (event) => {
-          event.preventDefault();
-          drive(move);
-        });
-        button.addEventListener("touchend", () => drive("stop"));
-      });
-
-      els.speedInput.addEventListener("input", () => {
-        els.speedValue.textContent = els.speedInput.value;
-      });
-      els.panInput.addEventListener("input", () => {
-        els.panValue.textContent = els.panInput.value;
-        queueHead({ pan: Number(els.panInput.value) });
-      });
-      els.tiltInput.addEventListener("input", () => {
-        els.tiltValue.textContent = els.tiltInput.value;
-        queueHead({ tilt: Number(els.tiltInput.value) });
-      });
-      document.getElementById("centerButton").addEventListener("click", () => {
-        els.panInput.value = 90;
-        els.tiltInput.value = 90;
-        els.panValue.textContent = "90";
-        els.tiltValue.textContent = "90";
-        queueHead({ pan: 90, tilt: 90 });
-      });
-
-      document.addEventListener("keydown", (event) => {
-        if (event.repeat || event.target.matches("button, input, select, textarea")) return;
-        if (!state.controlsEnabled) return;
-        if (event.code === "KeyW") drive("forward");
-        if (event.code === "KeyS") drive("reverse");
-        if (event.code === "KeyA") drive("left");
-        if (event.code === "KeyD") drive("right");
-        if (event.code === "Space") {
-          event.preventDefault();
-          drive("stop");
-        }
-      });
-      document.addEventListener("keyup", (event) => {
-        if (event.target.matches("button, input, select, textarea")) return;
-        if (!state.controlsEnabled) return;
-        if (["KeyW", "KeyA", "KeyS", "KeyD"].includes(event.code)) drive("stop");
-      });
-      document.addEventListener("visibilitychange", () => {
-        if (document.hidden) {
-          stopCameraLoop();
-          window.clearTimeout(state.tracking.refreshTimer);
-          return;
-        }
-        refreshCamera();
-        refreshPerception();
-        scheduleTrackingRefresh(0);
-      });
-      window.addEventListener("resize", renderTrackingOverlay);
-      window.addEventListener("beforeunload", () => {
-        stopCameraLoop();
-        window.clearTimeout(state.tracking.refreshTimer);
-        if (state.cameraObjectUrl) URL.revokeObjectURL(state.cameraObjectUrl);
-      });
-
-      loadBrainState().catch((error) => addLog("conversation restore error", error instanceof Error ? error.message : String(error)));
-      setMode(window.localStorage.getItem("robitMode") === "voice" ? "voice" : "text");
-      setControlsEnabled(false);
-      applyTrackingStatus({
-        available: false,
-        enabled: false,
-        state: "off",
-        reason: "Checking tracking service…"
-      });
-      setPill(els.connectionStatus, els.connectionText, "ready", "Ready");
-      loadRealtimeConfig().catch(() => {});
-      refreshCamera();
-      refreshPerception();
-      refreshTrackingStatus();
-      window.setInterval(refreshPerception, 5000);
-    </script>
-  </body>
+      <div class="system-title"><strong>RB-01 // TACTICAL COMPANION CONTROL</strong><small>NODE 192.168.04.01<br>HOST LOCALHOST:8080</small></div>
+    </section>
+    <section class="clockblock">
+      <div class="clock"><label>OPERATION TIME // JST</label><output id="clock">23:21:04</output><small>02 SEP 2026 / WED / CYCLE 245</small></div>
+      <div class="build"><span class="jp-micro">試作機</span>BUILD<br>026.09.02<br><small>REV//05</small></div>
+    </section>
+  </header>
+
+  <nav class="modebar">
+    <div class="mode-index">MODE&gt;</div>
+    <button class="mode active" data-key="F1">OVERVIEW</button><button class="mode" data-key="F2">OPTICAL</button><button class="mode" data-key="F3">MANUAL</button><button class="mode" data-key="F4">VOICE</button><button class="mode" data-key="F5">MEMORY</button><button class="mode" data-key="F6">DIAGNOSTIC</button>
+    <div class="mode-spacer"><span class="ink-key"><i class="k1"></i><i class="k2"></i><i class="k3"></i><i class="k4"></i></span></div>
+    <div class="operator-link"><div class="signal"><i></i><i></i><i></i><i></i></div><span>ROBIT.LOCAL<br>08 MS / SECURE</span></div>
+  </nav>
+  <div class="concept-stamp jp-system-plate"><span class="jp-major">内部</span><b>INTERNAL</b><small>LINK CHECK // OFFLINE</small></div>
+  <div class="registration"><i></i><i></i><i></i></div>
+  <div class="patch-cables"><i class="c1"></i><i class="c2"></i><i class="c3"></i></div>
+
+  <main class="console-grid mode-panel active" data-panel="overview">
+    <aside class="rail">
+      <div class="section-tag"><span>00 / UNIT PROFILE <i class="jp-micro">機体</i></span><b>RB-01A</b></div>
+      <div class="rail-id"><div class="serial">RB<br>01</div><dl><dt>CLASS</dt><dd>COMPANION</dd><dt>STATE</dt><dd>NOMINAL</dd><dt>UPTIME</dt><dd>14:08:22</dd><dt>OWNER</dt><dd>LOCAL/01</dd></dl></div>
+      <div class="section-tag"><span>01 / SYSTEM BUS</span><b>06 CH</b></div>
+      <div class="sys-list">
+        <div class="sys-row"><span class="n">01</span><b>COGNITIVE CORE</b><em id="overviewCore">PROBING</em></div>
+        <div class="sys-row"><span class="n">02</span><b>OPTICAL ARRAY</b><em id="overviewCamera">PROBING</em></div>
+        <div class="sys-row"><span class="n">03</span><b>VOICE CHANNEL</b><em id="overviewVoice">STANDBY</em></div>
+        <div class="sys-row"><span class="n">04</span><b>MOTION BUS</b><em id="overviewMotion">UNKNOWN</em></div>
+        <div class="sys-row"><span class="n">05</span><b>MEMORY INDEX</b><em id="overviewMemory">PROBING</em></div>
+        <div class="sys-row"><span class="n">06</span><b>WEB UPLINK</b><em class="hold" id="overviewLink">LOCAL</em></div>
+      </div>
+      <div class="section-tag acid"><span>02 / LOCAL AI <i class="jp-micro">局所推論</i></span><b>E4B</b></div>
+      <div class="local-core"><div class="core-num">73<span style="font-size:13px">%</span></div><small>INFERENCE RESERVE<br>GPU SLOT 01 / FOREGROUND</small><div class="bar"><i style="width:73%"></i></div></div>
+      <div class="privacy"><b>NETWORK DEPENDENCY: NONE</b>VOICE, VISION, MEMORY + CORE PERSONALITY REMAIN ON THIS MACHINE.</div>
+      <div class="side-actions"><button class="machine-btn active" data-action="refresh">INITIALIZE</button><button class="machine-btn" data-action="diagnostic">SYS STATUS</button><button class="machine-btn" data-action="memory">OPEN LOG</button><button class="machine-btn" data-action="degauss">DEGAUSS</button></div>
+      <div class="repair-note"><b>FIELD PATCH / REV-C</b>PAN ZERO HAND-CAL // BUS 04 REROUTED<br>INSPECTED 026.08.19 / OP-01</div>
+    </aside>
+
+    <section class="vision">
+      <div class="module-head"><strong><i class="jp-micro">映像待機</i>OPTICAL ACQUISITION // CAM-01</strong><span><i>● FEED SOCKET</i><b>FRAME ------</b></span></div>
+      <div class="viewport">
+        <div class="vision-coord">AZ +000.0°<br>EL +000.0°<br>FOV 072.0°<br>GAIN AUTO</div>
+        <div class="vision-flags"><b>BOUND BOX / ARMED</b><br>CLASS FILTER: PERSON<br>CONF FLOOR 0.720<br>TRACK AGE --.- S<br>VECTOR ΔX +0.000</div>
+        <svg class="camera-svg" viewBox="0 0 940 510" preserveAspectRatio="none" aria-label="Empty video bay with future tracking and telemetry overlays">
+          <defs><filter id="static"><feTurbulence type="fractalNoise" baseFrequency=".54 .82" numOctaves="2" seed="13"/><feColorMatrix values="0 0 0 0 0.08 0 0 0 0 0.62 0 0 0 0 0.31 0 0 0 .16 0"/></filter><pattern id="hex" width="36" height="31" patternUnits="userSpaceOnUse"><path d="M9 1H27L35 15.5 27 30H9L1 15.5Z" fill="none" stroke="#55e69a" stroke-width="1"/></pattern></defs>
+          <rect width="940" height="510" fill="#010303"/>
+          <rect width="940" height="510" filter="url(#static)" opacity=".16"/>
+          <rect class="hexfield" x="0" y="280" width="940" height="155"/>
+          <g class="dimline"><path d="M0 64H940 M0 128H940 M0 192H940 M0 256H940 M0 320H940 M0 384H940 M0 448H940"/><path d="M94 0V510 M188 0V510 M282 0V510 M376 0V510 M470 0V510 M564 0V510 M658 0V510 M752 0V510 M846 0V510"/></g>
+          <g class="dropout"><rect x="0" y="91" width="940" height="4"/><rect x="162" y="224" width="511" height="2"/><rect x="39" y="404" width="738" height="3"/><rect x="714" y="157" width="226" height="7"/><rect x="0" y="333" width="117" height="5"/></g>
+          <g class="hotline" opacity=".8"><path d="M14 18h48m-48 0v35 M926 18h-48m48 0v35 M14 492h48m-48 0v-35 M926 492h-48m48 0v-35"/><path d="M449 255h42M470 234v42"/></g>
+          <g class="reticle-rings"><circle cx="470" cy="255" r="74"/><circle cx="470" cy="255" r="116"/><circle cx="470" cy="255" r="162"/></g>
+          <g class="hotline target"><rect x="384" y="112" width="214" height="287"/><path d="M384 135v-23h23 M575 112h23v23 M384 376v23h23 M575 399h23v-23"/></g>
+          <g class="trace"><path d="M598 112H735L786 91H920"/><path d="M384 399H271L229 425H82"/></g>
+          <text class="blank-label" x="470" y="242" text-anchor="middle">VIDEO CHANNEL / NO INPUT</text><text class="sub-label" x="470" y="265" text-anchor="middle">FEED SOCKET READY :: /CAMERA/CAPTURE</text>
+          <text x="791" y="85">OVERLAY PIPE / STANDBY</text><text x="791" y="96">FRAME MATCH REQUIRED</text><text x="24" y="456">CALIBRATION MESH / LENS MODEL 03</text><text x="24" y="468">LIVE VIDEO INSERT BELOW / RETENTION OFF</text>
+          <g class="noise"><rect x="39" y="104" width="21" height="2"/><rect x="321" y="331" width="8" height="2"/><rect x="680" y="117" width="17" height="1"/><rect x="902" y="245" width="2" height="13"/><rect x="129" y="222" width="13" height="1"/><rect x="610" y="466" width="27" height="1"/></g>
+        </svg>
+      </div>
+      <div class="vision-bottom"><div class="vstat live">VIDEO SOCKET<b id="overviewCameraSocket">PROBING</b></div><div class="vstat">TRACK LAYER<b id="overviewTracking">OFF</b></div><div class="vstat">SCENE AGE<b id="overviewSceneAge">---.-- S</b></div><div class="vstat">FRAME ID<b id="overviewFrame">------</b></div><div class="vstat">DETECTOR<b id="overviewLatency">---- MS</b></div></div>
+    </section>
+
+    <aside class="rightstack">
+      <div class="section-tag acid"><span>03 / LIVE TELEMETRY</span><b>Δ 00.25 S</b></div>
+      <section class="diagnostic">
+        <div class="diag-main"><div class="radar"><i></i><small id="overviewHead">HEAD VEC<br>--- / ---</small></div><div class="diag-copy"><strong id="overviewState">PROBING</strong><span>EVENT LOOP</span><em id="overviewLag">--- MS</em><span>CONTROL LINK</span><b id="overviewControl">UNKNOWN</b><span>TRACK STATE</span><b id="overviewTrackState">OFF</b><span>VOICE LINK</span><b id="overviewVoiceLink">STANDBY</b></div></div>
+        <div class="trace-chart"><svg viewBox="0 0 300 55" preserveAspectRatio="none"><polyline points="0,42 8,41 15,43 23,39 31,42 39,37 47,40 55,39 63,19 70,44 78,41 86,40 94,38 102,41 110,39 118,40 126,36 134,40 142,39 150,41 158,25 166,42 174,40 182,38 190,41 198,39 206,40 214,37 222,41 230,40 238,42 246,38 254,39 262,21 270,43 278,40 286,39 300,41"/></svg></div>
+      </section>
+      <div class="section-tag orange"><span>04 / MOTION CONTROL</span><b>TTL 500MS</b></div>
+      <section class="drive">
+        <div class="dpad"><span class="blank" aria-hidden="true"></span><button data-move="FORWARD" aria-label="Move forward">▲</button><span class="blank" aria-hidden="true"></span><button data-move="LEFT" aria-label="Move left">◀</button><button class="stop" data-move="HOLD" aria-label="Hold position">■</button><button data-move="RIGHT" aria-label="Move right">▶</button><span class="blank" aria-hidden="true"></span><button data-move="REVERSE" aria-label="Move reverse">▼</button><span class="blank" aria-hidden="true"></span><div class="motion-state" id="motion">MOTION // HOLD</div></div>
+        <div class="control-readout"><h3>SPD 180</h3><div class="scale"><label><span>DRIVE OUTPUT</span><b>070.6%</b></label><div class="ticks"><i style="left:70%"></i></div></div><div class="scale"><label><span>HEAD PAN</span><b>090°</b></label><div class="ticks"><i style="left:50%"></i></div></div><div class="scale"><label><span>HEAD TILT</span><b>090°</b></label><div class="ticks"><i style="left:50%"></i></div></div><div class="arming"><span>MANUAL AUTH<br>OPERATOR/01</span><button id="armBtn">ARM CTRL</button></div></div>
+      </section>
+      <div class="section-tag cobalt"><span>05 / COGNITIVE CHANNELS <i class="jp-micro">認知</i></span><b>PRI 02</b></div>
+      <section class="comms-mini"><div class="comm-row"><span>01</span><b>TEXT / LANGUAGE</b><em>READY</em></div><div class="comm-row"><span>02</span><b>REALTIME VOICE</b><em id="voiceState">STANDBY</em></div><div class="comm-row"><span>03</span><b>SCENE AWARENESS</b><em>WAIT FEED</em></div><div class="comm-row"><span>04</span><b>BOUND-BOX LAYER</b><em>ARMED</em></div><div class="comm-row"><span>05</span><b>AFFECT / EYES</b><em>CALM</em></div></section>
+      <div class="emergency-wrap"><button class="emergency" id="estop">EMERGENCY STOP / 非常停止</button></div>
+    </aside>
+
+    <section class="comms">
+      <div class="conversation">
+        <div class="section-tag orange"><span>06 / OPERATOR DIALOGUE</span><b>CONTEXT 7.4K</b></div>
+        <div class="transcript" id="transcript"><div class="msg robit"><label>23:20:48 / RB</label><span>Operator link established. Local systems are nominal.</span></div><div class="msg operator"><label>23:20:54 / OP</label><span>Hold position and prepare the optical channel.</span></div><div class="msg robit"><label>23:20:56 / RB</label><span>Holding. Bounding-box layer armed; video socket is waiting for input.</span></div></div>
+        <form class="composer" id="chat"><label class="channel" for="command">CH 01<br>TEXT</label><input id="command" autocomplete="off" placeholder="ENTER DIRECTIVE / ASK ROBIT..."><button class="send">EXECUTE ›</button></form>
+      </div>
+      <div class="events"><div class="section-tag cyan"><span>07 / EVENT JOURNAL <i class="jp-micro">運用記録</i></span><b>WAL ACTIVE</b></div><div class="event-list" id="events"><p><time>23:20:41</time><b>CTRL</b> heartbeat acknowledged / seq 01831</p><p><time>23:20:42</time><b class="optic">VISN</b> overlay geometry verified</p><p><time>23:20:44</time><b class="mind">MEM</b> retrieval skipped / no request</p><p><time>23:20:46</time><b class="optic">VOICE</b> foreground slot released</p><p><time>23:20:48</time><b class="link">LINK</b> operator channel established</p><p><time>23:20:51</time><b class="optic">TRACK</b> awaiting frame-id match</p><p><time>23:20:56</time><b class="mind">LLM</b> response committed / 34 tok</p><p><time>23:21:02</time><span class="warn">SAFE</span> movement remains inhibited</p></div></div>
+    </section>
+  </main>
+
+  <main class="mode-panel subsystem-screen" data-panel="optical">
+    <section class="subsystem-main"><div class="section-tag cyan"><span>F2 / OPTICAL ACQUISITION <i class="jp-micro">光学</i></span><b id="cameraStatus">PROBING</b></div><div class="optical-layout"><div class="optical-live" id="cameraViewport"><img id="cameraStream" alt="Live Robit camera feed" hidden><div class="camera-empty-live" id="cameraEmpty">VIDEO CHANNEL / ACQUIRING</div><canvas id="trackingOverlay" hidden></canvas><div class="vision-coord" id="cameraCoords">FRAME ------<br>GAIN AUTO<br>ROT 180°</div><div class="vision-flags" id="trackingFlags"><b>BOUND BOX / STANDBY</b><br>TRACKING DISABLED</div><svg class="camera-svg" viewBox="0 0 940 510" preserveAspectRatio="none" aria-label="Live video telemetry overlay"><defs><pattern id="liveHex" width="36" height="31" patternUnits="userSpaceOnUse"><path d="M9 1H27L35 15.5 27 30H9L1 15.5Z" fill="none" stroke="#55e69a" stroke-width="1"/></pattern></defs><rect class="hexfield" x="0" y="330" width="940" height="120" fill="url(#liveHex)"/><g class="dimline"><path d="M0 64H940 M0 128H940 M0 192H940 M0 256H940 M0 320H940 M0 384H940 M0 448H940"/><path d="M94 0V510 M188 0V510 M282 0V510 M376 0V510 M470 0V510 M564 0V510 M658 0V510 M752 0V510 M846 0V510"/></g><g class="hotline"><path d="M14 18h48m-48 0v35 M926 18h-48m48 0v35 M14 492h48m-48 0v-35 M926 492h-48m48 0v-35"/><path d="M449 255h42M470 234v42"/></g></svg></div><div class="telemetry-strip"><div>VIDEO SOCKET<b id="cameraSocket">WAIT</b></div><div>FRAME ID<b id="cameraFrame">------</b></div><div>TRACK STATE<b id="trackingState">OFF</b></div><div>CONFIDENCE<b id="trackingConfidence">---%</b></div><div>DETECTOR<b id="detectorLatency">---- MS</b></div></div></div></section>
+    <aside class="subsystem-side"><div class="section-tag orange"><span>TRACKING CONTROL</span><b>PERSON</b></div><div class="subsystem-body"><div class="control-block"><h2>OPTICAL BUS</h2><div class="machine-line"><span>CAMERA CADENCE</span><b id="cameraCadence">UNKNOWN</b></div><div class="machine-line"><span>TRACK ID</span><b id="trackingId">NONE</b></div><div class="machine-line"><span>TARGET AGE</span><b id="trackingAge">--.- S</b></div><div class="machine-line"><span>HEAD VECTOR</span><b id="trackingHead">--- / ---</b></div><div class="machine-line"><span>SERVICE</span><b id="trackingReason">CHECKING</b></div><div class="machine-actions"><button id="trackingToggle" class="hud-button cyan">INITIALIZE TRACKING</button><button id="cameraRetry" class="hud-button">RETRY CAMERA</button></div></div><div class="control-block"><h3>SCENE AWARENESS</h3><div class="machine-line"><span>SUMMARY</span><b id="sceneSummary">WAITING FOR SNAPSHOT</b></div><div class="machine-line"><span>ENTITIES</span><b id="sceneEntities">NONE</b></div><div class="machine-line"><span>OBSERVED</span><b id="sceneMeta">NO DATA</b></div></div></div></aside>
+  </main>
+
+  <main class="mode-panel subsystem-screen" data-panel="manual">
+    <section class="subsystem-main"><div class="section-tag orange"><span>F3 / MANUAL ACTUATION <i class="jp-micro">手動</i></span><b>TTL 500MS</b></div><div class="subsystem-body manual-layout"><div class="manual-pad"><div class="dpad"><span class="blank"></span><button data-control-move="forward" aria-label="Move forward">▲</button><span class="blank"></span><button data-control-move="left" aria-label="Move left">◀</button><button class="stop" data-control-move="stop" aria-label="Stop">■</button><button data-control-move="right" aria-label="Move right">▶</button><span class="blank"></span><button data-control-move="reverse" aria-label="Move reverse">▼</button><span class="blank"></span><div class="motion-state" id="manualMotion">CTRL INHIBITED // ARM FIRST</div></div></div><div><div class="control-block"><h2>DRIVE CONTROL</h2><div class="range-row"><label for="speed"><span>DRIVE OUTPUT</span><output id="speedValue">180 / 255</output></label><input id="speed" type="range" min="0" max="255" value="180"></div><div class="machine-line"><span>ACTIVE VECTOR</span><b id="activeMove">STOP</b></div><div class="machine-actions"><button id="manualArm" class="hud-button">ARM CTRL</button></div></div><div class="control-block"><h2>HEAD VECTOR</h2><div class="range-row"><label for="pan"><span>PAN</span><output id="panValue">90°</output></label><input id="pan" type="range" min="55" max="135" value="90"></div><div class="range-row"><label for="tilt"><span>TILT</span><output id="tiltValue">90°</output></label><input id="tilt" type="range" min="35" max="115" value="90"></div><div class="machine-actions"><button id="centerHead" class="hud-button cyan">CENTER HEAD</button></div></div></div></div></section>
+    <aside class="subsystem-side"><div class="section-tag"><span>CONTROL TELEMETRY</span><b id="controlChannel">DISCONNECTED</b></div><div class="subsystem-body"><div class="control-block"><div class="machine-line"><span>MODE</span><b id="robotMode">UNKNOWN</b></div><div class="machine-line"><span>MOVEMENT</span><b id="robotMove">STOP</b></div><div class="machine-line"><span>SPEED</span><b id="robotSpeed">---</b></div><div class="machine-line"><span>PAN / TILT</span><b id="robotHead">--- / ---</b></div></div><button class="emergency" id="estopManual">EMERGENCY STOP / 非常停止</button></div></aside>
+  </main>
+
+  <main class="mode-panel subsystem-screen" data-panel="voice">
+    <section class="subsystem-main"><div class="section-tag magenta"><span>F4 / REALTIME VOICE <i class="jp-micro">音声</i></span><b id="voiceStatus">DISCONNECTED</b></div><div class="subsystem-body voice-layout"><div><div class="voice-transcript transcript" id="voiceTranscript"><div class="mode-empty">VOICE CHANNEL READY // CONNECT TO BEGIN</div></div><form class="voice-compose" id="voiceChat"><input id="voiceCommand" autocomplete="off" placeholder="TRANSMIT TEXT OVER REALTIME CHANNEL..."><button>TRANSMIT ›</button></form></div><div><div class="control-block"><h2>VOICE LINK</h2><div class="machine-line"><span>GATEWAY</span><b id="voiceUrl">UNRESOLVED</b></div><div class="machine-line"><span>VOICE</span><b id="voiceName">DEFAULT</b></div><div class="machine-line"><span>PLAYBACK</span><b id="playbackStatus">IDLE</b></div><div class="machine-actions"><button id="voiceConnect" class="hud-button cyan">CONNECT VOICE</button></div></div><div class="control-block"><h3>PRIVACY INTERLOCK</h3><p style="color:var(--dim);font-size:8px;line-height:1.6">MICROPHONE ACCESS REQUIRES EXPLICIT OPERATOR INPUT. AUDIO IS ROUTED THROUGH THE LOCAL BRAIN GATEWAY.</p></div></div></div></section>
+    <aside class="subsystem-side"><div class="section-tag cyan"><span>VOICE EVENT STREAM</span><b>CH 02</b></div><div class="event-list" id="voiceEvents"></div></aside>
+  </main>
+
+  <main class="mode-panel subsystem-screen" data-panel="memory">
+    <section class="subsystem-main"><div class="section-tag acid"><span>F5 / MEMORY CORE <i class="jp-micro">記憶</i></span><b id="memoryStatus">LOADING</b></div><div class="subsystem-body"><div class="memory-list transcript" id="memoryConversation"><div class="mode-empty">READING LOCAL CONVERSATION INDEX...</div></div></div></section>
+    <aside class="subsystem-side"><div class="section-tag orange"><span>ACTION JOURNAL</span><b>READ ONLY</b></div><div class="event-list" id="memoryEvents"></div></aside>
+  </main>
+
+  <main class="mode-panel subsystem-screen" data-panel="diagnostic">
+    <section class="subsystem-main"><div class="section-tag"><span>F6 / SYSTEM DIAGNOSTIC <i class="jp-micro">診断</i></span><b id="diagnosticStatus">PROBING</b></div><div class="subsystem-body"><div class="diag-grid"><div class="control-block"><h2>CORE HEALTH</h2><div id="healthReadout"></div></div><div class="control-block"><h2>ROBOT LINK</h2><div id="robotReadout"></div></div><div class="control-block"><h2>VISION / TRACK</h2><div id="visionReadout"></div></div><div class="control-block"><h2>VOICE HEALTH</h2><div id="voiceReadout"></div></div></div></div></section>
+    <aside class="subsystem-side"><div class="section-tag orange"><span>RAW STATUS</span><b>LOCAL</b></div><div class="subsystem-body"><div class="machine-actions"><button id="diagnosticRefresh" class="hud-button cyan">REFRESH STATUS</button><button id="diagnosticReconnect" class="hud-button">RECONNECT LINKS</button></div><pre class="json-readout" id="diagnosticRaw">NO DATA</pre></div></aside>
+  </main>
+
+  <footer class="footer">
+    <div><strong>RB-01 / HOUSE GREMLIN</strong><br>PRIVATE LOCAL COMPANION UNIT</div>
+    <div class="footer-center"><span>FIRMWARE<b>PROTO V1 / LINKED</b></span><span>CAMERA<b>SHARED FRAME BROKER</b></span><span>MEMORY<b>LOCAL / PROVENANCE ON</b></span><span>NETWORK<b>OPTIONAL / ISOLATED</b></span></div>
+    <div class="warning-copy">CAUTION // ACTUATION COMMANDS REQUIRE EXPLICIT MANUAL AUTHORIZATION <span class="cursor"></span></div>
+  </footer>
+</div>
+<script>
+const screen=document.getElementById("screen");
+const clock=document.getElementById("clock");
+const $=id=>document.getElementById(id);
+const state={
+  mode:"overview",health:null,robot:null,perception:null,controlsArmed:false,
+  activeMove:null,activeSpeed:null,driveInFlight:false,pendingDrive:null,headInFlight:false,pendingHead:{},headTimer:null,
+  camera:null,cameraTimer:null,cameraAbort:null,cameraGeneration:0,cameraObjectUrl:null,cameraFrameId:null,cameraInterval:5000,
+  tracking:{status:null,statusInFlight:false,actionInFlight:false,timer:null,enabledRequested:false,lastError:null},
+  realtime:{url:"",voice:"serena",instructions:"",ws:null,audioContext:null,micStream:null,micSource:null,captureNode:null,captureSink:null,playbackSources:[],nextPlaybackTime:0,connected:false,connecting:false,manualClose:true,reconnectTimer:null,userNode:null,assistantNode:null,userText:"",assistantText:""}
+};
+function time(){clock.textContent=new Intl.DateTimeFormat("en-GB",{hour:"2-digit",minute:"2-digit",second:"2-digit",hour12:false,timeZone:"Asia/Tokyo"}).format(new Date())}
+time();setInterval(time,1000);
+function text(id,value,kind=""){const el=$(id);if(!el)return;el.textContent=value;el.classList.toggle("status-bad",kind==="bad");el.classList.toggle("status-good",kind==="good");el.classList.toggle("status-warn",kind==="warn")}
+function escapeHtml(value){return String(value??"").replace(/[&<>'"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]))}
+function detail(error){return error instanceof Error?error.message:String(error)}
+async function getJson(path){const response=await fetch(path,{cache:"no-store"});if(!response.ok)throw new Error(await response.text());return response.json()}
+async function postJson(path,body={}){const response=await fetch(path,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});if(!response.ok)throw new Error(await response.text());return response.json()}
+function log(channel,message,target="events"){
+  const box=$(target);if(!box)return;const body=typeof message==="string"?message:JSON.stringify(message);
+  box.insertAdjacentHTML("beforeend",`<p><time>${clock.textContent}</time><b>${escapeHtml(channel)}</b> ${escapeHtml(body)}</p>`);
+  while(box.children.length>12)box.firstElementChild.remove();box.scrollTop=box.scrollHeight;
+}
+function setMode(mode){
+  if(!document.querySelector(`[data-panel="${mode}"]`))return;
+  if(state.mode==="voice"&&mode!=="voice")disconnectRealtime();
+  state.mode=mode;document.querySelectorAll(".mode-panel").forEach(p=>p.classList.toggle("active",p.dataset.panel===mode));
+  document.querySelectorAll(".mode").forEach(b=>b.classList.toggle("active",b.textContent.trim().toLowerCase()===mode));
+  if(mode==="memory")loadBrainState();if(mode==="diagnostic")refreshDiagnostics();if(mode==="optical")renderTrackingOverlay();
+}
+document.querySelectorAll(".mode").forEach(button=>button.addEventListener("click",()=>setMode(button.textContent.trim().toLowerCase())));
+document.addEventListener("keydown",event=>{if(/^F[1-6]$/.test(event.key)){event.preventDefault();setMode(["overview","optical","manual","voice","memory","diagnostic"][Number(event.key.slice(1))-1])}});
+
+function machineRows(entries){return entries.map(([label,value,kind])=>`<div class="machine-line"><span>${escapeHtml(label)}</span><b class="${kind?`status-${kind}`:""}">${escapeHtml(value)}</b></div>`).join("")}
+function applyHealth(payload){
+  state.health=payload;screen.dataset.live=String(payload?.ok===true);const rt=payload?.realtime||{};state.realtime.url=rt.ws_url||state.realtime.url;state.realtime.voice=rt.voice||state.realtime.voice;state.realtime.instructions=rt.instructions||"";
+  text("voiceUrl",state.realtime.url||"UNAVAILABLE");text("voiceName",state.realtime.voice.toUpperCase());
+  text("overviewCore",payload?.llm_model?"ACTIVE":"UNKNOWN",payload?.llm_model?"good":"warn");text("overviewState",payload?.ok?"NOMINAL":"DEGRADED",payload?.ok?"good":"bad");text("overviewLag",`${payload?.event_loop?.lag_ms??"---"} MS`);text("overviewLink",payload?.ok?"LOCAL":"OFFLINE",payload?.ok?"good":"bad");
+  const cells=document.querySelectorAll(".status-cell");if(cells[0])cells[0].lastChild.textContent=`LOCAL INFERENCE: ${payload?.llm_model?"ACTIVE":"UNKNOWN"}`;if(cells[2])cells[2].lastChild.textContent="OPERATOR LINK: ESTABLISHED";
+}
+function applyRobotStatus(payload){
+  state.robot=payload;text("controlChannel",String(payload?.control_channel||"unknown").toUpperCase(),payload?.control_channel==="ready"?"good":"warn");
+  text("robotMode",String(payload?.mode||"unknown").toUpperCase());text("robotMove",String(payload?.movement||payload?.move||"stop").toUpperCase());text("robotSpeed",String(payload?.speed??"---"));text("robotHead",`${payload?.pan??"---"} / ${payload?.tilt??"---"}`);
+  text("overviewMotion",String(payload?.movement||payload?.move||"stop").toUpperCase());text("overviewControl",String(payload?.control_channel||"unknown").toUpperCase(),payload?.control_channel==="ready"?"good":"warn");text("overviewHead",`HEAD VEC\n${payload?.pan??"---"} / ${payload?.tilt??"---"}`);
+}
+async function refreshHealth(){try{const value=await getJson("/health");applyHealth(value);return value}catch(error){screen.dataset.live="false";log("LINK",detail(error));throw error}}
+async function refreshRobot(){try{const value=await getJson("/robot/status");applyRobotStatus(value);return value}catch(error){text("controlChannel","DISCONNECTED","bad");log("CTRL",detail(error));return null}}
+
+function cameraFrameIntervalMs(){const reported=Number(state.camera?.frame_interval_seconds);return Number.isFinite(reported)&&reported>0?Math.max(1000,reported*1000):Math.max(1000,state.cameraInterval)}
+function stopCameraLoop(){clearTimeout(state.cameraTimer);state.cameraTimer=null;state.cameraGeneration++;state.cameraAbort?.abort();state.cameraAbort=null}
+function scheduleCamera(delay=cameraFrameIntervalMs(),generation=state.cameraGeneration){clearTimeout(state.cameraTimer);if(document.hidden||!state.camera)return;state.cameraTimer=setTimeout(()=>fetchCameraFrame(generation),Math.max(0,delay))}
+async function refreshCamera(){
+  stopCameraLoop();try{state.camera=await getJson("/robot/camera");text("cameraStatus","READY","good");text("cameraCadence",`${(cameraFrameIntervalMs()/1000).toFixed(1)} S`);scheduleCamera(0,state.cameraGeneration)}catch(error){state.camera=null;showCameraError(detail(error));log("CAM",detail(error))}
+}
+function showCameraError(message){$("cameraStream").hidden=true;$("cameraEmpty").hidden=false;$("cameraEmpty").textContent=`VIDEO CHANNEL / ${message}`;text("cameraStatus","UNAVAILABLE","bad");text("cameraSocket","FAULT","bad");text("overviewCamera","FAULT","bad");text("overviewCameraSocket","FAULT","bad");clearTrackingOverlay()}
+function loadCameraBlob(url){return new Promise((resolve,reject)=>{const img=$("cameraStream");const timer=setTimeout(()=>finish(new Error("CAMERA DECODE TIMEOUT")),5000);function finish(error){clearTimeout(timer);img.removeEventListener("load",loaded);img.removeEventListener("error",failed);error?reject(error):resolve()}function loaded(){finish()}function failed(){finish(new Error("CAMERA IMAGE DECODE FAILED"))}img.addEventListener("load",loaded);img.addEventListener("error",failed);img.src=url})}
+async function fetchCameraFrame(generation){
+  if(generation!==state.cameraGeneration||document.hidden||!state.camera)return;const controller=new AbortController();state.cameraAbort=controller;const started=performance.now();let failed=false,pendingUrl=null;
+  try{
+    const response=await fetch(`/robot/camera/capture?t=${Date.now()}`,{cache:"no-store",signal:controller.signal});if(!response.ok)throw new Error(await response.text());
+    const frameId=response.headers.get("X-Robit-Frame-Id");const interval=Number(response.headers.get("X-Robit-Frame-Interval"));if(Number.isFinite(interval)&&interval>0)state.cameraInterval=Math.max(1000,interval*1000);
+    const blob=await response.blob();pendingUrl=URL.createObjectURL(blob);await loadCameraBlob(pendingUrl);const previous=state.cameraObjectUrl;state.cameraObjectUrl=pendingUrl;pendingUrl=null;state.cameraFrameId=frameId;$("cameraStream").hidden=false;$("cameraEmpty").hidden=true;if(previous)URL.revokeObjectURL(previous);
+    text("cameraSocket","LIVE","good");text("overviewCamera","LIVE","good");text("overviewCameraSocket","LIVE","good");text("cameraFrame",frameId||"UNKNOWN");text("overviewFrame",frameId||"UNKNOWN");text("cameraCadence",`${(cameraFrameIntervalMs()/1000).toFixed(1)} S`);text("cameraCoords",`FRAME ${frameId||"------"}\nGAIN AUTO\nROT 180°`);renderTrackingOverlay();
+  }catch(error){if(pendingUrl)URL.revokeObjectURL(pendingUrl);if(error.name!=="AbortError"){failed=true;showCameraError(detail(error));log("CAM",detail(error))}}finally{if(state.cameraAbort===controller)state.cameraAbort=null;if(generation===state.cameraGeneration)scheduleCamera(failed?1000:cameraFrameIntervalMs(),generation);text("detectorLatency",`${Math.round(performance.now()-started)} MS`)}
+}
+
+function trackingReason(status){if(!status?.available)return status?.reason||"SERVICE UNAVAILABLE";if(status.state==="tracking")return "TARGET LOCKED";if(status.state==="searching")return "SEARCHING";return status.stop_reason||status.reason||String(status.state||"OFF").toUpperCase()}
+function applyTrackingStatus(status){
+  state.tracking.status=status;state.tracking.enabledRequested=status?.enabled===true;text("trackingState",String(status?.state||"off").toUpperCase(),status?.available?"good":"bad");text("trackingReason",trackingReason(status),status?.available?"":"bad");
+  text("trackingConfidence",Number.isFinite(Number(status?.target_confidence))?`${Math.round(Number(status.target_confidence)*100)}%`:"---%");text("detectorLatency",Number.isFinite(Number(status?.detector_latency_ms))?`${Number(status.detector_latency_ms).toFixed(1)} MS`:"---- MS");
+  text("trackingId",status?.target?.track_id??"NONE");text("trackingAge",Number.isFinite(Number(status?.target_age_seconds))?`${Number(status.target_age_seconds).toFixed(1)} S`:"--.- S");text("trackingHead",`${status?.head?.pan??"---"} / ${status?.head?.tilt??"---"}`);
+  text("overviewTracking",status?.enabled?"ARMED":"OFF",status?.enabled?"good":"");text("overviewTrackState",String(status?.state||"off").toUpperCase());text("overviewLatency",Number.isFinite(Number(status?.detector_latency_ms))?`${Number(status.detector_latency_ms).toFixed(1)} MS`:"---- MS");
+  const toggle=$("trackingToggle");toggle.textContent=status?.enabled?"TERMINATE TRACKING":"INITIALIZE TRACKING";toggle.classList.toggle("active",status?.enabled===true);toggle.disabled=state.tracking.actionInFlight||status?.available===false;
+  text("trackingFlags",`${status?.enabled?"BOUND BOX / ARMED":"BOUND BOX / STANDBY"}\n${trackingReason(status)}`);renderTrackingOverlay();
+}
+function clearTrackingOverlay(){const canvas=$("trackingOverlay");const context=canvas.getContext("2d");context.clearRect(0,0,canvas.width,canvas.height);canvas.hidden=true}
+function renderTrackingOverlay(){
+  const target=state.tracking.status?.target;const targetFrameId=target?.frame_id==null?null:String(target.frame_id);
+  if(!target||!state.cameraFrameId||targetFrameId !== state.cameraFrameId||!Array.isArray(target.bounding_box)||target.bounding_box.length!==4||!$("cameraStream").naturalWidth){clearTrackingOverlay();return}
+  const box=target.bounding_box.map(Number);if(!box.every(Number.isFinite)||box.some(value=>value<0||value>1)){clearTrackingOverlay();return}
+  const [x1,y1,x2,y2]=box;const canvas=$("trackingOverlay"),parent=canvas.parentElement,width=parent.clientWidth,height=parent.clientHeight,img=$("cameraStream"),ratio=Math.min(width/img.naturalWidth,height/img.naturalHeight),drawW=img.naturalWidth*ratio,drawH=img.naturalHeight*ratio,ox=(width-drawW)/2,oy=(height-drawH)/2,dpr=Math.min(2,devicePixelRatio||1);
+  canvas.width=Math.round(width*dpr);canvas.height=Math.round(height*dpr);const ctx=canvas.getContext("2d");ctx.setTransform(dpr,0,0,dpr,0,0);ctx.clearRect(0,0,width,height);ctx.strokeStyle="#ff8c28";ctx.fillStyle="#ff8c28";ctx.lineWidth=2;ctx.setLineDash([8,4]);const left=ox+Math.min(x1,x2)*drawW,top=oy+Math.min(y1,y2)*drawH,w=Math.abs(x2-x1)*drawW,h=Math.abs(y2-y1)*drawH;ctx.strokeRect(left,top,w,h);ctx.font="11px monospace";ctx.fillText(`ID ${target.track_id??"?"} / ${Math.round(Number(target.confidence||0)*100)}%`,left,Math.max(12,top-5));canvas.hidden=false;
+}
+function scheduleTracking(delay=state.tracking.status?.enabled?500:2000){clearTimeout(state.tracking.timer);if(!document.hidden)state.tracking.timer=setTimeout(refreshTrackingStatus,delay)}
+async function refreshTrackingStatus(){if(state.tracking.statusInFlight)return;state.tracking.statusInFlight=true;try{applyTrackingStatus(await getJson("/tracking/status"));state.tracking.lastError=null}catch(error){const msg=detail(error);applyTrackingStatus({available:false,enabled:false,state:"off",reason:msg});if(msg!==state.tracking.lastError)log("TRACK",msg);state.tracking.lastError=msg}finally{state.tracking.statusInFlight=false;scheduleTracking()}}
+async function toggleTracking(){if(state.tracking.actionInFlight)return;state.tracking.actionInFlight=true;try{const result=state.tracking.status?.enabled?await postJson("/tracking/stop",{}):await postJson("/tracking/start",{});applyTrackingStatus(result);log("TRACK",result.enabled?"tracking initialized":"tracking terminated")}catch(error){log("TRACK",detail(error));text("trackingReason",detail(error),"bad")}finally{state.tracking.actionInFlight=false;applyTrackingStatus(state.tracking.status)}}
+async function refreshPerception(){try{const payload=await getJson("/perception/latest");state.perception=payload;const snapshot=payload?.snapshot;text("sceneSummary",snapshot?.summary||payload?.reason||payload?.warning||"NO SCENE SNAPSHOT");text("sceneEntities",(snapshot?.entities||[]).map(e=>`${e.label} ${Math.round(Number(e.confidence||0)*100)}%`).join(", ")||"NONE");text("sceneMeta",snapshot?.observed_at||"NO DATA");const observed=new Date(snapshot?.observed_at);text("overviewSceneAge",Number.isNaN(observed.getTime())?"---.-- S":`${Math.max(0,Math.round((Date.now()-observed.getTime())/1000))} S`)}catch(error){text("sceneSummary",detail(error),"bad")}}
+
+function addMessage(role,body,container="transcript"){
+  const box=$(container);if(!box)return null;box.querySelector(".mode-empty")?.remove();const row=document.createElement("div");row.className=`msg ${role==="user"?"operator":"robit"}`;row.innerHTML=`<label>${clock.textContent} / ${role==="user"?"OP":"RB"}</label><span>${escapeHtml(body)}</span>`;box.appendChild(row);box.scrollTop=box.scrollHeight;return row.querySelector("span")
+}
+async function sendText(value,voice=false){if(!value)return;addMessage("user",value,voice?"voiceTranscript":"transcript");try{if(voice){await sendRealtimeText(value);return}const result=await postJson("/chat/action",{text:value,conversation_id:"default"});addMessage("assistant",result.response||result.parse_error||"DONE","transcript");if(result.action_result)log("ACTION",result.action_result);if(result.vision){state.perception=result.vision;refreshPerception()}}catch(error){addMessage("assistant",detail(error),voice?"voiceTranscript":"transcript");log("TEXT",detail(error))}}
+async function loadBrainState(){text("memoryStatus","LOADING");try{const snapshot=await getJson("/brain/state"),memory=$("memoryConversation"),overview=$("transcript"),events=$("memoryEvents");memory.replaceChildren();overview.replaceChildren();events.replaceChildren();for(const turn of snapshot.conversation||[]){const role=turn.role==="user"?"user":"assistant";addMessage(role,turn.text,"memoryConversation");addMessage(role,turn.text,"transcript")}for(const event of snapshot.events||[]){if(["action.completed","action.failed","action.rejected"].includes(event.event_type)){log(event.event_type,event.payload,"memoryEvents");log(event.event_type,event.payload)}}text("memoryStatus","ONLINE","good");text("overviewMemory","ONLINE","good")}catch(error){$("memoryConversation").innerHTML=`<div class="mode-empty status-bad">${escapeHtml(detail(error))}</div>`;text("memoryStatus","UNAVAILABLE","bad");text("overviewMemory","FAULT","bad")}}
+
+function sameDrive(a,b){return a&&b&&a.move===b.move&&a.speed===b.speed}
+async function flushDriveQueue(){if(state.driveInFlight)return;state.driveInFlight=true;try{while(state.pendingDrive){const command=state.pendingDrive;state.pendingDrive=null;if(sameDrive(command,{move:state.activeMove,speed:state.activeSpeed}))continue;try{const result=await postJson("/robot/drive",command);state.activeMove=command.move;state.activeSpeed=command.speed;applyRobotStatus(result);text("activeMove",command.move.toUpperCase());text("manualMotion",`MOTION // ${command.move.toUpperCase()}`);log("MOVE",`${command.move} / ${command.speed}`)}catch(error){text("manualMotion",detail(error),"bad");log("MOVE",detail(error))}}}finally{state.driveInFlight=false;if(state.pendingDrive)flushDriveQueue()}}
+function drive(move){if(!state.controlsArmed&&move!=="stop"){text("manualMotion","CTRL INHIBITED // ARM FIRST","warn");return}const command={move,speed:Number($("speed").value)};if(sameDrive(command,state.pendingDrive))return;state.pendingDrive=command;flushDriveQueue()}
+function disarmControls({stop=false}={}){state.controlsArmed=false;$("manualArm").classList.remove("active");$("manualArm").textContent="ARM CTRL";text("manualMotion","CTRL INHIBITED // ARM FIRST");if(stop)drive("stop")}
+async function flushHeadQueue(){if(state.headInFlight)return;state.headInFlight=true;try{while(Object.keys(state.pendingHead).length){const command=state.pendingHead;state.pendingHead={};try{const result=await postJson("/robot/head",command);applyRobotStatus(result);log("HEAD",command)}catch(error){log("HEAD",detail(error))}}}finally{state.headInFlight=false;if(Object.keys(state.pendingHead).length)flushHeadQueue()}}
+function queueHead(update){if(!state.controlsArmed){text("manualMotion","CTRL INHIBITED // ARM FIRST","warn");return}state.pendingHead={...state.pendingHead,...update};clearTimeout(state.headTimer);state.headTimer=setTimeout(flushHeadQueue,80)}
+async function emergencyStop(){disarmControls({stop:false});try{const result=await postJson("/robot/stop",{});state.activeMove="stop";applyRobotStatus(result);text("manualMotion","EMERGENCY STOP // COMPLETE","warn");log("SAFE","emergency stop completed")}catch(error){text("manualMotion",detail(error),"bad");log("SAFE",detail(error))}}
+
+function bytesToBase64(bytes){let binary="";for(let i=0;i<bytes.length;i+=0x8000)binary+=String.fromCharCode(...bytes.subarray(i,i+0x8000));return btoa(binary)}
+function base64ToBytes(base64){const binary=atob(base64),bytes=new Uint8Array(binary.length);for(let i=0;i<binary.length;i++)bytes[i]=binary.charCodeAt(i);return bytes}
+function clearRealtimePlayback(){for(const source of state.realtime.playbackSources.splice(0)){try{source.stop()}catch{}}if(state.realtime.audioContext)state.realtime.nextPlaybackTime=state.realtime.audioContext.currentTime}
+function playRealtimeAudioDelta(base64){const ctx=state.realtime.audioContext;if(!ctx||!base64)return;const bytes=base64ToBytes(base64),view=new DataView(bytes.buffer),samples=new Float32Array(bytes.byteLength/2);for(let i=0;i<samples.length;i++){const n=view.getInt16(i*2,true);samples[i]=n<0?n/0x8000:n/0x7fff}const buffer=ctx.createBuffer(1,samples.length,16000);buffer.copyToChannel(samples,0);const source=ctx.createBufferSource();source.buffer=buffer;source.connect(ctx.destination);const at=Math.max(ctx.currentTime+.02,state.realtime.nextPlaybackTime||ctx.currentTime);source.start(at);state.realtime.nextPlaybackTime=at+buffer.duration;state.realtime.playbackSources.push(source);source.addEventListener("ended",()=>state.realtime.playbackSources=state.realtime.playbackSources.filter(x=>x!==source));text("playbackStatus","SPEAKING","good")}
+function sendRealtime(payload){const ws=state.realtime.ws;if(!ws||ws.readyState!==WebSocket.OPEN)return false;ws.send(JSON.stringify(payload));return true}
+function realtimeTranscript(role,value,partial=true){const key=role==="user"?"userNode":"assistantNode";if(!state.realtime[key])state.realtime[key]=addMessage(role,value,"voiceTranscript");else state.realtime[key].textContent=value;if(!partial)state.realtime[key]=null}
+async function setupRealtimeAudio(){
+  const AudioContextClass=window.AudioContext||window.webkitAudioContext;if(!AudioContextClass)throw new Error("WEB AUDIO UNAVAILABLE");const ctx=state.realtime.audioContext||new AudioContextClass();state.realtime.audioContext=ctx;await ctx.resume();
+  if(!state.realtime.micStream)state.realtime.micStream=await navigator.mediaDevices.getUserMedia({audio:{echoCancellation:true,noiseSuppression:true,autoGainControl:true}});if(state.realtime.captureNode)return;
+  const code=`class RobitMicCapture extends AudioWorkletProcessor{constructor(){super();this.b=[];this.n=Math.max(1,Math.round(sampleRate*.04))}process(inputs){const input=inputs[0]?.[0];if(!input)return true;for(const x of input)this.b.push(x);while(this.b.length>=this.n){const f=this.b.splice(0,this.n),l=Math.max(1,Math.round(f.length*16000/sampleRate)),pcm=new Int16Array(l);for(let i=0;i<l;i++){const x=Math.max(-1,Math.min(1,f[Math.min(f.length-1,Math.round(i*sampleRate/16000))]));pcm[i]=x<0?x*32768:x*32767}this.port.postMessage(pcm.buffer,[pcm.buffer])}return true}}registerProcessor("robit-mic-capture",RobitMicCapture)`;
+  const url=URL.createObjectURL(new Blob([code],{type:"application/javascript"}));await ctx.audioWorklet.addModule(url);URL.revokeObjectURL(url);state.realtime.micSource=ctx.createMediaStreamSource(state.realtime.micStream);state.realtime.captureNode=new AudioWorkletNode(ctx,"robit-mic-capture");state.realtime.captureSink=ctx.createGain();state.realtime.captureSink.gain.value=0;state.realtime.captureNode.port.onmessage=event=>{if(state.realtime.connected)sendRealtime({type:"input_audio_buffer.append",audio:bytesToBase64(new Uint8Array(event.data))})};state.realtime.micSource.connect(state.realtime.captureNode);state.realtime.captureNode.connect(state.realtime.captureSink);state.realtime.captureSink.connect(ctx.destination);
+}
+function setVoiceStatus(value,bad=false){text("voiceStatus",value.toUpperCase(),bad?"bad":value==="Connected"?"good":"");text("playbackStatus",value.toUpperCase(),bad?"bad":"");text("overviewVoice",value.toUpperCase(),bad?"bad":value==="Connected"?"good":"");text("overviewVoiceLink",value.toUpperCase(),bad?"bad":value==="Connected"?"good":"");text("voiceState",value.toUpperCase(),bad?"bad":value==="Connected"?"good":"");$("voiceConnect").textContent=state.realtime.connected||state.realtime.connecting?"DISCONNECT VOICE":"CONNECT VOICE"}
+function handleRealtimeEvent(event){const type=event.type||"";if(type==="robit.session.snapshot"){const box=$("voiceTranscript");box.replaceChildren();for(const turn of event.conversation||[])addMessage(turn.role==="user"?"user":"assistant",turn.text,"voiceTranscript");if(!box.children.length)box.innerHTML='<div class="mode-empty">VOICE SESSION RESTORED // NO PRIOR TURNS</div>';log("VOICE","session restored","voiceEvents");return}if(type==="robit.action"||type==="robit.perception"){log(type,event,"voiceEvents");return}if(type==="input_audio_buffer.speech_started"){clearRealtimePlayback();text("playbackStatus","LISTENING");return}if(type==="input_audio_buffer.speech_stopped"){text("playbackStatus","THINKING");return}if(type==="response.output_audio.delta"){playRealtimeAudioDelta(event.delta);return}if(type.includes("input_audio_transcription")&&(event.delta||event.transcript)){if(type.endsWith(".delta")){state.realtime.userText+=event.delta||"";realtimeTranscript("user",state.realtime.userText,true)}else{realtimeTranscript("user",event.transcript||state.realtime.userText,false);state.realtime.userText=""}return}if(type.includes("transcript")&&(event.delta||event.transcript)){if(type.endsWith(".delta")){state.realtime.assistantText+=event.delta||"";realtimeTranscript("assistant",state.realtime.assistantText,true)}else{realtimeTranscript("assistant",event.transcript||state.realtime.assistantText,false);state.realtime.assistantText=""}return}if(type==="response.done")text("playbackStatus","LISTENING","good");if(type==="error"){log("VOICE",event.error||event,"voiceEvents");setVoiceStatus(event.error?.message||"VOICE ERROR",true)}}
+async function connectRealtime(){if(state.realtime.connected||state.realtime.connecting)return;state.realtime.manualClose=false;state.realtime.connecting=true;setVoiceStatus("Connecting");try{if(!state.realtime.url)await refreshHealth();await setupRealtimeAudio();const ws=new WebSocket(state.realtime.url);state.realtime.ws=ws;ws.addEventListener("open",()=>{state.realtime.connected=true;state.realtime.connecting=false;state.realtime.nextPlaybackTime=state.realtime.audioContext.currentTime;sendRealtime({type:"session.update",session:{type:"realtime",audio:{output:{voice:state.realtime.voice}}}});setVoiceStatus("Connected");text("playbackStatus","LISTENING","good");log("VOICE","gateway connected","voiceEvents")});ws.addEventListener("message",event=>{try{handleRealtimeEvent(JSON.parse(event.data))}catch(error){log("VOICE",detail(error),"voiceEvents")}});ws.addEventListener("close",event=>{state.realtime.connected=false;state.realtime.connecting=false;if(state.realtime.ws===ws)state.realtime.ws=null;if(event.code===4001){setVoiceStatus("Voice active in another tab",true);return}const retry=state.mode==="voice"&&!state.realtime.manualClose;setVoiceStatus(retry?"Voice reconnecting":"Disconnected",retry);if(retry&&!state.realtime.reconnectTimer)state.realtime.reconnectTimer=setTimeout(()=>{state.realtime.reconnectTimer=null;connectRealtime().catch(error=>setVoiceStatus(detail(error),true))},1000)});ws.addEventListener("error",()=>setVoiceStatus("Realtime connection error",true))}catch(error){state.realtime.connecting=false;setVoiceStatus(detail(error),true);throw error}}
+function disconnectRealtime(){clearRealtimePlayback();state.realtime.manualClose=true;clearTimeout(state.realtime.reconnectTimer);state.realtime.reconnectTimer=null;if(state.realtime.ws)state.realtime.ws.close(1000);state.realtime.ws=null;state.realtime.connected=false;state.realtime.connecting=false;for(const node of [state.realtime.captureNode,state.realtime.micSource,state.realtime.captureSink]){try{node?.disconnect()}catch{}}state.realtime.micStream?.getTracks().forEach(track=>track.stop());state.realtime.micStream=null;state.realtime.captureNode=null;state.realtime.micSource=null;state.realtime.captureSink=null;setVoiceStatus("Disconnected")}
+async function sendRealtimeText(value){if(!state.realtime.connected)await connectRealtime();const started=Date.now();while(!state.realtime.connected&&Date.now()-started<8000)await new Promise(resolve=>setTimeout(resolve,50));if(!state.realtime.connected)throw new Error("REALTIME CONNECTION TIMEOUT");sendRealtime({type:"conversation.item.create",item:{type:"message",role:"user",content:[{type:"input_text",text:value}]}});sendRealtime({type:"response.create"})}
+
+async function refreshDiagnostics(){text("diagnosticStatus","PROBING");const [health,robot,tracking]=await Promise.allSettled([refreshHealth(),refreshRobot(),refreshTrackingStatus().then(()=>state.tracking.status)]);const h=health.status==="fulfilled"?health.value:null,r=robot.status==="fulfilled"?robot.value:null,t=tracking.status==="fulfilled"?tracking.value:null;$("healthReadout").innerHTML=machineRows([["BRAIN",h?.ok?"ONLINE":"OFFLINE",h?.ok?"good":"bad"],["LLM",h?.llm_model||"UNKNOWN"],["EVENT LOOP",`${h?.event_loop?.lag_ms??"---"} MS`],["JOURNAL",h?.journal?.status||h?.journal?.state||"UNKNOWN"]]);$("robotReadout").innerHTML=machineRows([["CHANNEL",r?.control_channel||"DISCONNECTED",r?.control_channel==="ready"?"good":"warn"],["MODE",r?.mode||"UNKNOWN"],["MOVE",r?.movement||r?.move||"STOP"],["HEAD",`${r?.pan??"---"} / ${r?.tilt??"---"}`]]);$("visionReadout").innerHTML=machineRows([["CAMERA",state.camera?"READY":"UNAVAILABLE",state.camera?"good":"bad"],["TRACKING",t?.state||"OFF"],["BACKEND",t?.backend||h?.tracking?.backend||"UNKNOWN"],["LATENCY",`${t?.detector_latency_ms??"---"} MS`]]);$("voiceReadout").innerHTML=machineRows([["GATEWAY",state.realtime.url||"UNRESOLVED"],["VOICE",state.realtime.voice],["HEALTH",h?.voice_health?.status||"UNKNOWN",h?.voice_health?.status==="ok"?"good":"warn"],["DETAIL",(h?.voice_health?.degraded_reasons||[]).join(", ")||"NOMINAL"]]);$("diagnosticRaw").textContent=JSON.stringify({health:h,robot:r,tracking:t},null,2);text("diagnosticStatus",h?.ok?"NOMINAL":"DEGRADED",h?.ok?"good":"bad")}
+
+$("trackingToggle").addEventListener("click",toggleTracking);$("cameraRetry").addEventListener("click",refreshCamera);$("diagnosticRefresh").addEventListener("click",refreshDiagnostics);$("diagnosticReconnect").addEventListener("click",()=>{refreshCamera();refreshTrackingStatus();refreshDiagnostics()});
+$("armBtn").addEventListener("click",()=>setMode("manual"));document.querySelectorAll('[data-panel="overview"] [data-move]').forEach(button=>button.addEventListener("click",()=>setMode("manual")));document.querySelectorAll("[data-action]").forEach(button=>button.addEventListener("click",()=>{const action=button.dataset.action;if(action==="diagnostic")setMode("diagnostic");else if(action==="memory")setMode("memory");else if(action==="refresh")Promise.allSettled([refreshHealth(),refreshRobot(),refreshCamera(),refreshPerception(),loadBrainState()]);else{screen.animate([{filter:"brightness(1.8)"},{filter:"brightness(1)"}],{duration:220});log("CRT","degauss cycle complete")}}));
+$("manualArm").addEventListener("click",()=>{if(state.controlsArmed)disarmControls({stop:true});else{state.controlsArmed=true;$("manualArm").classList.add("active");$("manualArm").textContent="CTRL ARMED";text("manualMotion","MOTION // HOLD");log("CTRL","manual control armed")}});
+document.querySelectorAll("[data-control-move]").forEach(button=>{const move=button.dataset.controlMove;const press=event=>{event.preventDefault();button.classList.add("pressed");drive(move)};const release=()=>{button.classList.remove("pressed");if(move!=="stop")drive("stop")};button.addEventListener("pointerdown",press);button.addEventListener("pointerup",release);button.addEventListener("pointerleave",release);button.addEventListener("keydown",event=>{if((event.key==="Enter"||event.key===" ")&&!event.repeat)press(event)});button.addEventListener("keyup",event=>{if(event.key==="Enter"||event.key===" ")release()})});
+$("speed").addEventListener("input",()=>text("speedValue",`${$("speed").value} / 255`));$("pan").addEventListener("input",()=>{text("panValue",`${$("pan").value}°`);queueHead({pan:Number($("pan").value)})});$("tilt").addEventListener("input",()=>{text("tiltValue",`${$("tilt").value}°`);queueHead({tilt:Number($("tilt").value)})});$("centerHead").addEventListener("click",()=>{$("pan").value=90;$("tilt").value=90;text("panValue","90°");text("tiltValue","90°");queueHead({pan:90,tilt:90})});
+[$("estop"),$("estopManual")].forEach(button=>button?.addEventListener("click",emergencyStop));
+$("chat").addEventListener("submit",event=>{event.preventDefault();const input=$("command"),value=input.value.trim();input.value="";sendText(value,false)});$("voiceChat").addEventListener("submit",event=>{event.preventDefault();const input=$("voiceCommand"),value=input.value.trim();input.value="";sendText(value,true)});$("voiceConnect").addEventListener("click",()=>state.realtime.connected||state.realtime.connecting?disconnectRealtime():connectRealtime().catch(error=>log("VOICE",detail(error),"voiceEvents")));
+window.addEventListener("resize",renderTrackingOverlay);window.addEventListener("blur",()=>{if(state.controlsArmed)drive("stop")});document.addEventListener("visibilitychange",()=>{if(document.hidden){stopCameraLoop();clearTimeout(state.tracking.timer);if(state.controlsArmed)drive("stop")}else{if(state.camera){state.cameraGeneration++;scheduleCamera(0,state.cameraGeneration)}scheduleTracking(0)}});window.addEventListener("beforeunload",()=>{stopCameraLoop();clearTimeout(state.tracking.timer);if(state.controlsArmed&&navigator.sendBeacon)navigator.sendBeacon("/robot/stop",new Blob(["{}"],{type:"application/json"}));disconnectRealtime();if(state.cameraObjectUrl)URL.revokeObjectURL(state.cameraObjectUrl)});
+async function initialize(){applyTrackingStatus({available:true,enabled:false,state:"off",reason:"TRACKING DISABLED"});await Promise.allSettled([refreshHealth(),refreshRobot(),refreshCamera(),refreshPerception(),loadBrainState()]);refreshTrackingStatus();setInterval(refreshPerception,5000)}
+initialize();
+</script>
+</body>
 </html>

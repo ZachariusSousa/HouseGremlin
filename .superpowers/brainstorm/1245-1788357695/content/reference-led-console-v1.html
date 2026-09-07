@@ -1,0 +1,110 @@
+<style>
+  :root{--a:#f3a51c;--ahi:#ffd36c;--b:#347dff;--bhi:#82b6ff;--blk:#030302;--burn:#1a0d01}
+  .concepts{display:grid;gap:28px;margin-top:22px}
+  .concept{overflow:hidden;border:1px solid #6d3c05;border-radius:2px;background:#030302;cursor:pointer;transition:.15s ease}
+  .concept:hover,.concept.selected{border-color:var(--a);box-shadow:0 0 34px rgba(238,139,12,.22)}
+  .concept.selected{outline:3px solid var(--b);outline-offset:4px}
+  .screen{position:relative;min-height:650px;overflow:hidden;color:var(--a);font-family:"Lucida Console",Consolas,"Courier New",monospace;background:#030302;text-shadow:0 0 7px rgba(244,153,20,.3)}
+  .screen *{box-sizing:border-box}.screen:after{position:absolute;z-index:20;pointer-events:none;inset:0;content:"";background:repeating-linear-gradient(0deg,transparent 0 3px,rgba(0,0,0,.26) 3px 4px),radial-gradient(ellipse at center,transparent 48%,rgba(0,0,0,.56));mix-blend-mode:multiply}
+  .micro{font-size:8px;letter-spacing:.11em}.tiny{font-size:7px;letter-spacing:.08em}.blue{color:var(--bhi)!important;border-color:var(--b)!important;text-shadow:0 0 9px rgba(52,125,255,.52)}
+  .linebox{border:1px solid rgba(243,165,28,.67)}.rule{height:1px;background:rgba(243,165,28,.65)}
+  .topline{display:grid;grid-template-columns:210px 1fr 170px 96px;align-items:stretch;min-height:59px;border-bottom:1px solid rgba(243,165,28,.62)}
+  .logo{display:flex;align-items:center;gap:10px;padding:9px 12px;border-right:1px solid rgba(243,165,28,.55)}.logo-bars{display:grid;gap:3px}.logo-bars i{display:block;width:13px;height:7px;background:var(--a);transform:skew(-28deg)}.logo b{font-size:22px;letter-spacing:.12em}.logo small{display:block;font-size:6px;letter-spacing:.3em}
+  .tabs{display:flex;justify-content:center;align-items:center;gap:25px;font-size:8px;letter-spacing:.14em}.tabs span{padding:6px 2px}.tabs .active{color:var(--bhi);border-bottom:2px solid var(--b);text-shadow:0 0 8px rgba(52,125,255,.6)}
+  .link{display:flex;align-items:center;justify-content:center;gap:9px;border-left:1px solid rgba(243,165,28,.55);font-size:8px}.signal{display:flex;align-items:flex-end;gap:2px;height:15px}.signal i{display:block;width:3px;background:var(--a)}.signal i:nth-child(1){height:4px}.signal i:nth-child(2){height:7px}.signal i:nth-child(3){height:10px}.signal i:nth-child(4){height:13px}.signal i:nth-child(5){height:9px}.stop{display:grid;place-items:center;margin:10px;border:1px solid #f07514;background:rgba(240,117,20,.09);font-size:8px;font-weight:900}
+  .frame{display:grid;grid-template-columns:49px 1fr;min-height:590px}.rail{display:flex;flex-direction:column;align-items:center;gap:16px;padding:12px 5px;border-right:1px solid rgba(243,165,28,.55)}.railnum{font-size:7px;writing-mode:vertical-rl}.railicon{display:grid;width:28px;height:28px;place-items:center;border:1px solid;font-size:13px}.railcode{margin-top:auto;font-size:8px;writing-mode:vertical-rl;letter-spacing:.18em}
+  .main{padding:11px}.headline{display:flex;justify-content:space-between;align-items:end;padding:0 0 7px}.headline h3{margin:0;font-size:15px;letter-spacing:.18em}.headline span{font-size:7px;letter-spacing:.14em}
+  .workspace{display:grid;grid-template-columns:1.35fr .75fr;gap:10px}.camera{position:relative;min-height:326px;overflow:hidden;background:radial-gradient(circle at center,rgba(243,165,28,.075),transparent 65%),linear-gradient(rgba(243,165,28,.05) 1px,transparent 1px),linear-gradient(90deg,rgba(243,165,28,.05) 1px,transparent 1px);background-size:auto,23px 23px,23px 23px}.camera svg{position:absolute;width:100%;height:100%;inset:0}.camera-meta{position:absolute;z-index:2;top:10px;left:10px;padding:5px 7px;border:1px solid;background:#050302}.target{position:absolute;z-index:2;top:43%;left:46%;width:72px;height:48px;border:1px solid var(--b);box-shadow:0 0 10px rgba(52,125,255,.38)}.target:before,.target:after{position:absolute;background:var(--b);content:""}.target:before{top:50%;left:-14px;width:98px;height:1px}.target:after{top:-12px;left:50%;width:1px;height:72px}.target-label{position:absolute;right:-2px;bottom:-17px;color:var(--bhi);font-size:7px}
+  .rightcol{display:grid;grid-template-rows:auto 1fr;gap:9px}.vitals{padding:9px}.panel-title{display:flex;justify-content:space-between;padding-bottom:6px;border-bottom:1px solid rgba(243,165,28,.52);font-size:9px;font-weight:900;letter-spacing:.11em}.metric{display:grid;grid-template-columns:1fr auto;gap:7px;padding:6px 0 4px;border-bottom:1px dotted rgba(243,165,28,.37);font-size:8px}.meter{grid-column:1/-1;height:5px;border:1px solid rgba(243,165,28,.55)}.meter i{display:block;width:52%;height:100%;background:var(--a);box-shadow:0 0 6px var(--a)}.metric.blue .meter i{background:var(--b);box-shadow:0 0 6px var(--b)}
+  .spark{padding:9px}.spark svg{width:100%;height:82px;margin-top:8px}.bottom{display:grid;grid-template-columns:1fr 1fr .75fr;gap:9px;margin-top:10px}.chat,.manual,.feed{min-height:172px;padding:9px}.chat-row{margin-top:8px;padding:6px;border-left:2px solid;font-size:8px;line-height:1.45}.chat-row.user{border-color:var(--b);color:var(--bhi)}.buttons{display:grid;grid-template-columns:repeat(3,1fr);gap:5px;margin-top:11px}.buttons button{min-height:32px;border:1px solid rgba(243,165,28,.65);border-radius:0;background:transparent;color:var(--a);font:700 9px "Lucida Console",monospace}.buttons .go{background:var(--b);color:#fff;border-color:var(--b)}.event{display:grid;grid-template-columns:auto 1fr auto;gap:7px;padding:5px 0;border-bottom:1px dotted rgba(243,165,28,.35);font-size:7px}.footerline{display:flex;justify-content:space-between;margin-top:10px;padding:7px 2px 0;border-top:1px solid rgba(243,165,28,.5);font-size:6px;letter-spacing:.12em}
+  .desc{padding:13px 15px 15px;border-top:1px solid #533005;background:#080501}.desc h3{margin:0 0 5px;color:#fff0c9;font-size:14px}.desc p{margin:0;color:#caa75c;font-size:12px;line-height:1.45}
+
+  /* Concept B */
+  .technical{--a:#ff6b17;--ahi:#ffb247;--b:#297bff;--bhi:#71adff}.technical .topline{grid-template-columns:250px 1fr 150px}.technical .frame{grid-template-columns:1fr}.technical .main{padding:15px 19px}.techhead{display:grid;grid-template-columns:1fr auto;gap:16px;align-items:start}.techhead h3{margin:0;font-size:18px;letter-spacing:.08em}.techhead .folders{display:flex;gap:6px}.folder{width:31px;height:25px;border:1px solid;clip-path:polygon(0 17%,32% 17%,39% 0,70% 0,78% 17%,100% 17%,100% 100%,0 100%)}
+  .techgrid{display:grid;grid-template-columns:1.4fr .72fr;gap:18px;margin-top:11px}.schematic{position:relative;min-height:380px}.schematic svg{width:100%;height:100%}.scale{display:flex;justify-content:space-between;padding:5px 0;border-top:1px solid;border-bottom:1px solid;font-size:7px}.debugside{display:grid;gap:10px;align-content:start}.mode{display:grid;grid-template-columns:38px 1fr;align-items:center;min-height:55px;border:1px solid}.mode b{display:grid;height:100%;place-items:center;border-right:1px solid;font-size:17px}.mode span{padding:0 9px;font-size:9px}.mode.active{color:var(--bhi);border-color:var(--b);box-shadow:0 0 12px rgba(41,123,255,.22)}
+  .techbottom{display:grid;grid-template-columns:1fr .85fr;gap:18px;margin-top:12px}.files{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}.file{height:72px;border:1px solid;clip-path:polygon(0 14%,28% 14%,34% 0,62% 0,68% 14%,100% 14%,100% 100%,0 100%);padding:25px 7px 5px;font-size:7px}.terminal{position:relative;min-height:112px;padding:22px 10px 8px;border:1px solid;font-size:7px;line-height:1.55}.terminal:before{position:absolute;top:0;right:0;left:0;height:16px;border-bottom:1px solid;content:""}.terminal .dots{position:absolute;top:5px;right:6px;letter-spacing:3px}.abort{position:absolute;right:10px;bottom:10px;padding:7px;border:1px solid var(--b);color:var(--bhi)}
+  @media(max-width:950px){.screen{min-height:900px}.topline{grid-template-columns:1fr!important}.logo,.link{border:0}.tabs{padding:8px;flex-wrap:wrap}.stop{min-height:36px}.workspace,.bottom,.techgrid,.techbottom{grid-template-columns:1fr}.frame{grid-template-columns:36px 1fr}.technical .frame{grid-template-columns:1fr}.camera{min-height:310px}}
+</style>
+
+<h2>Two reference-led Robit console directions</h2>
+<p class="subtitle">These follow the actual visual grammar in your examples: black field, luminous vector lines, tight technical indexing, controlled density, and CRT bloom.</p>
+
+<div class="concepts">
+  <div class="concept" data-choice="amber_systems_console" onclick="toggleSelect(this)">
+    <div class="screen polished">
+      <div class="topline">
+        <div class="logo"><span class="logo-bars"><i></i><i></i><i></i></span><span><b>ROBIT</b><small>OPERATOR SYSTEM</small></span></div>
+        <div class="tabs"><span class="active">MONITOR</span><span>CONVERSATION</span><span>MANUAL</span><span>DEBUG</span></div>
+        <div class="link"><span class="signal"><i></i><i></i><i></i><i></i><i></i></span><span>LINK NOMINAL<br>ROBIT.LOCAL</span></div>
+        <div class="stop">STOP / SAFE</div>
+      </div>
+      <div class="frame">
+        <div class="rail"><span class="railnum">001 002 003 004 005 006 007</span><span class="railicon">◎</span><span class="railicon blue">⌁</span><span class="railcode">HG-T1 // 81</span></div>
+        <div class="main">
+          <div class="headline"><h3>// LIVE ROBOT OPERATIONS</h3><span>SESSION 04 / UPTIME 14:08:22 / BUILD 240517</span></div>
+          <div class="workspace">
+            <div class="camera linebox">
+              <span class="camera-meta micro">CAMERA 01 // QVGA JPEG // 2.00 FPS</span>
+              <svg viewBox="0 0 700 390" fill="none" stroke="currentColor" stroke-width="1" opacity=".74">
+                <path d="M0 306 93 254l92 18 78-87 80 53 73-116 98 82 79-51 107 82"/><path d="M0 322 98 269l94 19 77-85 78 55 72-110 98 79 80-50 103 76" opacity=".5"/>
+                <path d="M0 345h700M0 365h700M80 0v390M160 0v390M240 0v390M320 0v390M400 0v390M480 0v390M560 0v390M640 0v390" opacity=".17"/>
+                <ellipse cx="350" cy="193" rx="167" ry="128" opacity=".22"/><ellipse cx="350" cy="193" rx="116" ry="91" opacity=".22"/>
+                <path d="M329 130h43l18 21v47l-18 19h-43l-18-19v-47zM325 217l-22 58h96l-23-58M303 275l-49 47M399 275l50 47M303 258l-55-17M399 258l57-17" stroke-width="2"/>
+                <circle cx="335" cy="170" r="7"/><circle cx="367" cy="170" r="7"/><path d="M336 194h30"/>
+              </svg>
+              <span class="target"><span class="target-label">TRACK / LOCKED 0.91</span></span>
+            </div>
+            <div class="rightcol">
+              <div class="vitals linebox"><div class="panel-title"><span>ESP32-S3 VITALS</span><span>NOMINAL</span></div><div class="metric"><span>CPU CORE 0</span><span>48%</span><span class="meter"><i></i></span></div><div class="metric blue"><span>CPU CORE 1</span><span>31%</span><span class="meter"><i style="width:31%"></i></span></div><div class="metric"><span>HEAP FREE / LOW</span><span>184K / 171K</span></div><div class="metric"><span>PSRAM FREE</span><span>5.7 MB</span></div><div class="metric"><span>TEMPERATURE</span><span>52 C</span></div><div class="metric"><span>WIFI SIGNAL</span><span>-53 DBM</span></div></div>
+              <div class="spark linebox"><div class="panel-title"><span>CONTROL LATENCY // 60S</span><span class="blue">P95 4.2MS</span></div><svg viewBox="0 0 260 80" fill="none"><path d="M0 67 19 61 36 62 54 54 71 59 90 31 108 46 125 41 144 49 162 20 180 39 198 34 217 44 238 26 260 33" stroke="#f3a51c" stroke-width="2"/><path d="M0 72H260M0 52H260M0 32H260M0 12H260" stroke="#f3a51c" opacity=".17"/><path d="M90 0V80M162 0V80M238 0V80" stroke="#347dff" opacity=".7"/></svg></div>
+            </div>
+          </div>
+          <div class="bottom">
+            <div class="chat linebox"><div class="panel-title"><span>CONVERSATION</span><span>TEXT CHANNEL</span></div><div class="chat-row">ROBIT / Camera and control systems are nominal.</div><div class="chat-row user">OPERATOR / Hold position and continue tracking.</div><div class="chat-row">ROBIT / Holding position.</div></div>
+            <div class="manual linebox"><div class="panel-title"><span>MANUAL CONTROL</span><span>SAFETY ARMED</span></div><div class="buttons"><button>↖</button><button class="go">▲</button><button>↗</button><button>◀</button><button>■</button><button>▶</button><button>↙</button><button>▼</button><button>↘</button></div><div class="metric"><span>HEAD PAN / TILT</span><span>90 / 90</span></div></div>
+            <div class="feed linebox"><div class="panel-title"><span>SYSTEM FEED</span><span>AUTO</span></div><div class="event"><span>14:37:52</span><span>CAMERA ONLINE</span><span>OK</span></div><div class="event blue"><span>14:37:54</span><span>DEBUG SAMPLE</span><span>LIVE</span></div><div class="event"><span>14:37:55</span><span>CONTROL HEARTBEAT</span><span>OK</span></div><div class="event"><span>14:37:56</span><span>FRAME ACQUIRED</span><span>41K</span></div></div>
+          </div>
+          <div class="footerline"><span>HOUSE GREMLIN // PRIVATE ROBOT CONTROL</span><span>CAMERA 81 / CONTROL 82 / HTTP 80</span><span>VERSION 1.0.0</span></div>
+        </div>
+      </div>
+    </div>
+    <div class="desc"><h3>A — Amber Systems Console</h3><p>Closest to your first reference: polished and extremely dense, but every panel maps to a real Robit function. Blue only identifies selected navigation, tracking, and active debug sampling.</p></div>
+  </div>
+
+  <div class="concept" data-choice="wireframe_ops_86" onclick="toggleSelect(this)">
+    <div class="screen technical">
+      <div class="topline">
+        <div class="logo"><span class="logo-bars"><i></i><i></i><i></i></span><span><b>ROBIT / 86</b><small>TECHNICAL OPERATIONS</small></span></div>
+        <div class="tabs"><span>CAMERA</span><span>CONTROL</span><span>TELEMETRY</span><span class="active">DEBUG</span></div>
+        <div class="link"><span class="signal"><i></i><i></i><i></i><i></i><i></i></span><span>UNIT LINK<br>ACTIVE</span></div>
+      </div>
+      <div class="frame"><div class="main">
+        <div class="techhead"><div><span class="micro">EDITING CURRENT PROFILE:</span><h3>CAMERA + WIFI // REAL-WORLD LOAD</h3></div><div class="folders"><span class="folder"></span><span class="folder blue"></span><span class="folder"></span><span class="folder"></span></div></div>
+        <div class="techgrid">
+          <div class="schematic linebox">
+            <div class="scale"><span>0</span><span>5</span><span>10</span><span>15</span><span>20</span><span>25</span><span>30 SEC</span></div>
+            <svg viewBox="0 0 720 390" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M94 292 325 379 630 257 400 177zM94 292l0 35 231 87 305-122v-35M325 379v35" opacity=".6"/>
+              <path d="m187 290 91 33 105-42-91-34zm91 33v-51m105 9v35l-105 43-91-33v-36M234 268v-75l42-17 44 16v73M276 176v-67l42-17 43 17v115M318 92v-41l42-17 44 17v184M360 34v184M404 51l-44 17-42-17M404 235l44 16v-88l-44-17m44 17 41-17 43 17v67m-84 70 84 31v-101M492 230l43-17 41 16v67m-41-83v84M187 290l-43-17v-51l43-18 47 18v46m-90-46 43 16 47-16"/>
+              <path d="M72 333 325 428M325 428l333-132M116 349l311-124M162 367l310-124M209 383l309-123M256 400l307-122M371 396l-253-94M419 377l-253-94M469 357l-254-94M518 337l-254-94M567 317l-253-94" opacity=".22"/>
+              <path d="M88 93h506M88 93v72M594 93v72M88 128h506" opacity=".5"/><path d="M112 111h98l29 14 62-22 49 31 76-26 44 20 98-29" stroke="#297bff" stroke-width="3"/>
+              <path d="M108 91v-8m82 8v-8m82 8v-8m82 8v-8m82 8v-8m82 8v-8m76 8v-8"/>
+            </svg>
+            <span class="micro" style="position:absolute;left:14px;bottom:13px">01_RESOURCE GEOMETRY / LIVE SAMPLE<br>CAMERA ACQUIRE + NETWORK WRITE + CONTROL LOOP</span>
+          </div>
+          <div class="debugside">
+            <div class="panel-title"><span>DIAGNOSTIC CHANNEL</span><span>04</span></div>
+            <div class="mode active"><b>◎</b><span>CAMERA LOAD<br><small>2.00 FPS / 41.8 KB</small></span></div><div class="mode"><b>⌁</b><span>NETWORK LOAD<br><small>92 KB/S / -53 DBM</small></span></div><div class="mode"><b>▥</b><span>MEMORY MAP<br><small>HEAP LOW 171K</small></span></div><div class="mode"><b>△</b><span>CONTROL TIMING<br><small>P95 4.2 MS</small></span></div>
+            <div class="vitals linebox"><div class="metric"><span>CORE 0</span><span>48%</span></div><div class="metric blue"><span>CORE 1</span><span>31%</span></div><div class="metric"><span>PSRAM FREE</span><span>5.7MB</span></div><div class="metric"><span>FAILURES</span><span>00</span></div></div>
+          </div>
+        </div>
+        <div class="techbottom">
+          <div class="files"><div class="file">A<br>CAMERA</div><div class="file blue">B<br>DEBUG</div><div class="file">C<br>MANUAL</div><div class="file">D<br>LOGS</div></div>
+          <div class="terminal"><span class="dots">○○○</span>&gt; sample.camera.start(rate=2)<br>&gt; telemetry.window(60)<br>&gt; limits.control_p95 &lt; 10ms<br><span class="blue">RUNNING // 00:42 REMAINING</span><span class="abort">ABORT ×</span></div>
+        </div>
+        <div class="footerline"><span>PRODUCT INTERFACE // HOUSE GREMLIN © 2026</span><span>PROFILE: COMBINED CAMERA/WIFI</span><span>EXPORT CSV ↘</span></div>
+      </div></div>
+    </div>
+    <div class="desc"><h3>B — Wireframe Operations 86</h3><p>Closest to your third reference: stark orange technical drafting, large wireframe data visualization, folder-like navigation, and a bright blue live diagnostic channel.</p></div>
+  </div>
+</div>

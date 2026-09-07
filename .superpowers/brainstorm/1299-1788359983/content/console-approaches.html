@@ -1,0 +1,64 @@
+<style>
+  .hud-options{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;margin-top:22px}
+  .hud-card{border:1px solid #5f410d;background:#090806;color:#e8d7a3;cursor:pointer;transition:120ms linear;position:relative}
+  .hud-card:hover,.hud-card.selected{border-color:#ffb000;box-shadow:0 0 20px rgba(245,160,0,.14)}
+  .hud-card.selected:before{content:'SELECTED';position:absolute;right:0;top:0;background:#f5a000;color:#050505;padding:4px 7px;font:700 9px/1 monospace;letter-spacing:.12em;z-index:4}
+  .hud-preview{height:310px;padding:9px;background-color:#050505;background-image:linear-gradient(rgba(245,160,0,.035) 1px,transparent 1px),linear-gradient(90deg,rgba(245,160,0,.025) 1px,transparent 1px);background-size:100% 5px,24px 24px;font-family:Consolas,monospace}
+  .hud-top{display:flex;justify-content:space-between;border-bottom:2px solid #f5a000;padding:5px 2px;color:#f5a000;font-size:10px;letter-spacing:.08em}
+  .hud-grid{display:grid;gap:5px;height:262px;margin-top:6px}
+  .a{grid-template-columns:1.25fr .75fr;grid-template-rows:1.4fr .6fr}
+  .b{grid-template-columns:.48fr 1.2fr .72fr;grid-template-rows:1fr}
+  .c{grid-template-columns:.7fr 1.3fr;grid-template-rows:.48fr .52fr}
+  .hud-panel{border:1px solid #332408;background:#0d0d0d;padding:7px;overflow:hidden;position:relative}
+  .hud-panel strong{display:block;color:#f5a000;font-size:9px;letter-spacing:.1em;margin-bottom:5px}
+  .hud-line{height:4px;background:#332408;margin:5px 0}.hud-line.hot{background:#e86a00}.hud-line.short{width:56%}
+  .robot{display:grid;place-items:center;color:#f5a000;font-size:42px;text-shadow:0 0 8px rgba(245,160,0,.5);background:repeating-linear-gradient(0deg,transparent 0 13px,rgba(245,160,0,.055) 14px)}
+  .readout{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;margin-top:8px}.readout i{display:block;border-top:1px solid #6b4508;color:#f5a000;font-style:normal;font-size:8px;padding-top:3px}
+  .warn{color:#d93622!important}.block{grid-column:1/-1}.span2{grid-row:span 2}
+  .hud-body{padding:14px 15px 16px;border-top:1px solid #332408}.hud-body h3{color:#ffb000;margin:0 0 6px;font:700 15px/1.2 Consolas,monospace;text-transform:uppercase}.hud-body p{color:#aa915c;font-size:12px;line-height:1.45;margin:0}
+  .recommend{display:inline-block;margin-top:9px;border:1px solid #f5a000;color:#f5a000;padding:3px 6px;font:700 9px/1 monospace;letter-spacing:.1em}
+  @media(max-width:900px){.hud-options{grid-template-columns:1fr}.hud-preview{height:270px}.hud-grid{height:222px}}
+</style>
+
+<h2>ROBIT INTERFACE ARCHITECTURE // SELECT PRIMARY MODE</h2>
+<p class="subtitle">All three use the same restrained CRT palette and machine-control language. The choice is about what the interface feels built to do.</p>
+
+<div class="hud-options">
+  <div class="hud-card" data-choice="a" onclick="toggleSelect(this)">
+    <div class="hud-preview">
+      <div class="hud-top"><b>RB-01 // UNIT OVERVIEW</b><span>23:14:08 JST</span></div>
+      <div class="hud-grid a">
+        <div class="hud-panel robot"><span>[ ◉_◉ ]</span></div>
+        <div class="hud-panel"><strong>LIVE TELEMETRY</strong><div class="hud-line hot"></div><div class="hud-line"></div><div class="hud-line short"></div><div class="readout"><i>CPU 42%</i><i>MEM 61%</i><i>NET 0</i></div></div>
+        <div class="hud-panel block"><strong>MISSION LOG // RECENT EVENTS</strong><div class="hud-line"></div><div class="hud-line short"></div></div>
+      </div>
+    </div>
+    <div class="hud-body"><h3>A // Unit dossier</h3><p>Robot-first overview with a large visual identity, status, and development log. Strongest as a public showcase; less efficient for day-to-day controls.</p></div>
+  </div>
+
+  <div class="hud-card" data-choice="b" onclick="toggleSelect(this)">
+    <div class="hud-preview">
+      <div class="hud-top"><b>ROBIT OPS // CONTROL LATTICE</b><span>LINK: ESTABLISHED</span></div>
+      <div class="hud-grid b">
+        <div class="hud-panel"><strong>01 // NAV</strong><div class="hud-line hot"></div><div class="hud-line"></div><div class="hud-line"></div><div class="hud-line short"></div></div>
+        <div class="hud-panel robot"><span>┌─ ◉ ─┐<br>╲ RB ╱</span></div>
+        <div class="hud-panel"><strong>03 // STATUS</strong><div class="readout"><i>VOICE</i><i>VISION</i><i>TRACK</i></div><div class="hud-line hot"></div><div class="hud-line"></div><div class="hud-line"></div><strong class="warn">■ STOP CTRL</strong></div>
+      </div>
+    </div>
+    <div class="hud-body"><h3>B // Operations console</h3><p>Dense command station built around camera, chat, movement, and live state. Feels like a real control system while mapping cleanly to the current functionality.</p><span class="recommend">RECOMMENDED</span></div>
+  </div>
+
+  <div class="hud-card" data-choice="c" onclick="toggleSelect(this)">
+    <div class="hud-preview">
+      <div class="hud-top"><b>MAGI-RB // SYSTEM MAP</b><span>BUILD 026.09.02</span></div>
+      <div class="hud-grid c">
+        <div class="hud-panel span2"><strong>SUBSYSTEM TREE</strong><div class="hud-line hot"></div><div class="hud-line short"></div><div class="hud-line"></div><div class="hud-line short"></div><div class="hud-line"></div></div>
+        <div class="hud-panel"><strong>LOCAL AI ARCHITECTURE</strong><div class="readout"><i>SENSE</i><i>THINK</i><i>ACT</i></div><div class="hud-line"></div></div>
+        <div class="hud-panel"><strong>DIAGNOSTIC STREAM</strong><div class="hud-line"></div><div class="hud-line hot"></div><div class="hud-line short"></div></div>
+      </div>
+    </div>
+    <div class="hud-body"><h3>C // Systems schematic</h3><p>Architecture-first interface exposing memory, inference, buses, and diagnostics. Most obsessive and technical; the robot’s personality is less immediate.</p></div>
+  </div>
+</div>
+
+<p class="subtitle" style="margin-top:18px">Click the direction that feels closest. We can borrow secondary traits from another option.</p>
