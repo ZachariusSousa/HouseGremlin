@@ -126,6 +126,22 @@ class OpenAICompatibleChatClient:
     async def action_chat(self, text: str, history: list[dict[str, str]] | None = None) -> ChatResult:
         return await self._chat_with_prompt(text, ACTION_SYSTEM_PROMPT, 220, history)
 
+    async def probe_models(self) -> None:
+        if self.settings.llm_provider != "openai_compatible":
+            raise RuntimeError("Only OpenAI-compatible chat is supported.")
+        try:
+            async with httpx.AsyncClient(timeout=self.settings.llm_timeout) as client:
+                response = await client.get(
+                    f"{self.settings.llm_base_url}/models",
+                    headers={"authorization": "Bearer local"},
+                )
+                response.raise_for_status()
+                body = response.json()
+        except (httpx.HTTPError, ValueError, TypeError) as exc:
+            raise RuntimeError("OpenAI-compatible model probe failed") from exc
+        if not isinstance(body, dict) or not isinstance(body.get("data"), list):
+            raise RuntimeError("OpenAI-compatible model probe returned malformed data")
+
     async def warmup(self) -> None:
         try:
             await self.chat("Say ready.")

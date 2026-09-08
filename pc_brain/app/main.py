@@ -30,6 +30,7 @@ from .journal import EventJournal
 from .llm import OpenAICompatibleChatClient
 from .realtime_gateway import RealtimeGateway, explicit_robot_action
 from .robot_status import normalize_robot_status
+from .telemetry import HostSampler, LlmHealthState, SystemTelemetryService
 from .timing import timed
 from .tracking import PersonTrackingService, RFDetrClient
 from .vision import VisionService, VisionUnavailable
@@ -37,6 +38,13 @@ from .vision import VisionService, VisionUnavailable
 
 logger = logging.getLogger("uvicorn.error")
 llm_client = OpenAICompatibleChatClient(settings)
+llm_health = LlmHealthState(settings.llm_provider, settings.llm_model)
+telemetry_service = SystemTelemetryService(
+    host_sampler=HostSampler(),
+    llm_health=llm_health,
+    llm_probe=llm_client.probe_models,
+    event_loop_lag=lambda: event_loop_lag_ms,
+)
 robot_request_lock = asyncio.Lock()
 robot_http_client: httpx.AsyncClient | None = None
 robot_status_cache: dict | None = None
@@ -80,6 +88,7 @@ async def lifespan(app: FastAPI):
     event_loop_monitor_task = asyncio.create_task(
         monitor_event_loop_lag(), name="event-loop-monitor"
     )
+    await telemetry_service.start()
     actuators = get_actuator_broker()
     await actuators.start()
     controller = get_eye_controller()
@@ -100,6 +109,7 @@ async def lifespan(app: FastAPI):
     try:
         yield
     finally:
+        await telemetry_service.shutdown()
         if event_loop_monitor_task is not None:
             event_loop_monitor_task.cancel()
             await asyncio.gather(event_loop_monitor_task, return_exceptions=True)
@@ -926,10 +936,27 @@ async def call_llm(
 ):
     method = getattr(llm_client, method_name)
     prompt = prompt_with_live_scene(text) if include_live_scene else text
-    async with get_brain_coordinator().resource_lease.acquire(WorkPriority.foreground):
-        if "history" in inspect.signature(method).parameters:
-            return await method(prompt, history=history)
-        return await method(prompt)
+    started_at = time.monotonic()
+    try:
+        async with get_brain_coordinator().resource_lease.acquire(WorkPriority.foreground):
+            if "history" in inspect.signature(method).parameters:
+                result = await method(prompt, history=history)
+            else:
+                result = await method(prompt)
+    except Exception as exc:
+        llm_health.record_inference(
+            success=False,
+            checked_at=datetime.now(timezone.utc).isoformat(),
+            latency_ms=(time.monotonic() - started_at) * 1000.0,
+            error=f"inference failed ({type(exc).__name__})",
+        )
+        raise
+    llm_health.record_inference(
+        success=True,
+        checked_at=datetime.now(timezone.utc).isoformat(),
+        latency_ms=(time.monotonic() - started_at) * 1000.0,
+    )
+    return result
 
 
 def parse_action_response(content: str) -> dict | None:
@@ -984,18 +1011,147 @@ async def answer_visual_question(
     }
 
 
+def voice_health_snapshot() -> dict:
+    sox_available = shutil.which("sox") is not None
+    microphone_enhancement_available = importlib.util.find_spec("noisereduce") is not None
+    degraded_reasons = [
+        reason
+        for available, reason in (
+            (sox_available, "SoX is unavailable"),
+            (
+                microphone_enhancement_available,
+                "microphone enhancement is unavailable",
+            ),
+        )
+        if not available
+    ]
+    return {
+        "status": "ok" if not degraded_reasons else "degraded",
+        "sox_available": sox_available,
+        "microphone_enhancement_available": microphone_enhancement_available,
+        "degraded_reasons": degraded_reasons,
+    }
+
+
+def public_base_url(value: str) -> str:
+    parsed = urlparse(value)
+    hostname = parsed.hostname or ""
+    if ":" in hostname and not hostname.startswith("["):
+        hostname = f"[{hostname}]"
+    try:
+        port = parsed.port
+    except ValueError:
+        port = None
+    netloc = f"{hostname}:{port}" if port is not None else hostname
+    return urlunparse((parsed.scheme, netloc, parsed.path, "", "", ""))
+
+
+def tracking_telemetry_payload(tracking, broker) -> dict:
+    latest_frame = broker.latest
+    latest_frame_age_seconds = None
+    if latest_frame is not None:
+        latest_frame_age_seconds = max(
+            0.0,
+            (datetime.now(timezone.utc) - latest_frame.captured_at).total_seconds(),
+        )
+    return {
+        "available": bool(tracking.available),
+        "active": bool(tracking.enabled),
+        "latest_frame_age_seconds": latest_frame_age_seconds,
+        "latest_result_age_seconds": getattr(tracking, "target_age_seconds", None),
+        "error": tracking.reason,
+    }
+
+
+def readiness_components(robot: dict, tracking, broker, voice_health: dict) -> dict:
+    checked_at = datetime.now(timezone.utc).isoformat()
+    robot_status_value = str(robot.get("status") or "offline")
+    robot_control = robot.get("control") or {}
+    if robot_status_value == "online":
+        robot_reason = None
+    elif robot_status_value == "stale":
+        robot_reason = "robot telemetry is stale"
+    elif robot_status_value == "fault":
+        robot_reason = get_brain_coordinator().critical_fault_reason or "robot fault is active"
+    else:
+        robot_reason = robot_control.get("error") or "robot telemetry is unavailable"
+
+    llm = llm_health.snapshot()
+    llm_status = llm["status"]
+    if llm_status == "ready":
+        llm_reason = None
+    elif llm_status == "degraded":
+        llm_reason = llm["last_inference_error"] or "latest inference failed"
+    elif llm_status == "unavailable":
+        llm_reason = llm["last_probe_error"] or "latest LLM probe failed"
+    else:
+        llm_reason = "LLM has not been probed"
+
+    camera_status = broker.status()
+    camera_ready = broker.latest is not None
+    tracking_ready = bool(tracking.available)
+    voice_ready = voice_health["status"] == "ok"
+    return {
+        "robot": {
+            "status": robot_status_value,
+            "reason": robot_reason,
+            "checked_at": checked_at,
+            "latency_ms": robot_control.get("round_trip_ms"),
+        },
+        "llm": {
+            "status": llm_status,
+            "reason": llm_reason,
+            "checked_at": llm["last_probe_at"],
+            "latency_ms": (
+                llm["last_inference_latency_ms"]
+                if llm_status == "degraded"
+                else llm["last_probe_latency_ms"]
+            ),
+        },
+        "tracking": {
+            "status": "ready" if tracking_ready else "degraded",
+            "reason": None if tracking_ready else (tracking.reason or "tracking is unavailable"),
+            "checked_at": checked_at,
+            "latency_ms": tracking.detector_latency_ms,
+        },
+        "camera": {
+            "status": "ready" if camera_ready else "degraded",
+            "reason": None if camera_ready else "no camera frame is available",
+            "checked_at": checked_at,
+            "latency_ms": camera_status.get("last_acquisition_ms"),
+        },
+        "voice": {
+            "status": "ready" if voice_ready else "degraded",
+            "reason": (
+                None
+                if voice_ready
+                else "; ".join(voice_health["degraded_reasons"])
+            ),
+            "checked_at": checked_at,
+            "latency_ms": None,
+        },
+    }
+
+
 @app.get("/health")
 async def health(request: Request):
     websocket_scheme = "wss" if request.url.scheme == "https" else "ws"
     gateway_url = f"{websocket_scheme}://{request.url.netloc}/v1/realtime"
     tracking = get_tracking_service().status()
-    sox_available = shutil.which("sox") is not None
-    microphone_enhancement_available = importlib.util.find_spec("noisereduce") is not None
+    broker = get_frame_broker()
+    robot = await robot_status()
+    voice_health = voice_health_snapshot()
+    components = readiness_components(robot, tracking, broker, voice_health)
     return {
         "ok": True,
-        "robot_base_url": settings.robot_base_url,
+        "ready": (
+            components["robot"]["status"] == "online"
+            and components["llm"]["status"] == "ready"
+        ),
+        "components": components,
+        "robot_base_url": public_base_url(settings.robot_base_url),
         "llm_provider": settings.llm_provider,
-        "llm_base_url": settings.llm_base_url,
+        "llm_base_url": public_base_url(settings.llm_base_url),
         "llm_model": settings.llm_model,
         "realtime": {
             "ws_url": gateway_url,
@@ -1015,32 +1171,30 @@ async def health(request: Request):
         "control_channel": get_actuator_broker().channel.status(),
         "actuators": get_actuator_broker().status(),
         "journal": brain_journal.status() if brain_journal is not None else None,
-        "camera": get_frame_broker().status(),
+        "camera": broker.status(),
         "workload": get_brain_coordinator().resource_lease.status(),
         "event_loop": {
             "lag_ms": event_loop_lag_ms,
             "peak_lag_ms": event_loop_lag_peak_ms,
         },
-        "voice_health": {
-            "status": (
-                "ok"
-                if sox_available and microphone_enhancement_available
-                else "degraded"
-            ),
-            "sox_available": sox_available,
-            "microphone_enhancement_available": microphone_enhancement_available,
-            "degraded_reasons": [
-                reason
-                for available, reason in (
-                    (sox_available, "SoX is unavailable"),
-                    (
-                        microphone_enhancement_available,
-                        "microphone enhancement is unavailable",
-                    ),
-                )
-                if not available
-            ],
-        },
+        "voice_health": voice_health,
+    }
+
+
+@app.get("/system/telemetry")
+async def system_telemetry():
+    sampled = await telemetry_service.latest_host()
+    tracking = get_tracking_service().status()
+    broker = get_frame_broker()
+    return {
+        **sampled,
+        "llm": llm_health.snapshot(),
+        "robot": await robot_status(),
+        "tracking": tracking_telemetry_payload(tracking, broker),
+        "faults": [
+            fault.model_dump(mode="json")
+            for fault in get_brain_coordinator().active_faults
+        ],
     }
 
 
@@ -1303,6 +1457,8 @@ async def chat_action(chat_request: ChatActionRequest, request: Request):
         chat_result = await call_llm("action_chat", chat_request.text, history)
 
     parsed = parse_action_response(chat_result.response)
+    if parsed is None:
+        llm_health.mark_last_inference_malformed("malformed action response")
     vision_question = explicit_visual_question(chat_request.text)
     if parsed is not None and isinstance(parsed.get("vision_question"), str):
         vision_question = parsed["vision_question"].strip() or vision_question
