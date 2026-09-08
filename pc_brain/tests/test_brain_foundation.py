@@ -134,6 +134,37 @@ async def test_successful_action_clears_its_previous_actuation_fault(tmp_path):
 
 
 @pytest.mark.anyio
+async def test_returned_actuation_failure_stays_failed_without_raising(tmp_path):
+    coordinator = BrainCoordinator(EventJournal(tmp_path / "brain.db"))
+    intent = ActionIntent(
+        action={"head": {"pan": 100, "tilt": 80}},
+        origin=EventSource.manual,
+        correlation_id="corr-returned-failure",
+    )
+    failure = {"ok": False, "error": "transport failed"}
+
+    async def executor(action):
+        return failure
+
+    result = await coordinator.execute_action(intent, executor)
+
+    assert result is failure
+    assert [(fault.source, fault.severity, fault.message) for fault in coordinator.active_faults] == [
+        ("actuation", "critical", "transport failed")
+    ]
+    assert coordinator.state.body == BodyState.fault
+    assert coordinator.state.safety == "fault"
+    event_types = [
+        event.event_type
+        for event in coordinator.journal.list_events(
+            correlation_id="corr-returned-failure"
+        )
+    ]
+    assert "action.failed" in event_types
+    assert "action.completed" not in event_types
+
+
+@pytest.mark.anyio
 async def test_stop_is_an_ordinary_serialized_action(tmp_path):
     coordinator = BrainCoordinator(EventJournal(tmp_path / "brain.db"))
     normal_started = asyncio.Event()

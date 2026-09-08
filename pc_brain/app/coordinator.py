@@ -258,6 +258,32 @@ class BrainCoordinator:
                 raise
             finally:
                 current_correlation_id.reset(token)
+            if isinstance(result, dict) and result.get("ok") is False:
+                error = str(
+                    result.get("error")
+                    or result.get("skipped")
+                    or "actuation returned ok=false"
+                )
+                self.record(
+                    "action.failed",
+                    EventSource.firmware,
+                    intent.correlation_id,
+                    {"action": intent.action, "error": error, "result": result},
+                    intent.priority,
+                    proposed.event_id,
+                )
+                self.register_fault(
+                    "actuation",
+                    "critical",
+                    error,
+                    intent.correlation_id,
+                )
+                self.transition(
+                    intent.correlation_id,
+                    EventSource.system,
+                    body=BodyState.fault,
+                )
+                return result
             self.record(
                 "action.completed",
                 EventSource.firmware,
