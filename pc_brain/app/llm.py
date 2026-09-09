@@ -7,6 +7,9 @@ from .config import Settings
 from .timing import timed
 
 
+LLM_PROBE_TIMEOUT_SECONDS = 5.0
+
+
 SYSTEM_PROMPT = (
     "You are Robit, a small helpful home robot. "
     "Talk like Rocky from the movie and book 'Project Hail Mary'. "
@@ -130,7 +133,7 @@ class OpenAICompatibleChatClient:
         if self.settings.llm_provider != "openai_compatible":
             raise RuntimeError("Only OpenAI-compatible chat is supported.")
         try:
-            async with httpx.AsyncClient(timeout=self.settings.llm_timeout) as client:
+            async with httpx.AsyncClient(timeout=LLM_PROBE_TIMEOUT_SECONDS) as client:
                 response = await client.get(
                     f"{self.settings.llm_base_url}/models",
                     headers={"authorization": "Bearer local"},

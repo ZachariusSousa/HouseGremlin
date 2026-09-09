@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import copy
+import math
 import time
 from collections.abc import Awaitable, Callable
 from datetime import datetime, timezone
@@ -59,6 +60,13 @@ class NvidiaGpuSampler:
             stdout, _stderr = await asyncio.wait_for(
                 process.communicate(), timeout=self.timeout_seconds
             )
+        except asyncio.CancelledError:
+            try:
+                process.kill()
+            except ProcessLookupError:
+                pass
+            await process.wait()
+            raise
         except TimeoutError:
             process.kill()
             await process.wait()
@@ -79,11 +87,23 @@ class NvidiaGpuSampler:
                 value.strip() for value in line.split(",")
             )
             utilization_percent = float(utilization)
-            memory_used_bytes = round(float(memory_used_mib) * 1024 * 1024)
-            memory_total_bytes = round(float(memory_total_mib) * 1024 * 1024)
-            if not name or memory_used_bytes < 0 or memory_total_bytes <= 0:
+            memory_used = float(memory_used_mib)
+            memory_total = float(memory_total_mib)
+            if (
+                not name
+                or not all(
+                    math.isfinite(value)
+                    for value in (utilization_percent, memory_used, memory_total)
+                )
+                or not 0.0 <= utilization_percent <= 100.0
+                or memory_used < 0.0
+                or memory_total <= 0.0
+                or memory_used > memory_total
+            ):
                 raise ValueError("invalid GPU values")
-        except (StopIteration, ValueError, TypeError):
+            memory_used_bytes = round(memory_used * 1024 * 1024)
+            memory_total_bytes = round(memory_total * 1024 * 1024)
+        except (StopIteration, ValueError, TypeError, OverflowError):
             return _unavailable_gpu("malformed nvidia-smi output")
 
         return {
@@ -242,6 +262,7 @@ class SystemTelemetryService:
         event_loop_lag: Callable[[], float | None],
         host_interval_seconds: float = 1.0,
         probe_interval_seconds: float = 10.0,
+        probe_timeout_seconds: float = 5.0,
         monotonic: Callable[[], float] = time.monotonic,
         utc_now: Callable[[], datetime] = utc_now,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
@@ -252,6 +273,7 @@ class SystemTelemetryService:
         self.event_loop_lag = event_loop_lag
         self.host_interval_seconds = max(0.05, float(host_interval_seconds))
         self.probe_interval_seconds = max(0.05, float(probe_interval_seconds))
+        self.probe_timeout_seconds = max(0.01, float(probe_timeout_seconds))
         self.monotonic = monotonic
         self.utc_now = utc_now
         self.sleep = sleep
@@ -283,7 +305,9 @@ class SystemTelemetryService:
         started_at = self.monotonic()
         checked_at = self.utc_now().isoformat()
         try:
-            await self.llm_probe()
+            await asyncio.wait_for(
+                self.llm_probe(), timeout=self.probe_timeout_seconds
+            )
         except Exception as exc:
             self.llm_health.record_probe(
                 success=False,

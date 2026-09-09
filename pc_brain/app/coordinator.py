@@ -21,6 +21,7 @@ from .brain_models import (
 from .correlation import current_correlation_id
 from .journal import EventJournal
 from .resource_lease import PriorityResourceLease
+from .sanitization import sanitize_public_text
 
 
 ActionExecutor = Callable[[dict[str, Any]], Awaitable[dict[str, Any]]]
@@ -131,6 +132,7 @@ class BrainCoordinator:
         message: str,
         correlation_id: str | None = None,
     ) -> ActiveFault:
+        message = sanitize_public_text(message, max_length=500, fallback="fault")
         existing = self._active_faults.get(source)
         if existing is not None and existing.severity == severity and existing.message == message:
             return existing
@@ -240,18 +242,23 @@ class BrainCoordinator:
             try:
                 result = await executor(intent.action)
             except Exception as exc:
+                safe_error = sanitize_public_text(
+                    str(exc) or type(exc).__name__,
+                    max_length=500,
+                    fallback=type(exc).__name__,
+                )
                 self.record(
                     "action.failed",
                     EventSource.firmware,
                     intent.correlation_id,
-                    {"action": intent.action, "error": str(exc)},
+                    {"action": intent.action, "error": safe_error},
                     intent.priority,
                     proposed.event_id,
                 )
                 self.register_fault(
                     "actuation",
                     "critical",
-                    str(exc) or type(exc).__name__,
+                    safe_error,
                     intent.correlation_id,
                 )
                 self.transition(intent.correlation_id, EventSource.system, body=BodyState.fault)

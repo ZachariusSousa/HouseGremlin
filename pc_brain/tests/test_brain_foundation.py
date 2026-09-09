@@ -134,6 +134,45 @@ async def test_successful_action_clears_its_previous_actuation_fault(tmp_path):
 
 
 @pytest.mark.anyio
+async def test_exception_fault_message_is_sanitized_bounded_and_does_not_mask_error(tmp_path):
+    coordinator = BrainCoordinator(EventJournal(tmp_path / "brain.db"))
+    intent = ActionIntent(
+        action={"movement": {"direction": "left"}},
+        origin=EventSource.text_model,
+        correlation_id="corr-secret-fault",
+    )
+    secret_message = (
+        "POST https://robot-user:supersecret@private-robot/api/move"
+        "?api_key=query-secret#private-fragment "
+        "Bearer bearer-secret token=plain-secret sk-abcdefgh12345678 "
+        + "details " * 100
+    )
+
+    async def failing_executor(action):
+        raise RuntimeError(secret_message)
+
+    with pytest.raises(RuntimeError, match="supersecret"):
+        await coordinator.execute_action(intent, failing_executor)
+
+    fault = coordinator.active_faults[0]
+    assert len(fault.message) <= 500
+    assert "[redacted-url]" in fault.message
+    assert "Bearer [redacted]" in fault.message
+    assert "token=[redacted]" in fault.message
+    for secret in (
+        "robot-user",
+        "supersecret",
+        "private-robot",
+        "query-secret",
+        "private-fragment",
+        "bearer-secret",
+        "plain-secret",
+        "sk-abcdefgh12345678",
+    ):
+        assert secret not in fault.message
+
+
+@pytest.mark.anyio
 async def test_returned_actuation_failure_stays_failed_without_raising(tmp_path):
     coordinator = BrainCoordinator(EventJournal(tmp_path / "brain.db"))
     intent = ActionIntent(

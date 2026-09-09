@@ -97,6 +97,10 @@ class FakeFrameBroker:
             "last_acquisition_ms": None,
             "last_frame_bytes": None,
             "frame_id": None,
+            "last_success_at": None,
+            "last_error_at": None,
+            "last_error": None,
+            "frame_age_seconds": None,
         }
 
 
@@ -130,6 +134,52 @@ def configure_readiness_fakes(monkeypatch, llm_health):
         }
 
     monkeypatch.setattr(main, "robot_status", offline_robot)
+
+
+@pytest.mark.anyio
+async def test_lifespan_cleans_partial_startup_without_masking_start_error(monkeypatch):
+    events = []
+
+    class Client:
+        async def aclose(self):
+            events.append("client.closed")
+
+    class Telemetry:
+        async def start(self):
+            events.append("telemetry.started")
+
+        async def shutdown(self):
+            events.append("telemetry.stopped")
+
+    class Actuators:
+        async def start(self):
+            events.append("actuators.starting")
+            raise RuntimeError("actuator start failed")
+
+        async def shutdown(self):
+            events.append("actuators.stopped")
+            raise RuntimeError("actuator shutdown failed")
+
+    client = Client()
+    monkeypatch.setattr(main, "ensure_data_dirs", lambda path: None)
+    monkeypatch.setattr(main, "get_brain_coordinator", lambda: SimpleNamespace())
+    monkeypatch.setattr(main.httpx, "AsyncClient", lambda timeout: client)
+    monkeypatch.setattr(main, "telemetry_service", Telemetry())
+    monkeypatch.setattr(main, "get_actuator_broker", lambda: Actuators())
+
+    with pytest.raises(RuntimeError, match="actuator start failed"):
+        async with main.lifespan(main.app):
+            raise AssertionError("startup failure must prevent serving")
+
+    assert events == [
+        "telemetry.started",
+        "actuators.starting",
+        "actuators.stopped",
+        "telemetry.stopped",
+        "client.closed",
+    ]
+    assert main.event_loop_monitor_task is None
+    assert main.robot_http_client is None
 
 
 def test_system_telemetry_has_approved_sections_canonical_robot_and_no_secrets(monkeypatch):
@@ -180,6 +230,38 @@ def test_system_telemetry_has_approved_sections_canonical_robot_and_no_secrets(m
     assert "supersecret" not in response.text
     assert "private-robot" not in response.text
     assert "private-llm" not in response.text
+
+
+def test_system_telemetry_never_serializes_secrets_from_fault_messages(monkeypatch):
+    health = RecordingLlmHealth("openai_compatible", "gemma4:e4b")
+    configure_readiness_fakes(monkeypatch, health)
+    coordinator = main.get_brain_coordinator()
+    coordinator.register_fault(
+        "credential_transport",
+        "critical",
+        "failed https://admin:url-secret@robot.local/api?token=query-secret#fragment-secret "
+        "api_key=plain-secret Bearer bearer-secret",
+        "corr-secret-telemetry",
+    )
+
+    response = TestClient(main.app).get("/system/telemetry")
+
+    assert response.status_code == 200
+    fault = next(
+        item for item in response.json()["faults"]
+        if item["source"] == "credential_transport"
+    )
+    assert "[redacted-url]" in fault["message"]
+    for secret in (
+        "admin",
+        "url-secret",
+        "robot.local",
+        "query-secret",
+        "fragment-secret",
+        "plain-secret",
+        "bearer-secret",
+    ):
+        assert secret not in response.text
 
 
 def test_health_keeps_liveness_true_but_reports_truthful_not_ready_components(monkeypatch):
@@ -266,6 +348,93 @@ def test_health_is_ready_when_robot_and_llm_are_ready_despite_optional_degradati
     assert payload["components"]["voice"]["status"] == "degraded"
 
 
+def test_camera_readiness_transitions_from_ready_to_failed_to_stale_to_recovered():
+    class Broker:
+        def __init__(self):
+            self.current_status = {}
+
+        def status(self):
+            return self.current_status
+
+    broker = Broker()
+    robot = {"status": "online", "control": {"round_trip_ms": 1.0}}
+    tracking = FakeTrackingService().status()
+    voice = {"status": "ok", "degraded_reasons": []}
+
+    broker.current_status = {
+        "last_success_at": "2026-09-08T00:00:00+00:00",
+        "last_error_at": None,
+        "last_error": None,
+        "last_acquisition_ms": 12.0,
+        "frame_age_seconds": 4.999,
+    }
+    ready = main.readiness_components(robot, tracking, broker, voice)["camera"]
+    assert ready == {
+        "status": "ready",
+        "reason": None,
+        "checked_at": "2026-09-08T00:00:00+00:00",
+        "latency_ms": 12.0,
+    }
+
+    broker.current_status.update(
+        last_error_at="2026-09-08T00:00:01+00:00",
+        last_error="camera acquisition failed (TimeoutError)",
+    )
+    failed = main.readiness_components(robot, tracking, broker, voice)["camera"]
+    assert failed["status"] == "degraded"
+    assert failed["reason"] == "camera acquisition failed (TimeoutError)"
+    assert failed["checked_at"] == "2026-09-08T00:00:01+00:00"
+
+    broker.current_status.update(
+        last_success_at="2026-09-08T00:00:02+00:00",
+        last_error=None,
+        frame_age_seconds=5.001,
+    )
+    stale = main.readiness_components(robot, tracking, broker, voice)["camera"]
+    assert stale["status"] == "stale"
+    assert stale["reason"] == "camera frame is older than 5 seconds"
+
+    broker.current_status.update(
+        last_success_at="2026-09-08T00:00:03+00:00",
+        last_error=None,
+        frame_age_seconds=0.1,
+    )
+    recovered = main.readiness_components(robot, tracking, broker, voice)["camera"]
+    assert recovered["status"] == "ready"
+    assert recovered["reason"] is None
+    assert recovered["checked_at"] == "2026-09-08T00:00:03+00:00"
+
+
+def test_degraded_llm_readiness_uses_one_inference_observation(monkeypatch):
+    health = RecordingLlmHealth("openai_compatible", "gemma4:e4b")
+    health.record_probe(
+        success=True,
+        checked_at="2026-09-08T00:00:00+00:00",
+        latency_ms=10.0,
+    )
+    health.record_inference(
+        success=False,
+        checked_at="2026-09-08T00:00:01+00:00",
+        latency_ms=33.0,
+        error="inference failed (HTTPException)",
+    )
+    monkeypatch.setattr(main, "llm_health", health)
+
+    llm = main.readiness_components(
+        {"status": "online", "control": {"round_trip_ms": 1.0}},
+        FakeTrackingService().status(),
+        FakeFrameBroker(),
+        {"status": "ok", "degraded_reasons": []},
+    )["llm"]
+
+    assert llm == {
+        "status": "degraded",
+        "reason": "inference failed (HTTPException)",
+        "checked_at": "2026-09-08T00:00:01+00:00",
+        "latency_ms": 33.0,
+    }
+
+
 @pytest.mark.anyio
 async def test_call_llm_records_success_and_failure_without_changing_error_behavior(monkeypatch):
     health = RecordingLlmHealth("openai_compatible", "gemma4:e4b")
@@ -312,7 +481,7 @@ async def test_successful_probe_uses_models_endpoint_without_generating_tokens(m
 
     class FakeAsyncClient:
         def __init__(self, timeout):
-            assert timeout == main.settings.llm_timeout
+            assert timeout == 5.0
 
         async def __aenter__(self):
             return self

@@ -10,6 +10,7 @@ from fastapi.testclient import TestClient
 from app import main
 from app.brain_models import SceneSnapshot, WorldState
 from app.frame_broker import CameraFrame
+from app.telemetry import LlmHealthState
 from app.tracking import TrackingStatus
 from app.vision import VisionQueryResult
 
@@ -1003,6 +1004,83 @@ def test_chat_action_invalid_robot_action_returns_safe_error(monkeypatch):
     assert response.json()["action_result"] is None
     assert response.json()["parse_error"].startswith("LLM returned an invalid robot action")
     assert called is False
+
+
+@pytest.mark.parametrize(
+    "model_response",
+    [
+        '{"response":"no","action":{"movement":"left"}}',
+        '{"response":"no","action":{"movement":{"direction":"sideways"}}}',
+        '{"response":"no","action":["forward"]}',
+        '{"response":"no","action":{}}',
+    ],
+)
+def test_chat_action_schema_validation_failure_degrades_llm_and_executes_nothing(
+    monkeypatch,
+    model_response,
+):
+    health = LlmHealthState("openai_compatible", "gemma4:e4b")
+    health.record_probe(
+        success=True,
+        checked_at="2026-09-08T00:00:00+00:00",
+        latency_ms=10.0,
+    )
+    monkeypatch.setattr(main, "llm_health", health)
+    monkeypatch.setattr(main, "llm_client", FakeActionLlmClient(model_response))
+
+    async def invalid_execution(*args, **kwargs):
+        raise AssertionError("invalid model output must not execute")
+
+    monkeypatch.setattr(main, "coordinated_action", invalid_execution)
+
+    response = TestClient(main.app).post(
+        "/chat/action",
+        json={"text": "perform the requested action"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["action_result"] is None
+    assert response.json()["parse_error"].startswith(
+        "LLM returned an invalid robot action"
+    )
+    assert health.snapshot()["status"] == "degraded"
+    assert health.snapshot()["last_inference_success"] is False
+
+
+def test_chat_action_rejects_invalid_action_before_answering_visual_question(monkeypatch):
+    health = LlmHealthState("openai_compatible", "gemma4:e4b")
+    health.record_probe(
+        success=True,
+        checked_at="2026-09-08T00:00:00+00:00",
+        latency_ms=10.0,
+    )
+    monkeypatch.setattr(main, "llm_health", health)
+    monkeypatch.setattr(
+        main,
+        "llm_client",
+        FakeActionLlmClient(
+            '{"response":"I will look","vision_question":"What do you see?",'
+            '"action":{"movement":{"direction":"sideways"}}}'
+        ),
+    )
+
+    async def invalid_visual_answer(*args, **kwargs):
+        raise AssertionError("an invalid action envelope must be rejected first")
+
+    monkeypatch.setattr(main, "answer_visual_question", invalid_visual_answer)
+
+    response = TestClient(main.app).post(
+        "/chat/action",
+        json={"text": "What do you see?"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["action_result"] is None
+    assert response.json()["vision"] is None
+    assert response.json()["parse_error"].startswith(
+        "LLM returned an invalid robot action"
+    )
+    assert health.snapshot()["status"] == "degraded"
 
 
 def test_chat_action_handles_chat_only_json(monkeypatch):

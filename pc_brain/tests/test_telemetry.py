@@ -108,8 +108,11 @@ class FakeGpuProcess:
         self.block = block
         self.returncode = 0
         self.killed = False
+        self.waited = False
+        self.communicating = asyncio.Event()
 
     async def communicate(self):
+        self.communicating.set()
         if self.block:
             await asyncio.Event().wait()
         return self.stdout, self.stderr
@@ -118,6 +121,7 @@ class FakeGpuProcess:
         self.killed = True
 
     async def wait(self):
+        self.waited = True
         self.returncode = -9
 
 
@@ -153,6 +157,35 @@ async def test_nvidia_gpu_sample_parses_one_bounded_non_shell_query():
 
 @pytest.mark.anyio
 @pytest.mark.parametrize(
+    "stdout",
+    [
+        b"NVIDIA RTX, NaN, 1024, 4096\n",
+        b"NVIDIA RTX, Infinity, 1024, 4096\n",
+        b"NVIDIA RTX, -0.1, 1024, 4096\n",
+        b"NVIDIA RTX, 100.1, 1024, 4096\n",
+        b"NVIDIA RTX, 25, -1, 4096\n",
+        b"NVIDIA RTX, 25, 4097, 4096\n",
+        b"NVIDIA RTX, 25, 1024, 1e309\n",
+    ],
+)
+async def test_nvidia_gpu_rejects_non_finite_out_of_range_and_impossible_values(stdout):
+    async def create_process(*args, **kwargs):
+        return FakeGpuProcess(stdout=stdout)
+
+    result = await NvidiaGpuSampler(create_process=create_process).sample()
+
+    assert result == {
+        "available": False,
+        "name": None,
+        "utilization_percent": None,
+        "memory_used_bytes": None,
+        "memory_total_bytes": None,
+        "reason": "malformed nvidia-smi output",
+    }
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
     ("failure", "reason_fragment"),
     (("missing", "not found"), ("timeout", "timed out"), ("malformed", "malformed")),
 )
@@ -180,6 +213,26 @@ async def test_nvidia_gpu_failures_return_structured_unavailable_data(failure, r
     assert reason_fragment in result["reason"]
     if failure == "timeout":
         assert process.killed is True
+
+
+@pytest.mark.anyio
+async def test_nvidia_gpu_cancellation_kills_and_reaps_child_process():
+    process = FakeGpuProcess(block=True)
+
+    async def create_process(*args, **kwargs):
+        return process
+
+    task = asyncio.create_task(
+        NvidiaGpuSampler(create_process=create_process).sample()
+    )
+    await process.communicating.wait()
+    task.cancel()
+
+    with pytest.raises(asyncio.CancelledError):
+        await task
+
+    assert process.killed is True
+    assert process.waited is True
 
 
 def test_llm_health_transitions_and_successful_probe_recovers_readiness():
@@ -268,6 +321,54 @@ async def test_probe_failure_is_unavailable_and_does_not_expose_exception_secret
     assert snapshot["last_probe_latency_ms"] == pytest.approx(25.0)
     assert snapshot["last_probe_error"] == "probe failed (RuntimeError)"
     assert "supersecret" not in str(snapshot)
+
+
+@pytest.mark.anyio
+async def test_delayed_llm_probe_is_cancelled_within_budget_and_loop_continues():
+    probe_calls = 0
+    cancelled_probes = 0
+    sleep_delays = []
+    keep_sleeping = asyncio.Event()
+
+    async def delayed_probe():
+        nonlocal probe_calls, cancelled_probes
+        probe_calls += 1
+        try:
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled_probes += 1
+            raise
+
+    async def recording_sleep(delay):
+        sleep_delays.append(delay)
+        if len(sleep_delays) > 1:
+            await keep_sleeping.wait()
+
+    health = LlmHealthState("openai_compatible", "gemma4:e4b")
+    service = SystemTelemetryService(
+        host_sampler=SimpleNamespace(),
+        llm_health=health,
+        llm_probe=delayed_probe,
+        event_loop_lag=lambda: 0.0,
+        probe_interval_seconds=0.05,
+        probe_timeout_seconds=0.01,
+        sleep=recording_sleep,
+    )
+
+    loop_task = asyncio.create_task(service._probe_loop())
+    for _ in range(100):
+        if len(sleep_delays) >= 2:
+            break
+        await asyncio.sleep(0.002)
+
+    assert probe_calls == 2
+    assert cancelled_probes == 2
+    assert len(sleep_delays) == 2
+    assert 0.0 <= sleep_delays[0] < 0.05
+    assert health.snapshot()["last_probe_error"] == "probe failed (TimeoutError)"
+
+    loop_task.cancel()
+    await asyncio.gather(loop_task, return_exceptions=True)
 
 
 @pytest.mark.anyio

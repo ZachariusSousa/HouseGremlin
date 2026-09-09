@@ -50,6 +50,7 @@ robot_http_client: httpx.AsyncClient | None = None
 robot_status_cache: dict | None = None
 robot_status_cache_at = 0.0
 ROBOT_STATUS_CACHE_SECONDS = 15.0
+CAMERA_READY_MAX_AGE_SECONDS = 5.0
 robot_camera_request_lock = asyncio.Lock()
 brain_journal: EventJournal | None = None
 brain_coordinator: BrainCoordinator | None = None
@@ -82,49 +83,72 @@ async def monitor_event_loop_lag() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global robot_http_client, event_loop_monitor_task
+    actuators = None
+    controller = None
+    broker = None
+    vision = None
+    tracking = None
+    telemetry_started = False
     ensure_data_dirs(settings.data_dir)
     get_brain_coordinator()
-    robot_http_client = httpx.AsyncClient(timeout=settings.request_timeout)
-    event_loop_monitor_task = asyncio.create_task(
-        monitor_event_loop_lag(), name="event-loop-monitor"
-    )
-    await telemetry_service.start()
-    actuators = get_actuator_broker()
-    await actuators.start()
-    controller = get_eye_controller()
-    broker = get_frame_broker()
-    vision = get_vision_service()
-    tracking = get_tracking_service()
-    await controller.start()
-    await broker.start()
     try:
-        robot_status = await robot_get("/api/status")
-        tracking.sync_head_position(robot_status.get("pan"), robot_status.get("tilt"))
-    except Exception as exc:
-        logger.warning("tracking.head_sync_failed error=%s", exc)
-    await tracking.start()
-    await vision.start()
-    if settings.warm_models:
-        await llm_client.warmup()
-    try:
+        robot_http_client = httpx.AsyncClient(timeout=settings.request_timeout)
+        event_loop_monitor_task = asyncio.create_task(
+            monitor_event_loop_lag(), name="event-loop-monitor"
+        )
+        telemetry_started = True
+        await telemetry_service.start()
+        actuators = get_actuator_broker()
+        await actuators.start()
+        controller = get_eye_controller()
+        broker = get_frame_broker()
+        vision = get_vision_service()
+        tracking = get_tracking_service()
+        await controller.start()
+        await broker.start()
+        try:
+            robot_status = await robot_get("/api/status")
+            tracking.sync_head_position(robot_status.get("pan"), robot_status.get("tilt"))
+        except Exception as exc:
+            logger.warning("tracking.head_sync_failed error=%s", exc)
+        await tracking.start()
+        await vision.start()
+        if settings.warm_models:
+            await llm_client.warmup()
         yield
     finally:
-        await telemetry_service.shutdown()
+        async def shutdown_safely(name: str, component) -> None:
+            if component is None:
+                return
+            try:
+                await component.shutdown()
+            except Exception as exc:
+                logger.warning("lifespan.shutdown_failed component=%s error=%s", name, exc)
+
+        await shutdown_safely("realtime_gateway", realtime_gateway)
+        await shutdown_safely("vision", vision)
+        await shutdown_safely("tracking", tracking)
+        await shutdown_safely("frame_broker", broker)
+        await shutdown_safely("eye_controller", controller)
+        await shutdown_safely("actuator_broker", actuators)
+        if telemetry_started:
+            await shutdown_safely("telemetry", telemetry_service)
         if event_loop_monitor_task is not None:
             event_loop_monitor_task.cancel()
             await asyncio.gather(event_loop_monitor_task, return_exceptions=True)
             event_loop_monitor_task = None
-        if realtime_gateway is not None:
-            await realtime_gateway.shutdown()
-        await vision.shutdown()
-        await tracking.shutdown()
-        await broker.shutdown()
-        await controller.shutdown()
-        await actuators.shutdown()
         if brain_journal is not None:
-            brain_journal.close()
-        await robot_http_client.aclose()
-        robot_http_client = None
+            try:
+                brain_journal.close()
+            except Exception as exc:
+                logger.warning("lifespan.shutdown_failed component=journal error=%s", exc)
+        if robot_http_client is not None:
+            try:
+                await robot_http_client.aclose()
+            except Exception as exc:
+                logger.warning("lifespan.shutdown_failed component=http_client error=%s", exc)
+            finally:
+                robot_http_client = None
 
 
 app = FastAPI(title="Robit PC Brain", version="0.2.0", lifespan=lifespan)
@@ -1088,7 +1112,24 @@ def readiness_components(robot: dict, tracking, broker, voice_health: dict) -> d
         llm_reason = "LLM has not been probed"
 
     camera_status = broker.status()
-    camera_ready = broker.latest is not None
+    camera_age = camera_status.get("frame_age_seconds")
+    camera_error = camera_status.get("last_error")
+    if camera_error:
+        camera_component_status = "degraded"
+        camera_reason = camera_error
+        camera_checked_at = camera_status.get("last_error_at")
+    elif camera_age is None:
+        camera_component_status = "degraded"
+        camera_reason = "no camera frame is available"
+        camera_checked_at = camera_status.get("last_success_at") or checked_at
+    elif camera_age > CAMERA_READY_MAX_AGE_SECONDS:
+        camera_component_status = "stale"
+        camera_reason = "camera frame is older than 5 seconds"
+        camera_checked_at = camera_status.get("last_success_at")
+    else:
+        camera_component_status = "ready"
+        camera_reason = None
+        camera_checked_at = camera_status.get("last_success_at")
     tracking_ready = bool(tracking.available)
     voice_ready = voice_health["status"] == "ok"
     return {
@@ -1101,7 +1142,11 @@ def readiness_components(robot: dict, tracking, broker, voice_health: dict) -> d
         "llm": {
             "status": llm_status,
             "reason": llm_reason,
-            "checked_at": llm["last_probe_at"],
+            "checked_at": (
+                llm["last_inference_at"]
+                if llm_status == "degraded"
+                else llm["last_probe_at"]
+            ),
             "latency_ms": (
                 llm["last_inference_latency_ms"]
                 if llm_status == "degraded"
@@ -1115,9 +1160,9 @@ def readiness_components(robot: dict, tracking, broker, voice_health: dict) -> d
             "latency_ms": tracking.detector_latency_ms,
         },
         "camera": {
-            "status": "ready" if camera_ready else "degraded",
-            "reason": None if camera_ready else "no camera frame is available",
-            "checked_at": checked_at,
+            "status": camera_component_status,
+            "reason": camera_reason,
+            "checked_at": camera_checked_at,
             "latency_ms": camera_status.get("last_acquisition_ms"),
         },
         "voice": {
@@ -1459,6 +1504,29 @@ async def chat_action(chat_request: ChatActionRequest, request: Request):
     parsed = parse_action_response(chat_result.response)
     if parsed is None:
         llm_health.mark_last_inference_malformed("malformed action response")
+    response_text = str(parsed.get("response") or "").strip() if parsed else ""
+    action_body = parsed.get("action") if parsed else None
+    action = None
+    if action_body is not None:
+        try:
+            if not isinstance(action_body, dict):
+                raise ValueError("action must be an object or null")
+            action = RobotActionRequest.model_validate(normalize_llm_action_body(action_body))
+            require_model_eye_expression(action)
+        except (ValidationError, ValueError) as exc:
+            llm_health.mark_last_inference_malformed("malformed action response")
+            coordinator.record_turn("assistant", response_text, EventSource.text_model, correlation_id)
+            coordinator.transition(correlation_id, EventSource.text_model, conversation=ConversationState.idle)
+            return {
+                "response": response_text,
+                "model": chat_result.model,
+                "conversation_id": chat_request.conversation_id,
+                "correlation_id": correlation_id,
+                "action": action_body if isinstance(action_body, dict) else None,
+                "action_result": None,
+                "vision": None,
+                "parse_error": f"LLM returned an invalid robot action; no robot action was executed: {exc}",
+            }
     vision_question = explicit_visual_question(chat_request.text)
     if parsed is not None and isinstance(parsed.get("vision_question"), str):
         vision_question = parsed["vision_question"].strip() or vision_question
@@ -1495,26 +1563,8 @@ async def chat_action(chat_request: ChatActionRequest, request: Request):
             "parse_error": "LLM did not return strict JSON; no robot action was executed.",
         }
 
-    response_text = str(parsed.get("response") or "").strip()
-    action_body = parsed.get("action")
     action_result = None
-    if isinstance(action_body, dict) and action_body:
-        try:
-            action = RobotActionRequest.model_validate(normalize_llm_action_body(action_body))
-            require_model_eye_expression(action)
-        except (ValidationError, ValueError) as exc:
-            coordinator.record_turn("assistant", response_text, EventSource.text_model, correlation_id)
-            coordinator.transition(correlation_id, EventSource.text_model, conversation=ConversationState.idle)
-            return {
-                "response": response_text or parsed.get("response") or "",
-                "model": chat_result.model,
-                "conversation_id": chat_request.conversation_id,
-                "correlation_id": correlation_id,
-                "action": action_body,
-                "action_result": None,
-                "vision": None,
-                "parse_error": f"LLM returned an invalid robot action; no robot action was executed: {exc}",
-            }
+    if action is not None:
         action_result = await coordinated_action(
             action,
             EventSource.text_model,
