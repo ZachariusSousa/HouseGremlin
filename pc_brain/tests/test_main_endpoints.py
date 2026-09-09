@@ -1047,6 +1047,46 @@ def test_chat_action_schema_validation_failure_degrades_llm_and_executes_nothing
     assert health.snapshot()["last_inference_success"] is False
 
 
+@pytest.mark.parametrize("constant", ["NaN", "Infinity", "-Infinity"])
+def test_chat_action_rejects_nonstandard_json_constants_without_execution(
+    monkeypatch,
+    constant,
+):
+    health = LlmHealthState("openai_compatible", "gemma4:e4b")
+    health.record_probe(
+        success=True,
+        checked_at="2026-09-08T00:00:00+00:00",
+        latency_ms=10.0,
+    )
+    monkeypatch.setattr(main, "llm_health", health)
+    monkeypatch.setattr(
+        main,
+        "llm_client",
+        FakeActionLlmClient(
+            '{"response":"moving","action":{"movement":'
+            '{"direction":"forward","duration_ms":%s}}}' % constant
+        ),
+    )
+
+    async def invalid_execution(*args, **kwargs):
+        raise AssertionError("non-standard JSON must not execute")
+
+    monkeypatch.setattr(main, "coordinated_action", invalid_execution)
+
+    response = TestClient(main.app).post(
+        "/chat/action",
+        json={"text": "move forward"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["action_result"] is None
+    assert response.json()["parse_error"].startswith(
+        "LLM did not return strict JSON"
+    )
+    assert health.snapshot()["status"] == "degraded"
+    assert health.snapshot()["last_inference_success"] is False
+
+
 def test_chat_action_rejects_invalid_action_before_answering_visual_question(monkeypatch):
     health = LlmHealthState("openai_compatible", "gemma4:e4b")
     health.record_probe(

@@ -984,9 +984,12 @@ async def call_llm(
 
 
 def parse_action_response(content: str) -> dict | None:
+    def reject_nonstandard_constant(value: str):
+        raise ValueError(f"non-standard JSON constant: {value}")
+
     try:
-        parsed = json.loads(content)
-    except json.JSONDecodeError:
+        parsed = json.loads(content, parse_constant=reject_nonstandard_constant)
+    except (json.JSONDecodeError, ValueError):
         return None
     return parsed if isinstance(parsed, dict) else None
 
@@ -1513,7 +1516,7 @@ async def chat_action(chat_request: ChatActionRequest, request: Request):
                 raise ValueError("action must be an object or null")
             action = RobotActionRequest.model_validate(normalize_llm_action_body(action_body))
             require_model_eye_expression(action)
-        except (ValidationError, ValueError) as exc:
+        except (ValidationError, ValueError, OverflowError) as exc:
             llm_health.mark_last_inference_malformed("malformed action response")
             coordinator.record_turn("assistant", response_text, EventSource.text_model, correlation_id)
             coordinator.transition(correlation_id, EventSource.text_model, conversation=ConversationState.idle)

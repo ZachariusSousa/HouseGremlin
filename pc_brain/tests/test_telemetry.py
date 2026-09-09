@@ -352,6 +352,7 @@ async def test_delayed_llm_probe_is_cancelled_within_budget_and_loop_continues()
         event_loop_lag=lambda: 0.0,
         probe_interval_seconds=0.05,
         probe_timeout_seconds=0.01,
+        monotonic=lambda: 100.0,
         sleep=recording_sleep,
     )
 
@@ -364,7 +365,7 @@ async def test_delayed_llm_probe_is_cancelled_within_budget_and_loop_continues()
     assert probe_calls == 2
     assert cancelled_probes == 2
     assert len(sleep_delays) == 2
-    assert 0.0 <= sleep_delays[0] < 0.05
+    assert 0.0 <= sleep_delays[0] <= 0.05
     assert health.snapshot()["last_probe_error"] == "probe failed (TimeoutError)"
 
     loop_task.cancel()

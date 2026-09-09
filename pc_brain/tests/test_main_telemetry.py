@@ -239,8 +239,10 @@ def test_system_telemetry_never_serializes_secrets_from_fault_messages(monkeypat
     coordinator.register_fault(
         "credential_transport",
         "critical",
-        "failed https://admin:url-secret@robot.local/api?token=query-secret#fragment-secret "
-        "api_key=plain-secret Bearer bearer-secret",
+        "websocket failed wss://alice:url-secret@robot.local/live"
+        "?token=query-secret#fragment-secret while reconnecting "
+        "api_key=plain-secret Authorization: Basic basic-secret "
+        "Authorization: Bearer bearer-secret",
         "corr-secret-telemetry",
     )
 
@@ -252,16 +254,22 @@ def test_system_telemetry_never_serializes_secrets_from_fault_messages(monkeypat
         if item["source"] == "credential_transport"
     )
     assert "[redacted-url]" in fault["message"]
+    assert "Authorization: Basic [redacted]" in fault["message"]
+    assert "Authorization: Bearer [redacted]" in fault["message"]
     for secret in (
-        "admin",
+        "alice",
         "url-secret",
         "robot.local",
         "query-secret",
         "fragment-secret",
         "plain-secret",
+        "basic-secret",
         "bearer-secret",
     ):
         assert secret not in response.text
+    assert "websocket failed" in fault["message"]
+    assert "while reconnecting" in fault["message"]
+    assert len(fault["message"]) <= 500
 
 
 def test_health_keeps_liveness_true_but_reports_truthful_not_ready_components(monkeypatch):
