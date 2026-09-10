@@ -12,6 +12,7 @@
 #include "motors.h"
 #include "robot_state.h"
 #include "servos.h"
+#include "telemetry_serialization.h"
 
 namespace {
 constexpr size_t MAX_CONTROL_MESSAGE_BYTES = 512;
@@ -110,39 +111,39 @@ void sendLine(const String& payload) {
   controlClient.print('\n');
 }
 
+robit::telemetry::StateSnapshot controlStateSnapshot() {
+  robit::telemetry::StateSnapshot snapshot;
+  snapshot.movement = robotState.movement.c_str();
+  snapshot.speed = robotState.motorSpeed;
+  snapshot.pan = robotState.panAngle;
+  snapshot.tilt = robotState.tiltAngle;
+  snapshot.pan_actual = getActualPanAngle();
+  snapshot.tilt_actual = getActualTiltAngle();
+  snapshot.pan_target = getTargetPanAngle();
+  snapshot.tilt_target = getTargetTiltAngle();
+  snapshot.eyes = robotState.eyeExpression.c_str();
+  snapshot.wifi_rssi = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0;
+  snapshot.camera_enabled = robotState.cameraEnabled;
+  snapshot.heartbeat_armed = isBrainHeartbeatArmed();
+  snapshot.heartbeat_fault = isBrainHeartbeatFaultActive();
+  snapshot.uptime_ms = millis();
+  snapshot.wifi_mode = robotState.apFallback ? "ap" : "sta";
+  snapshot.heap_free_bytes = ESP.getFreeHeap();
+  snapshot.heap_min_free_bytes = ESP.getMinFreeHeap();
+  snapshot.heap_total_bytes = ESP.getHeapSize();
+  // ESP32 reports zero for these values if PSRAM is unsupported.
+  snapshot.psram_free_bytes = ESP.getFreePsram();
+  snapshot.psram_total_bytes = ESP.getPsramSize();
+  snapshot.control_last_receive_age_ms = controlLastReceiveAgeMs();
+  return snapshot;
+}
+
 String compactStateJson(bool includeHealth = false) {
-  String json = "{";
-  json += "\"movement\":\"" + jsonEscape(robotState.movement) + "\",";
-  json += "\"speed\":" + String(robotState.motorSpeed) + ",";
-  json += "\"pan_actual\":" + String(getActualPanAngle()) + ",";
-  json += "\"tilt_actual\":" + String(getActualTiltAngle()) + ",";
-  json += "\"pan_target\":" + String(getTargetPanAngle()) + ",";
-  json += "\"tilt_target\":" + String(getTargetTiltAngle()) + ",";
-  json += "\"eyes\":\"" + jsonEscape(robotState.eyeExpression) + "\",";
-  json += "\"wifi_rssi\":" + String(WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0) + ",";
-  json += "\"camera\":" + String(robotState.cameraEnabled ? "true" : "false") + ",";
-  json += "\"fault\":" + String(isBrainHeartbeatFaultActive() ? "true" : "false");
-  if (!includeHealth) {
-    json += "}";
-    return json;
-  }
-  json += ",";
-  // Compact keys keep the persistent protocol-v1 telemetry comfortably within
-  // its 512-byte line bound. The PC normalizer expands these to descriptive
-  // status fields; existing descriptive keys above remain unchanged.
-  json += "\"u\":" + String(millis()) + ",";
-  json += "\"wm\":\"" + String(robotState.apFallback ? "ap" : "sta") + "\",";
-  json += "\"hf\":" + String(ESP.getFreeHeap()) + ",";
-  json += "\"hm\":" + String(ESP.getMinFreeHeap()) + ",";
-  json += "\"ht\":" + String(ESP.getHeapSize()) + ",";
-  // ESP32 returns zero for PSRAM functions when the board has no PSRAM; this
-  // is intentionally reported rather than inventing a capacity.
-  json += "\"pf\":" + String(ESP.getFreePsram()) + ",";
-  json += "\"pt\":" + String(ESP.getPsramSize()) + ",";
-  json += "\"ha\":" + String(isBrainHeartbeatArmed() ? "true" : "false") + ",";
-  json += "\"ca\":" + String(controlLastReceiveAgeMs());
-  json += "}";
-  return json;
+  const robit::telemetry::StateSnapshot snapshot = controlStateSnapshot();
+  const std::string json = includeHealth
+    ? robit::telemetry::telemetryStateJson(snapshot)
+    : robit::telemetry::legacyStateJson(snapshot);
+  return String(json.c_str());
 }
 
 void sendAck(unsigned long sequence, const String& status, const String& detail = "") {
@@ -155,10 +156,11 @@ void sendAck(unsigned long sequence, const String& status, const String& detail 
 }
 
 void sendTelemetry() {
-  String json = "{\"v\":1,\"type\":\"telemetry\",\"session\":\"" + jsonEscape(activeSession) + "\"";
-  json += ",\"last_seq\":" + String(lastAcceptedSequence);
-  json += ",\"state\":" + compactStateJson(true) + "}";
-  sendLine(json);
+  const robit::telemetry::StateSnapshot snapshot = controlStateSnapshot();
+  const std::string packet = robit::telemetry::telemetryPacketJson(
+    activeSession.c_str(), lastAcceptedSequence, snapshot
+  );
+  sendLine(String(packet.c_str()));
   lastTelemetryAt = millis();
   telemetryDirty = false;
   lastObservedMovement = robotState.movement;

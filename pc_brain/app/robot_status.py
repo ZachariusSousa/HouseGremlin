@@ -73,6 +73,7 @@ def normalize_robot_status(
     protocol = _first(raw, "protocol", "protocol_version")
     if protocol is None:
         protocol = control.get("protocol")
+    wifi_mode = _first(raw, "wifi_mode", "mode", "wm")
 
     return {
         "ok": status in {"online", "stale"},
@@ -99,7 +100,7 @@ def normalize_robot_status(
             "ip": _first(raw, "ip"),
             "hostname": _first(raw, "hostname"),
             "wifi": {
-                "mode": _first(raw, "wifi_mode", "mode", "wm"),
+                "mode": wifi_mode,
                 "rssi": _first(raw, "wifi_rssi", "rssi"),
             },
             "memory": {
@@ -139,7 +140,7 @@ def normalize_robot_status(
         # Flat aliases keep the current public status consumers working while
         # new telemetry uses the canonical nested structures above.
         "control_channel": "ready" if connected and ready else "disconnected",
-        "mode": _first(raw, "mode", "wifi_mode"),
+        "mode": wifi_mode,
         "pan": actual_pan,
         "tilt": actual_tilt,
         "pan_actual": actual_pan,
