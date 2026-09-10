@@ -477,6 +477,41 @@ async def test_call_llm_records_success_and_failure_without_changing_error_behav
 
 
 @pytest.mark.anyio
+async def test_warmup_failure_and_recovery_update_shared_llm_health(monkeypatch):
+    health = RecordingLlmHealth("openai_compatible", "gemma4:e4b")
+    monkeypatch.setattr(main, "llm_health", health, raising=False)
+
+    class RecoveringWarmupClient:
+        def __init__(self):
+            self.failure = HTTPException(status_code=502, detail="warmup timed out")
+
+        async def warmup(self):
+            if self.failure is not None:
+                failure = self.failure
+                self.failure = None
+                raise failure
+
+    monkeypatch.setattr(main, "llm_client", RecoveringWarmupClient())
+
+    with pytest.raises(HTTPException, match="warmup timed out"):
+        await main.call_llm("warmup", None, [], include_live_scene=False)
+
+    failed = health.snapshot()
+    assert failed["status"] == "degraded"
+    assert failed["last_inference_success"] is False
+    assert failed["last_inference_error"] == "inference failed (HTTPException)"
+    assert failed["last_inference_latency_ms"] >= 0.0
+
+    await main.call_llm("warmup", None, [], include_live_scene=False)
+
+    recovered = health.snapshot()
+    assert recovered["status"] == "ready"
+    assert recovered["last_inference_success"] is True
+    assert recovered["last_inference_error"] is None
+    assert recovered["last_inference_latency_ms"] >= 0.0
+
+
+@pytest.mark.anyio
 async def test_successful_probe_uses_models_endpoint_without_generating_tokens(monkeypatch):
     requested = []
 

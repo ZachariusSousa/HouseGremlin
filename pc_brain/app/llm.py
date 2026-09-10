@@ -1,8 +1,11 @@
+import re
 from dataclasses import dataclass
 
 import httpx
 from fastapi import HTTPException
+from pydantic import BaseModel
 
+from .action_models import ActionChatOutput
 from .config import Settings
 from .timing import timed
 
@@ -53,6 +56,8 @@ class OpenAICompatibleChatClient:
         system_prompt: str = SYSTEM_PROMPT,
         num_predict: int = 60,
         history: list[dict[str, str]] | None = None,
+        response_model: type[BaseModel] | None = None,
+        response_schema_name: str | None = None,
     ) -> dict:
         messages = [{"role": "system", "content": system_prompt}]
         messages.extend(history or [])
@@ -66,6 +71,15 @@ class OpenAICompatibleChatClient:
         }
         if self.settings.llm_think is False:
             payload["think"] = False
+        if response_model is not None:
+            payload["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": response_schema_name or response_model.__name__,
+                    "strict": True,
+                    "schema": response_model.model_json_schema(),
+                },
+            }
         return payload
 
     @staticmethod
@@ -93,12 +107,28 @@ class OpenAICompatibleChatClient:
                     parts.append(content.get("text", ""))
         return " ".join(parts).strip()
 
+    @staticmethod
+    def _provider_rejected_response_format(response: httpx.Response) -> bool:
+        if response.status_code not in {400, 404, 422}:
+            return False
+        detail = response.text.lower()
+        capability_rejection_patterns = (
+            r"\bresponse[_ ]format\b.{0,32}\b(?:is |are )?not supported\b",
+            r"\bjson[_ ]schema\b.{0,32}\b(?:is |are )?not supported\b",
+            r"\bstructured outputs?\b.{0,32}\b(?:is |are )?not supported\b",
+            r"\b(?:unsupported|unknown|unrecognized)\s+(?:parameter|field)[: ]+response[_ ]format\b",
+            r"\b(?:does not|doesn't) support\b.{0,32}\bresponse[_ ]format\b",
+        )
+        return any(re.search(pattern, detail) for pattern in capability_rejection_patterns)
+
     async def _chat_with_prompt(
         self,
         text: str,
         system_prompt: str,
         num_predict: int,
         history: list[dict[str, str]] | None = None,
+        response_model: type[BaseModel] | None = None,
+        response_schema_name: str | None = None,
     ) -> ChatResult:
         stripped = text.strip()
         if not stripped:
@@ -109,12 +139,37 @@ class OpenAICompatibleChatClient:
         try:
             async with httpx.AsyncClient(timeout=self.settings.llm_timeout) as client:
                 with timed("llm.chat.http", model=self.settings.llm_model, prompt_chars=len(stripped)):
+                    payload = self._payload(
+                        stripped,
+                        system_prompt,
+                        num_predict,
+                        history,
+                        response_model,
+                        response_schema_name,
+                    )
                     response = await client.post(
                         f"{self.settings.llm_base_url}/chat/completions",
                         headers={"authorization": "Bearer local"},
-                        json=self._payload(stripped, system_prompt, num_predict, history),
+                        json=payload,
                     )
-                response.raise_for_status()
+                    try:
+                        response.raise_for_status()
+                    except httpx.HTTPStatusError:
+                        if response_model is None or not self._provider_rejected_response_format(
+                            response
+                        ):
+                            raise
+                        response = await client.post(
+                            f"{self.settings.llm_base_url}/chat/completions",
+                            headers={"authorization": "Bearer local"},
+                            json=self._payload(
+                                stripped,
+                                system_prompt,
+                                num_predict,
+                                history,
+                            ),
+                        )
+                        response.raise_for_status()
         except httpx.HTTPError as exc:
             raise HTTPException(status_code=502, detail=f"OpenAI-compatible chat request failed: {exc}") from exc
 
@@ -127,7 +182,14 @@ class OpenAICompatibleChatClient:
         return await self._chat_with_prompt(text, SYSTEM_PROMPT, 60, history)
 
     async def action_chat(self, text: str, history: list[dict[str, str]] | None = None) -> ChatResult:
-        return await self._chat_with_prompt(text, ACTION_SYSTEM_PROMPT, 220, history)
+        return await self._chat_with_prompt(
+            text,
+            ACTION_SYSTEM_PROMPT,
+            220,
+            history,
+            ActionChatOutput,
+            "robit_action",
+        )
 
     async def probe_models(self) -> None:
         if self.settings.llm_provider != "openai_compatible":
@@ -146,7 +208,4 @@ class OpenAICompatibleChatClient:
             raise RuntimeError("OpenAI-compatible model probe returned malformed data")
 
     async def warmup(self) -> None:
-        try:
-            await self.chat("Say ready.")
-        except HTTPException:
-            return
+        await self.chat("Say ready.")

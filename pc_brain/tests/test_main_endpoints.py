@@ -1009,6 +1009,45 @@ def test_chat_action_invalid_robot_action_returns_safe_error(monkeypatch):
 @pytest.mark.parametrize(
     "model_response",
     [
+        '{"action":{"movement":{"direction":"left"}}}',
+        (
+            '{"response":"turning","action":{"movement":{"direction":"left"}},'
+            '"unexpected":true}'
+        ),
+    ],
+)
+def test_chat_action_invalid_envelope_never_reaches_action_executor(
+    monkeypatch,
+    model_response,
+):
+    health = LlmHealthState("openai_compatible", "gemma4:e4b")
+    health.record_probe(
+        success=True,
+        checked_at="2026-09-08T00:00:00+00:00",
+        latency_ms=10.0,
+    )
+    monkeypatch.setattr(main, "llm_health", health)
+    monkeypatch.setattr(main, "llm_client", FakeActionLlmClient(model_response))
+
+    async def invalid_execution(*args, **kwargs):
+        raise AssertionError("an invalid action envelope must not execute")
+
+    monkeypatch.setattr(main, "coordinated_action", invalid_execution)
+
+    response = TestClient(main.app).post(
+        "/chat/action", json={"text": "perform the requested action"}
+    )
+
+    assert response.status_code == 200
+    assert response.json()["action_result"] is None
+    assert response.json()["parse_error"]
+    assert health.snapshot()["status"] == "degraded"
+    assert health.snapshot()["last_inference_success"] is False
+
+
+@pytest.mark.parametrize(
+    "model_response",
+    [
         '{"response":"no","action":{"movement":"left"}}',
         '{"response":"no","action":{"movement":{"direction":"sideways"}}}',
         '{"response":"no","action":["forward"]}',
@@ -1152,3 +1191,63 @@ def test_chat_action_invalid_json_does_not_move(monkeypatch):
     assert response.json()["action_result"] is None
     assert response.json()["parse_error"]
     assert called is False
+
+
+def test_chat_action_parse_failure_then_valid_output_recovers_health(monkeypatch):
+    health = LlmHealthState("openai_compatible", "gemma4:e4b")
+    health.record_probe(
+        success=True,
+        checked_at="2026-09-08T00:00:00+00:00",
+        latency_ms=10.0,
+    )
+    responses = [
+        "plain text reply",
+        '{"response":"turning","action":{"movement":{"direction":"left"}}}',
+    ]
+
+    class RecoveringActionLlmClient:
+        async def action_chat(self, text):
+            return FakeChatResult(response=responses.pop(0), model="gemma4:e4b")
+
+    executed = []
+
+    async def record_validated_action(action, *args, **kwargs):
+        executed.append(action)
+        return {"ok": True}
+
+    monkeypatch.setattr(main, "llm_health", health)
+    monkeypatch.setattr(main, "llm_client", RecoveringActionLlmClient())
+    monkeypatch.setattr(main, "coordinated_action", record_validated_action)
+    client = TestClient(main.app)
+
+    malformed = client.post(
+        "/chat/action", json={"text": "perform the requested action"}
+    )
+
+    assert malformed.status_code == 200
+    assert malformed.json()["action_result"] is None
+    assert malformed.json()["parse_error"].startswith(
+        "LLM did not return strict JSON"
+    )
+    failed = health.snapshot()
+    assert failed["status"] == "degraded"
+    assert failed["last_inference_success"] is False
+    assert failed["last_inference_error"] == "malformed action response"
+    assert failed["last_inference_latency_ms"] >= 0.0
+    assert executed == []
+
+    valid = client.post(
+        "/chat/action", json={"text": "perform the requested action"}
+    )
+
+    assert valid.status_code == 200
+    assert valid.json()["parse_error"] is None
+    assert valid.json()["action_result"] == {"ok": True}
+    recovered = health.snapshot()
+    assert recovered["status"] == "ready"
+    assert recovered["last_inference_success"] is True
+    assert recovered["last_inference_error"] is None
+    assert recovered["last_inference_latency_ms"] >= 0.0
+    assert len(executed) == 1
+    assert executed[0].movement is not None
+    assert executed[0].movement.direction == "left"

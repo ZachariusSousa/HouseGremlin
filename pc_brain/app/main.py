@@ -16,10 +16,17 @@ import httpx
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
-from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from .action_models import (
+    ActionChatOutput,
+    EyeAction,
+    HeadAction,
+    MovementAction,
+    RobotActionRequest,
+)
 from .audio_utils import ensure_data_dirs
-from .brain_models import ActionIntent, ConversationState, EventSource, EyeExpression, WorkPriority
+from .brain_models import ActionIntent, ConversationState, EventSource, WorkPriority
 from .config import settings
 from .control_channel import ActuatorBroker, ControlChannelClient
 from .coordinator import BrainCoordinator
@@ -114,7 +121,7 @@ async def lifespan(app: FastAPI):
         await tracking.start()
         await vision.start()
         if settings.warm_models:
-            await llm_client.warmup()
+            await call_llm("warmup", None, [], include_live_scene=False)
         yield
     finally:
         async def shutdown_safely(name: str, component) -> None:
@@ -193,42 +200,6 @@ class DriveCommand(StrictRequest):
 class HeadCommand(StrictRequest):
     pan: int | None = Field(default=None, ge=55, le=135)
     tilt: int | None = Field(default=None, ge=35, le=115)
-
-
-class MovementAction(StrictRequest):
-    direction: Literal["forward", "reverse", "left", "right", "stop"]
-    speed: int | None = Field(default=None, ge=0, le=255)
-    duration_ms: int | None = Field(default=None, ge=0)
-
-
-class HeadAction(StrictRequest):
-    pan: int | None = Field(default=None, ge=55, le=135)
-    tilt: int | None = Field(default=None, ge=35, le=115)
-    pan_delta: int | None = Field(default=None, ge=-80, le=80)
-    tilt_delta: int | None = Field(default=None, ge=-80, le=80)
-
-    @model_validator(mode="after")
-    def require_head_value(self):
-        if all(value is None for value in (self.pan, self.tilt, self.pan_delta, self.tilt_delta)):
-            raise ValueError("at least one head value is required")
-        return self
-
-
-class EyeAction(StrictRequest):
-    expression: EyeExpression
-    duration_ms: int | None = Field(default=None, ge=0, le=10000)
-
-
-class RobotActionRequest(StrictRequest):
-    movement: MovementAction | None = None
-    head: HeadAction | None = None
-    eyes: EyeAction | None = None
-
-    @model_validator(mode="after")
-    def require_action(self):
-        if not any((self.movement, self.head, self.eyes)):
-            raise ValueError("at least one robot action is required")
-        return self
 
 
 class ChatRequest(StrictRequest):
@@ -954,16 +925,22 @@ def prompt_with_live_scene(text: str) -> str:
 
 async def call_llm(
     method_name: str,
-    text: str,
+    text: str | None,
     history: list[dict[str, str]],
     include_live_scene: bool = True,
 ):
     method = getattr(llm_client, method_name)
-    prompt = prompt_with_live_scene(text) if include_live_scene else text
+    prompt = (
+        prompt_with_live_scene(text)
+        if include_live_scene and text is not None
+        else text
+    )
     started_at = time.monotonic()
     try:
         async with get_brain_coordinator().resource_lease.acquire(WorkPriority.foreground):
-            if "history" in inspect.signature(method).parameters:
+            if prompt is None:
+                result = await method()
+            elif "history" in inspect.signature(method).parameters:
                 result = await method(prompt, history=history)
             else:
                 result = await method(prompt)
@@ -1510,12 +1487,16 @@ async def chat_action(chat_request: ChatActionRequest, request: Request):
     response_text = str(parsed.get("response") or "").strip() if parsed else ""
     action_body = parsed.get("action") if parsed else None
     action = None
-    if action_body is not None:
+    validated_output = None
+    if parsed is not None:
         try:
-            if not isinstance(action_body, dict):
-                raise ValueError("action must be an object or null")
-            action = RobotActionRequest.model_validate(normalize_llm_action_body(action_body))
-            require_model_eye_expression(action)
+            normalized_output = dict(parsed)
+            if isinstance(action_body, dict):
+                normalized_output["action"] = normalize_llm_action_body(action_body)
+            validated_output = ActionChatOutput.model_validate(normalized_output)
+            action = validated_output.action
+            if action is not None:
+                require_model_eye_expression(action)
         except (ValidationError, ValueError, OverflowError) as exc:
             llm_health.mark_last_inference_malformed("malformed action response")
             coordinator.record_turn("assistant", response_text, EventSource.text_model, correlation_id)
@@ -1531,8 +1512,8 @@ async def chat_action(chat_request: ChatActionRequest, request: Request):
                 "parse_error": f"LLM returned an invalid robot action; no robot action was executed: {exc}",
             }
     vision_question = explicit_visual_question(chat_request.text)
-    if parsed is not None and isinstance(parsed.get("vision_question"), str):
-        vision_question = parsed["vision_question"].strip() or vision_question
+    if validated_output is not None and validated_output.vision_question is not None:
+        vision_question = validated_output.vision_question.strip() or vision_question
     if vision_question:
         try:
             response_text, model, vision = await answer_visual_question(vision_question, history, correlation_id)
