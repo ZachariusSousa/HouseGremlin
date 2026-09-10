@@ -182,6 +182,71 @@ async def test_lifespan_cleans_partial_startup_without_masking_start_error(monke
     assert main.robot_http_client is None
 
 
+@pytest.mark.anyio
+async def test_lifespan_continues_after_recorded_http_warmup_failure(
+    monkeypatch,
+    tmp_path,
+    caplog,
+):
+    class Component:
+        async def start(self):
+            return None
+
+        async def shutdown(self):
+            return None
+
+    class Tracking(Component):
+        def sync_head_position(self, pan, tilt):
+            return None
+
+    class RobotHttpClient:
+        async def aclose(self):
+            return None
+
+    class FailingWarmupClient:
+        async def warmup(self):
+            raise HTTPException(
+                status_code=502,
+                detail="http://user:supersecret@private-llm/v1 timed out",
+            )
+
+    async def robot_status(path):
+        return {"pan": 90, "tilt": 90}
+
+    health = RecordingLlmHealth("openai_compatible", "gemma4:e4b")
+    component = Component()
+    tracking = Tracking()
+    monkeypatch.setattr(
+        main,
+        "settings",
+        SimpleNamespace(data_dir=tmp_path, request_timeout=2.0, warm_models=True),
+    )
+    monkeypatch.setattr(main, "ensure_data_dirs", lambda path: None)
+    monkeypatch.setattr(main.httpx, "AsyncClient", lambda timeout: RobotHttpClient())
+    monkeypatch.setattr(main, "telemetry_service", component)
+    monkeypatch.setattr(main, "get_actuator_broker", lambda: component)
+    monkeypatch.setattr(main, "get_eye_controller", lambda: component)
+    monkeypatch.setattr(main, "get_frame_broker", lambda: component)
+    monkeypatch.setattr(main, "get_vision_service", lambda: component)
+    monkeypatch.setattr(main, "get_tracking_service", lambda: tracking)
+    monkeypatch.setattr(main, "robot_get", robot_status)
+    monkeypatch.setattr(main, "llm_client", FailingWarmupClient())
+    monkeypatch.setattr(main, "llm_health", health)
+    caplog.set_level("WARNING", logger="uvicorn.error")
+
+    reached_serving_yield = False
+    async with main.lifespan(main.app):
+        reached_serving_yield = True
+
+    assert reached_serving_yield is True
+    snapshot = health.snapshot()
+    assert snapshot["status"] == "degraded"
+    assert snapshot["last_inference_success"] is False
+    assert snapshot["last_inference_error"] == "inference failed (HTTPException)"
+    assert "llm.warmup_failed status_code=502" in caplog.text
+    assert "supersecret" not in caplog.text
+
+
 def test_system_telemetry_has_approved_sections_canonical_robot_and_no_secrets(monkeypatch):
     health = RecordingLlmHealth("openai_compatible", "gemma4:e4b")
     configure_readiness_fakes(monkeypatch, health)

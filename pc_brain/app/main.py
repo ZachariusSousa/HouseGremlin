@@ -121,7 +121,10 @@ async def lifespan(app: FastAPI):
         await tracking.start()
         await vision.start()
         if settings.warm_models:
-            await call_llm("warmup", None, [], include_live_scene=False)
+            try:
+                await call_llm("warmup", None, [], include_live_scene=False)
+            except HTTPException as exc:
+                logger.warning("llm.warmup_failed status_code=%s", exc.status_code)
         yield
     finally:
         async def shutdown_safely(name: str, component) -> None:

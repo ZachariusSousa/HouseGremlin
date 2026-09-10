@@ -141,6 +141,37 @@ async def test_action_chat_retries_once_without_schema_when_provider_rejects_cap
 
 
 @pytest.mark.anyio
+async def test_action_chat_uses_structured_error_fields_for_capability_rejection(
+    monkeypatch,
+):
+    requests = []
+    install_scripted_http_client(
+        monkeypatch,
+        [
+            chat_response(
+                "",
+                status_code=400,
+                error={
+                    "error": {
+                        "code": "unsupported_parameter",
+                        "param": "response_format",
+                        "message": "This request parameter is unavailable.",
+                    }
+                },
+            ),
+            chat_response('{"response":"turning","action":null}'),
+        ],
+        requests,
+    )
+
+    result = await OpenAICompatibleChatClient(settings_for_test()).action_chat("turn left")
+
+    assert result.response == '{"response":"turning","action":null}'
+    assert len(requests) == 2
+    assert "response_format" not in requests[1]["json"]
+
+
+@pytest.mark.anyio
 async def test_action_chat_does_not_fallback_when_provider_reports_invalid_schema(
     monkeypatch,
 ):
@@ -153,7 +184,7 @@ async def test_action_chat_does_not_fallback_when_provider_reports_invalid_schem
                 status_code=400,
                 error={
                     "error": {
-                        "message": "response_format contains unsupported schema keyword anyOf"
+                        "message": "response_format schema keyword 'anyOf' is not supported"
                     }
                 },
             )

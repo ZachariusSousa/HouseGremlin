@@ -111,13 +111,70 @@ class OpenAICompatibleChatClient:
     def _provider_rejected_response_format(response: httpx.Response) -> bool:
         if response.status_code not in {400, 404, 422}:
             return False
-        detail = response.text.lower()
+
+        message = response.text
+        error_code = ""
+        error_type = ""
+        error_field = ""
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = None
+        if isinstance(payload, dict):
+            error = payload.get("error", payload)
+            if isinstance(error, dict):
+                structured_message = error.get("message") or error.get("detail")
+                if isinstance(structured_message, str):
+                    message = structured_message
+                error_code = str(error.get("code") or "")
+                error_type = str(error.get("type") or "")
+                error_field = str(
+                    error.get("param") or error.get("parameter") or error.get("field") or ""
+                )
+            elif isinstance(error, str):
+                message = error
+
+        detail = message.lower()
+        diagnostic_context = " ".join((detail, error_code.lower(), error_type.lower()))
+        schema_validation_patterns = (
+            r"\b(?:schema[_ ]+)?keywords?\b",
+            r"\bpropert(?:y|ies)\b",
+            r"\bpaths?\b",
+            r"\binvalid[_ -]?schema\b",
+            r"\bschema\b.{0,24}\b(?:is\s+)?invalid\b",
+            r"\bschema[_ ]validation\b",
+            r"\b(?:anyof|oneof|allof|additionalproperties|\$defs)\b",
+        )
+        if any(re.search(pattern, diagnostic_context) for pattern in schema_validation_patterns):
+            return False
+
+        normalized_field = re.sub(r"[^a-z0-9]+", "_", error_field.lower()).strip("_")
+        structured_rejection_markers = (
+            "unsupported",
+            "not_supported",
+            "unknown_parameter",
+            "unknown_field",
+            "unrecognized_parameter",
+            "unrecognized_field",
+        )
+        structured_kind = f"{error_code.lower()} {error_type.lower()}"
+        if normalized_field == "response_format" and any(
+            marker in structured_kind for marker in structured_rejection_markers
+        ):
+            return True
+
         capability_rejection_patterns = (
-            r"\bresponse[_ ]format\b.{0,32}\b(?:is |are )?not supported\b",
-            r"\bjson[_ ]schema\b.{0,32}\b(?:is |are )?not supported\b",
-            r"\bstructured outputs?\b.{0,32}\b(?:is |are )?not supported\b",
-            r"\b(?:unsupported|unknown|unrecognized)\s+(?:parameter|field)[: ]+response[_ ]format\b",
-            r"\b(?:does not|doesn't) support\b.{0,32}\bresponse[_ ]format\b",
+            r"\bresponse[_ ]format(?:\s+(?:parameter|field|capability|type))?"
+            r"(?:\s*[:=]\s*|\s+)(?:['\"]?json[_ ]schema['\"]?\s+)?"
+            r"(?:is\s+|are\s+)?not supported\b",
+            r"\bjson[_ ]schema\s+(?:is\s+|are\s+)?not supported\b",
+            r"\bstructured outputs?\s+(?:is\s+|are\s+)?not supported\b",
+            r"\b(?:unsupported|unknown|unrecognized)\s+(?:parameter|field)"
+            r"\s*[:=]?\s*['\"]?response[_ ]format\b",
+            r"\b(?:parameter|field)\s+['\"]?response[_ ]format['\"]?"
+            r"\s+(?:is\s+|was\s+)?(?:unsupported|not supported|unknown|unrecognized)\b",
+            r"\b(?:does not|doesn't|cannot) support\b.{0,32}\b"
+            r"(?:response[_ ]format|structured outputs?)\b",
         )
         return any(re.search(pattern, detail) for pattern in capability_rejection_patterns)
 
