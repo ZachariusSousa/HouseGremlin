@@ -48,7 +48,9 @@ def normalize_robot_status(
     if requested_eyes is None:
         requested_eyes = _first(raw, "requested_eyes", "eyes_target", "eyes")
 
-    heartbeat_armed = _first(raw, "heartbeat_armed", "brain_heartbeat_armed")
+    heartbeat_armed = _first(
+        raw, "heartbeat_armed", "brain_heartbeat_armed", "ha"
+    )
     heartbeat_fault = _first(raw, "heartbeat_fault", "brain_heartbeat_fault", "fault")
     watchdog_fault = heartbeat_fault is True
     if override_reason is None and watchdog_fault:
@@ -93,19 +95,29 @@ def normalize_robot_status(
         "firmware": {
             "version": _first(raw, "firmware_version", "firmware"),
             "protocol": protocol,
-            "uptime_ms": _first(raw, "uptime_ms", "uptime"),
+            "uptime_ms": _first(raw, "uptime_ms", "uptime", "u"),
             "ip": _first(raw, "ip"),
             "hostname": _first(raw, "hostname"),
             "wifi": {
-                "mode": _first(raw, "wifi_mode", "mode"),
+                "mode": _first(raw, "wifi_mode", "mode", "wm"),
                 "rssi": _first(raw, "wifi_rssi", "rssi"),
             },
             "memory": {
-                "heap_free_bytes": _first(raw, "heap_free_bytes", "free_heap_bytes"),
-                "heap_min_free_bytes": _first(raw, "heap_min_free_bytes", "minimum_free_heap_bytes"),
-                "heap_total_bytes": _first(raw, "heap_total_bytes", "total_heap_bytes"),
-                "psram_free_bytes": _first(raw, "psram_free_bytes", "free_psram_bytes"),
-                "psram_total_bytes": _first(raw, "psram_total_bytes", "total_psram_bytes"),
+                "heap_free_bytes": _first(
+                    raw, "heap_free_bytes", "free_heap_bytes", "hf"
+                ),
+                "heap_min_free_bytes": _first(
+                    raw, "heap_min_free_bytes", "minimum_free_heap_bytes", "hm"
+                ),
+                "heap_total_bytes": _first(
+                    raw, "heap_total_bytes", "total_heap_bytes", "ht"
+                ),
+                "psram_free_bytes": _first(
+                    raw, "psram_free_bytes", "free_psram_bytes", "pf"
+                ),
+                "psram_total_bytes": _first(
+                    raw, "psram_total_bytes", "total_psram_bytes", "pt"
+                ),
             },
             "camera_enabled": camera_enabled,
         },
@@ -116,6 +128,7 @@ def normalize_robot_status(
                 raw,
                 "control_last_receive_age_ms",
                 "last_control_receive_age_ms",
+                "ca",
             ),
         },
         "control": {

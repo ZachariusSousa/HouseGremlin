@@ -15,6 +15,7 @@
 
 namespace {
 constexpr size_t MAX_CONTROL_MESSAGE_BYTES = 512;
+constexpr size_t MAX_CONTROL_SESSION_BYTES = 48;
 
 #ifndef ROBIT_CONTROL_TCP_PORT
 #define ROBIT_CONTROL_TCP_PORT 82
@@ -98,11 +99,18 @@ unsigned long jsonUnsignedLongValue(
 
 void sendLine(const String& payload) {
   if (!controlClient || !controlClient.connected()) return;
+  if (payload.length() >= MAX_CONTROL_MESSAGE_BYTES) {
+    Serial.printf(
+      "[CONTROL][ERROR] refusing oversized outbound message bytes=%u\n",
+      static_cast<unsigned int>(payload.length())
+    );
+    return;
+  }
   controlClient.print(payload);
   controlClient.print('\n');
 }
 
-String compactStateJson() {
+String compactStateJson(bool includeHealth = false) {
   String json = "{";
   json += "\"movement\":\"" + jsonEscape(robotState.movement) + "\",";
   json += "\"speed\":" + String(robotState.motorSpeed) + ",";
@@ -114,6 +122,25 @@ String compactStateJson() {
   json += "\"wifi_rssi\":" + String(WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0) + ",";
   json += "\"camera\":" + String(robotState.cameraEnabled ? "true" : "false") + ",";
   json += "\"fault\":" + String(isBrainHeartbeatFaultActive() ? "true" : "false");
+  if (!includeHealth) {
+    json += "}";
+    return json;
+  }
+  json += ",";
+  // Compact keys keep the persistent protocol-v1 telemetry comfortably within
+  // its 512-byte line bound. The PC normalizer expands these to descriptive
+  // status fields; existing descriptive keys above remain unchanged.
+  json += "\"u\":" + String(millis()) + ",";
+  json += "\"wm\":\"" + String(robotState.apFallback ? "ap" : "sta") + "\",";
+  json += "\"hf\":" + String(ESP.getFreeHeap()) + ",";
+  json += "\"hm\":" + String(ESP.getMinFreeHeap()) + ",";
+  json += "\"ht\":" + String(ESP.getHeapSize()) + ",";
+  // ESP32 returns zero for PSRAM functions when the board has no PSRAM; this
+  // is intentionally reported rather than inventing a capacity.
+  json += "\"pf\":" + String(ESP.getFreePsram()) + ",";
+  json += "\"pt\":" + String(ESP.getPsramSize()) + ",";
+  json += "\"ha\":" + String(isBrainHeartbeatArmed() ? "true" : "false") + ",";
+  json += "\"ca\":" + String(controlLastReceiveAgeMs());
   json += "}";
   return json;
 }
@@ -130,7 +157,7 @@ void sendAck(unsigned long sequence, const String& status, const String& detail 
 void sendTelemetry() {
   String json = "{\"v\":1,\"type\":\"telemetry\",\"session\":\"" + jsonEscape(activeSession) + "\"";
   json += ",\"last_seq\":" + String(lastAcceptedSequence);
-  json += ",\"state\":" + compactStateJson() + "}";
+  json += ",\"state\":" + compactStateJson(true) + "}";
   sendLine(json);
   lastTelemetryAt = millis();
   telemetryDirty = false;
@@ -196,7 +223,11 @@ bool validateCommandEnvelope(const String& line, unsigned long& sequence) {
 
 void handleHello(const String& line) {
   const String session = jsonStringValue(line, "session");
-  if (jsonLongValue(line, "v", 0) != 1 || session.length() == 0) {
+  if (
+    jsonLongValue(line, "v", 0) != 1 ||
+    session.length() == 0 ||
+    session.length() > MAX_CONTROL_SESSION_BYTES
+  ) {
     sendLine("{\"v\":1,\"type\":\"hello_ack\",\"status\":\"invalid\"}");
     return;
   }
@@ -274,6 +305,11 @@ void initializeControlChannel() {
     "[CONTROL] Persistent TCP control listening on port %u\n",
     ROBIT_CONTROL_TCP_PORT
   );
+}
+
+unsigned long controlLastReceiveAgeMs() {
+  if (!handshakeComplete || lastControlMessageAt == 0) return 0;
+  return millis() - lastControlMessageAt;
 }
 
 void updateControlChannel() {

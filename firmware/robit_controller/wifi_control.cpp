@@ -11,6 +11,7 @@
 #endif
 
 #include "camera.h"
+#include "control_channel.h"
 #include "eyes.h"
 #include "motors.h"
 #include "robot_state.h"
@@ -44,9 +45,16 @@ String statusJson() {
   String json = "{";
   json += "\"ok\":true,";
   json += "\"mode\":\"" + String(robotState.apFallback ? "ap" : "sta") + "\",";
+  json += "\"wifi_mode\":\"" + String(robotState.apFallback ? "ap" : "sta") + "\",";
   json += "\"ip\":\"" + jsonEscape(getRobotIp()) + "\",";
   json += "\"hostname\":\"" + jsonEscape(String(ROBIT_HOSTNAME) + ".local") + "\",";
   json += "\"wifi_rssi\":" + String(WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0) + ",";
+  json += "\"uptime_ms\":" + String(millis()) + ",";
+  json += "\"heap_free_bytes\":" + String(ESP.getFreeHeap()) + ",";
+  json += "\"heap_min_free_bytes\":" + String(ESP.getMinFreeHeap()) + ",";
+  json += "\"heap_total_bytes\":" + String(ESP.getHeapSize()) + ",";
+  json += "\"psram_free_bytes\":" + String(ESP.getFreePsram()) + ",";
+  json += "\"psram_total_bytes\":" + String(ESP.getPsramSize()) + ",";
   json += "\"movement\":\"" + jsonEscape(robotState.movement) + "\",";
   json += "\"move\":\"" + jsonEscape(robotState.movement) + "\",";
   json += "\"speed\":" + String(robotState.motorSpeed) + ",";
@@ -59,7 +67,11 @@ String statusJson() {
   json += "\"eyes\":\"" + jsonEscape(robotState.eyeExpression) + "\",";
   json += "\"brain_heartbeat_armed\":" + String(isBrainHeartbeatArmed() ? "true" : "false") + ",";
   json += "\"brain_heartbeat_fault\":" + String(isBrainHeartbeatFaultActive() ? "true" : "false") + ",";
-  json += "\"camera\":" + String(robotState.cameraEnabled ? "true" : "false");
+  json += "\"heartbeat_armed\":" + String(isBrainHeartbeatArmed() ? "true" : "false") + ",";
+  json += "\"heartbeat_fault\":" + String(isBrainHeartbeatFaultActive() ? "true" : "false") + ",";
+  json += "\"control_last_receive_age_ms\":" + String(controlLastReceiveAgeMs()) + ",";
+  json += "\"camera\":" + String(robotState.cameraEnabled ? "true" : "false") + ",";
+  json += "\"camera_enabled\":" + String(robotState.cameraEnabled ? "true" : "false");
   json += "}";
   return json;
 }
