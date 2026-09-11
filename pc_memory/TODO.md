@@ -32,17 +32,17 @@ New component mirrors `pc_brain/` / `pc_tracking/` layout: FastAPI service on **
 
 **Status:**
 
-- [ ] Create `pc_memory/__init__.py`, `pc_memory/app/__init__.py`; every internal import is absolute `from pc_memory.app.<mod> import ...` — no bare `app` imports anywhere under `pc_memory/`.
-- [ ] `requirements.txt` pinned like `pc_brain/requirements.txt`: fastapi, uvicorn[standard], httpx, pydantic, python-dotenv, numpy, ddgs, beautifulsoup4, pytest.
-- [ ] `app/config.py`: frozen dataclass Settings with `MEMORY_*` env settings (port 8092, DB path under `pc_memory/data/`, LLM base URL default `http://127.0.0.1:8081/v1`, model name, context budget chars, max hops, beam), dotenv loading; mirror the `pc_brain/app/config.py` pattern.
-- [ ] `app/db.py`: SQLite WAL connection helper + schema init (nodes, edges, provenance, retrieval_traces, url_cache) + FTS5 external-content table over `nodes.text` with sync triggers on insert/update/delete + `rebuild_fts()` helper.
-- [ ] Root `pytest.ini` → `pythonpath = . pc_brain`; add `pc_memory/pytest.ini` (`pythonpath = ..`) mirroring `pc_brain/pytest.ini`.
-- [ ] README stub, `.gitignore` entry for `pc_memory/data/*.db*`, smoke test that imports `pc_memory.app.config` and initializes the schema in a temp DB.
+- [x] Create `pc_memory/__init__.py`, `pc_memory/app/__init__.py`; every internal import is absolute `from pc_memory.app.<mod> import ...` — no bare `app` imports anywhere under `pc_memory/`.
+- [x] `requirements.txt` pinned like `pc_brain/requirements.txt`: fastapi, uvicorn[standard], httpx, pydantic, python-dotenv, numpy, ddgs, beautifulsoup4, pytest.
+- [x] `app/config.py`: frozen dataclass Settings with `MEMORY_*` env settings (port 8092, DB path under `pc_memory/data/`, LLM base URL default `http://127.0.0.1:8081/v1`, model name, context budget chars, max hops, beam), dotenv loading; mirror the `pc_brain/app/config.py` pattern.
+- [x] `app/db.py`: SQLite WAL connection helper + schema init (nodes, edges, provenance, retrieval_traces, url_cache) + FTS5 external-content table over `nodes.text` with sync triggers on insert/update/delete + `rebuild_fts()` helper.
+- [x] Root `pytest.ini` → `pythonpath = . pc_brain`; add `pc_memory/pytest.ini` (`pythonpath = ..`) mirroring `pc_brain/pytest.ini`.
+- [x] README stub, `.gitignore` entry for `pc_memory/data/*.db*`, smoke test that imports `pc_memory.app.config` and initializes the schema in a temp DB.
 
 **Verify:**
 
-- [ ] From repo root (PowerShell): `pytest pc_memory/tests -q` is green.
-- [ ] No file under `pc_memory/` contains a bare `from app` / `import app` import.
+- [x] From repo root (PowerShell): `pytest pc_memory/tests -q` is green.
+- [x] No file under `pc_memory/` contains a bare `from app` / `import app` import.
 
 **Done when:** Package imports cleanly as `pc_memory.app.*`, schema + FTS5 init works in a temp DB, smoke test passes from the repo root.
 
@@ -52,15 +52,15 @@ New component mirrors `pc_brain/` / `pc_tracking/` layout: FastAPI service on **
 
 **Status:**
 
-- [ ] `app/store.py`: upsert node (entity/fact), typed edge insert (unique `(src, dst, type)`), provenance attach. Fact nodes are canonical claims (correction 5): every claim is a `fact` node with sentence/confidence/≥1 provenance; triple edges link subject/object entities to the fact node.
-- [ ] Dedup/merge: exact-normalized entity match; for facts, candidate search via FTS5 (+ embedding cosine when available); LLM verdict prompt returning strict JSON `duplicate | related | contradiction | new`. Duplicate → merge (keep oldest id, raise confidence, add provenance). Contradiction → `contradicted_by` edges between the two fact nodes, both stay active, no age-based confidence change (correction 3). Never silent overwrite.
-- [ ] Forget cascade: delete node → its edges → its provenance + FTS5 rows; inspect/stats queries.
-- [ ] Tests: schema init, entity dedup merge, fact duplicate merge, contradiction flagging (both facts survive with `contradicted_by`), forget cascade leaves FTS consistent.
+- [x] `app/store.py`: upsert node (entity/fact), typed edge insert (unique `(src, dst, type)`), provenance attach. Fact nodes are canonical claims (correction 5): every claim is a `fact` node with sentence/confidence/≥1 provenance; triple edges link subject/object entities to the fact node.
+- [x] Dedup/merge: exact-normalized entity match; for facts, candidate search via FTS5 (+ embedding cosine when available); LLM verdict prompt returning strict JSON `duplicate | related | contradiction | new`. Duplicate → merge (keep oldest id, raise confidence, add provenance). Contradiction → `contradicted_by` edges between the two fact nodes, both stay active, no age-based confidence change (correction 3). Never silent overwrite.
+- [x] Forget cascade: delete node → its edges → its provenance + FTS5 rows; inspect/stats queries.
+- [x] Tests: schema init, entity dedup merge, fact duplicate merge, contradiction flagging (both facts survive with `contradicted_by`), forget cascade leaves FTS consistent.
 
 **Verify:**
 
-- [ ] From repo root: `pytest pc_memory/tests -q` is green.
-- [ ] No code path lowers confidence solely because a fact is older.
+- [x] From repo root: `pytest pc_memory/tests -q` is green.
+- [x] No code path lowers confidence solely because a fact is older.
 
 **Done when:** All Phase 1 store tests pass from the repo root with a mocked LLM verdict client.
 
@@ -70,17 +70,17 @@ New component mirrors `pc_brain/` / `pc_tracking/` layout: FastAPI service on **
 
 **Status:**
 
-- [ ] `app/llm.py`: OpenAI-compatible chat client (pattern from `pc_brain/app/llm.py`), strict-JSON prompt style, `think: false`, temperature ~0.2, one retry on parse failure.
-- [ ] `app/embed.py`: `/v1/embeddings` client with graceful unavailability (returns None; service degrades to FTS5-only and `/health` reports the mode).
-- [ ] `app/extract.py`: extraction prompt → pydantic models (triples, fact sentences, edge types); invalid LLM output rejected and logged — never partial writes.
-- [ ] `app/search.py`: ddgs DuckDuckGo query → top-N URLs → httpx fetch → BeautifulSoup text; per-URL cache table; rate-limited; skip-and-continue on failure.
-- [ ] `app/main.py` FastAPI app + endpoints: `POST /facts`, `POST /ingest/text`, `POST /ingest/url`, `GET /health` (reports embedding mode), `GET /stats`; `app/cli.py` argparse CLI: `add-fact`, `ingest-text`, `ingest-url`, `inspect`, `stats`, `health`.
-- [ ] Tests with a mocked LLM (deterministic JSON) and a recorded HTML fixture; no live-model tests.
+- [x] `app/llm.py`: OpenAI-compatible chat client (pattern from `pc_brain/app/llm.py`), strict-JSON prompt style, `think: false`, temperature ~0.2, one retry on parse failure.
+- [x] `app/embed.py`: `/v1/embeddings` client with graceful unavailability (returns None; service degrades to FTS5-only and `/health` reports the mode).
+- [x] `app/extract.py`: extraction prompt → pydantic models (triples, fact sentences, edge types); invalid LLM output rejected and logged — never partial writes.
+- [x] `app/search.py`: ddgs DuckDuckGo query → top-N URLs → httpx fetch → BeautifulSoup text; per-URL cache table; rate-limited; skip-and-continue on failure.
+- [x] `app/main.py` FastAPI app + endpoints: `POST /facts`, `POST /ingest/text`, `POST /ingest/url`, `GET /health` (reports embedding mode), `GET /stats`; `app/cli.py` argparse CLI: `add-fact`, `ingest-text`, `ingest-url`, `inspect`, `stats`, `health`.
+- [x] Tests with a mocked LLM (deterministic JSON) and a recorded HTML fixture; no live-model tests.
 
 **Verify:**
 
-- [ ] From repo root: `pytest pc_memory/tests -q` is green.
-- [ ] Live-service smoke (PowerShell): start uvicorn on 8092, `POST /facts` one fact, `GET /stats` shows it, stop the service.
+- [x] From repo root: `pytest pc_memory/tests -q` is green.
+- [x] Live-service smoke (PowerShell): start uvicorn on 8092, `POST /facts` one fact, `GET /stats` shows it, stop the service.
 
 **Done when:** Ingestion endpoints work end-to-end in tests with a mocked LLM and pass the live-service smoke test.
 
@@ -143,9 +143,9 @@ New component mirrors `pc_brain/` / `pc_tracking/` layout: FastAPI service on **
 
 ## Progress
 
-- [ ] TODO 1 — Phase 0: scaffold pc_memory package
-- [ ] TODO 2 — Phase 1: core store with dedup/merge and forget cascade
-- [ ] TODO 3 — Phase 2: ingestion pipeline (LLM extraction + web)
+- [x] TODO 1 — Phase 0: scaffold pc_memory package
+- [x] TODO 2 — Phase 1: core store with dedup/merge and forget cascade
+- [x] TODO 3 — Phase 2: ingestion pipeline (LLM extraction + web)
 - [ ] TODO 4 — Phase 3: routed retrieval with trace logging
 - [ ] TODO 5 — Phase 4: learned-router groundwork (design-for-now)
 - [ ] TODO 6 — Docs, end-to-end verification, final checkpoint

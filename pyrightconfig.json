@@ -1,0 +1,5 @@
+{
+  "extraPaths": ["."],
+  "venvPath": "pc_memory",
+  "venv": ".venv"
+}

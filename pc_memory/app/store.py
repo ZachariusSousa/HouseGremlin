@@ -21,8 +21,9 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import Any, Callable, Sequence
+from typing import Any
 
 import numpy as np
 
@@ -53,11 +54,16 @@ def _words(text: str, max_words: int = 8) -> list[str]:
 
 
 def _cosine(a: np.ndarray, b: np.ndarray) -> float:
-    na = float(np.linalg.norm(a))
-    nb = float(np.linalg.norm(b))
-    if na == 0.0 or nb == 0.0:
+    """Cosine similarity; returns 0.0 for zero-length or corrupt vectors."""
+    try:
+        na = float(np.linalg.norm(a))
+        nb = float(np.linalg.norm(b))
+        if na == 0.0 or nb == 0.0:
+            return 0.0
+        score = float(np.dot(a, b) / (na * nb))
+    except (TypeError, ValueError):
         return 0.0
-    return float(np.dot(a, b) / (na * nb))
+    return score if np.isfinite(score) else 0.0
 
 
 def _find_exact(conn: sqlite3.Connection, kind: str, text: str) -> int | None:
@@ -76,7 +82,7 @@ def _fact_candidates(
     found: dict[int, str] = {}
     words = _words(text)
     if words:
-        match = " OR ".join('"%s"' % w for w in words)
+        match = " OR ".join(f'"{w}"' for w in words)
         try:
             rows = conn.execute(
                 "SELECT n.id AS id, n.text AS text FROM nodes_fts f "
@@ -161,7 +167,9 @@ def upsert_entity(conn: sqlite3.Connection, text: str, *, confidence: float = 0.
         (str(text).strip(), confidence),
     )
     conn.commit()
-    return cur.lastrowid, True
+    new_id = cur.lastrowid
+    assert new_id is not None  # sqlite3 sets lastrowid after INSERT
+    return new_id, True
 
 
 def attach_provenance(
@@ -178,7 +186,9 @@ def attach_provenance(
         (node_id, source_kind, source_ref, snippet, confidence),
     )
     conn.commit()
-    return cur.lastrowid
+    row_id = cur.lastrowid
+    assert row_id is not None  # sqlite3 sets lastrowid after INSERT
+    return row_id
 
 
 def add_edge(conn: sqlite3.Connection, src: int, dst: int, edge_type: str) -> int | None:
@@ -214,9 +224,13 @@ def add_fact(
 
     def merge(existing_id: int) -> FactAdd:
         old_conf = conn.execute("SELECT confidence FROM nodes WHERE id = ?", (existing_id,)).fetchone()[0]
+        try:
+            merged_conf = max(float(old_conf), float(confidence))
+        except (TypeError, ValueError):
+            merged_conf = float(confidence)  # corrupt stored value: keep the new one
         conn.execute(
             "UPDATE nodes SET confidence = ?, updated_at = datetime('now') WHERE id = ?",
-            (max(float(old_conf), float(confidence)), existing_id),
+            (merged_conf, existing_id),
         )
         for p in rows:
             attach_provenance(conn, existing_id, **p)
@@ -243,6 +257,7 @@ def add_fact(
                 (sentence, confidence, embedding_blob),
             )
             new_id = cur.lastrowid
+            assert new_id is not None  # sqlite3 sets lastrowid after INSERT
             for p in rows:
                 attach_provenance(conn, new_id, **p)
             if verdict == "contradiction":
@@ -257,6 +272,7 @@ def add_fact(
         (sentence, confidence, embedding_blob),
     )
     new_id = cur.lastrowid
+    assert new_id is not None  # sqlite3 sets lastrowid after INSERT
     for p in rows:
         attach_provenance(conn, new_id, **p)
     return FactAdd(new_id, "new")
@@ -272,13 +288,21 @@ def add_triple(
     confidence: float = 0.5,
     provenance: dict | list[dict] | None = None,
     judge: Callable[[str], str] | None = None,
+    embedding: Sequence[float] | None = None,
 ) -> FactAdd:
     """Add a subject–predicate–object triple as the canonical fact node plus
     typed edges from both entity nodes to the fact node (correction 5)."""
     subj_id, _ = upsert_entity(conn, subject)
     obj_id, _ = upsert_entity(conn, object_)
     sentence = sentence or f"{subject} {predicate} {object_}."
-    result = add_fact(conn, sentence, confidence=confidence, provenance=provenance, judge=judge)
+    result = add_fact(
+        conn,
+        sentence,
+        confidence=confidence,
+        provenance=provenance,
+        judge=judge,
+        embedding=embedding,
+    )
     add_edge(conn, subj_id, result.node_id, predicate)
     add_edge(conn, obj_id, result.node_id, "object_of")
     return result
@@ -320,9 +344,19 @@ def inspect_node(conn: sqlite3.Connection, node_id: int) -> dict | None:
     }
 
 
+_STATS_QUERIES = frozenset(
+    {
+        "SELECT kind, COUNT(*) FROM nodes GROUP BY kind",
+        "SELECT type, COUNT(*) FROM edges GROUP BY type",
+    }
+)
+
+
 def stats(conn: sqlite3.Connection) -> dict[str, Any]:
     def counts(sql: str) -> dict:
-        return {k: n for k, n in conn.execute(sql).fetchall()}
+        if sql not in _STATS_QUERIES:  # allowlist: only the static queries above
+            raise ValueError(f"unregistered stats query: {sql!r}")
+        return dict(conn.execute(sql).fetchall())
 
     return {
         "nodes": conn.execute("SELECT COUNT(*) FROM nodes").fetchone()[0],
