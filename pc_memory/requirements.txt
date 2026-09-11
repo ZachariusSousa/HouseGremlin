@@ -1,0 +1,9 @@
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+httpx==0.28.1
+pydantic==2.13.5
+python-dotenv==1.2.3
+numpy==2.5.3
+ddgs==9.16.0
+beautifulsoup4==4.15.0
+pytest==9.1.1
