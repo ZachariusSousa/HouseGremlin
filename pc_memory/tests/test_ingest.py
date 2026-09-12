@@ -32,10 +32,14 @@ class MockExtractorLLM:
     """
 
     def __init__(self, extraction: dict | None = None):
-        self.extraction = extraction if extraction is not None else {"triples": [], "facts": []}
+        self.extraction = (
+            extraction if extraction is not None else {"triples": [], "facts": []}
+        )
         self.calls = 0
 
-    def complete_json(self, prompt: str, *, system: str = "", max_tokens: int = 1200, validate=None):
+    def complete_json(
+        self, prompt: str, *, system: str = "", max_tokens: int = 1200, validate=None
+    ):
         self.calls += 1
         last: Exception | None = None
         for _ in range(2):  # mirror ChatClient.complete_json retry loop
@@ -76,7 +80,11 @@ class MockEmbed:
 
 VALID_EXTRACTION = {
     "triples": [
-        {"subject": "Rayleigh scattering", "predicate": "scatters_most", "object": "blue light"},
+        {
+            "subject": "Rayleigh scattering",
+            "predicate": "scatters_most",
+            "object": "blue light",
+        },
     ],
     "facts": ["Sunsets appear red because the atmospheric path is longer."],
 }
@@ -131,7 +139,12 @@ def test_stats_endpoint_initial(env):
 
 def test_facts_endpoint_creates_canonical_fact_with_provenance(env):
     response = env.client.post(
-        "/facts", json={"text": "The sky is blue.", "source_kind": "manual", "source_ref": "unit-test"}
+        "/facts",
+        json={
+            "text": "The sky is blue.",
+            "source_kind": "manual",
+            "source_ref": "unit-test",
+        },
     )
     assert response.status_code == 200, response.text
     node_id = response.json()["node_id"]
@@ -143,7 +156,9 @@ def test_facts_endpoint_creates_canonical_fact_with_provenance(env):
 
 
 def test_ingest_text_writes_triples_facts_edges_and_fts(env):
-    response = env.client.post("/ingest/text", json={"text": "raw paragraph about the sky"})
+    response = env.client.post(
+        "/ingest/text", json={"text": "raw paragraph about the sky"}
+    )
     assert response.status_code == 200, response.text
     body = response.json()
     assert len(body["triples"]) == 1

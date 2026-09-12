@@ -66,7 +66,11 @@ def ingest_text(
     claims = [t.claim for t in extracted.triples] + list(extracted.facts)
     vectors = _embed_map(embed, claims)
     judge = _judge_from(llm)
-    provenance = {"source_kind": source_kind, "source_ref": source_ref, "snippet": body[:500]}
+    provenance = {
+        "source_kind": source_kind,
+        "source_ref": source_ref,
+        "snippet": body[:500],
+    }
 
     node_ids: list[int] = []
     triples_out: list[dict[str, Any]] = []
@@ -84,8 +88,13 @@ def ingest_text(
         )
         node_ids.append(result.node_id)
         triples_out.append(
-            {"subject": triple.subject, "predicate": triple.predicate, "object": triple.object,
-             "node_id": result.node_id, "verdict": result.verdict}
+            {
+                "subject": triple.subject,
+                "predicate": triple.predicate,
+                "object": triple.object,
+                "node_id": result.node_id,
+                "verdict": result.verdict,
+            }
         )
 
     facts_out: list[dict[str, Any]] = []
@@ -99,7 +108,9 @@ def ingest_text(
             embedding=vectors.get(sentence),
         )
         node_ids.append(result.node_id)
-        facts_out.append({"text": sentence, "node_id": result.node_id, "verdict": result.verdict})
+        facts_out.append(
+            {"text": sentence, "node_id": result.node_id, "verdict": result.verdict}
+        )
 
     return {"triples": triples_out, "facts": facts_out, "node_ids": node_ids}
 
@@ -124,6 +135,11 @@ def ingest_url(
     if not text:
         raise IngestError(f"fetch failed or empty page: {url}")
     return ingest_text(
-        conn, text, llm=llm, embed=embed, confidence=confidence,
-        source_kind="web", source_ref=url,
+        conn,
+        text,
+        llm=llm,
+        embed=embed,
+        confidence=confidence,
+        source_kind="web",
+        source_ref=url,
     )

@@ -76,7 +76,10 @@ def _find_exact(conn: sqlite3.Connection, kind: str, text: str) -> int | None:
 
 
 def _fact_candidates(
-    conn: sqlite3.Connection, text: str, embedding: Sequence[float] | None = None, limit: int = MAX_CANDIDATES
+    conn: sqlite3.Connection,
+    text: str,
+    embedding: Sequence[float] | None = None,
+    limit: int = MAX_CANDIDATES,
 ) -> list[tuple[int, str]]:
     """Existing fact nodes similar to `text`: FTS5 term overlap + cosine when embeddings exist."""
     found: dict[int, str] = {}
@@ -128,7 +131,7 @@ def build_verdict_prompt(existing: str, candidate: str) -> str:
         "You are a memory dedup judge. Compare two stored facts.\n"
         f"EXISTING: {existing}\n"
         f"CANDIDATE: {candidate}\n"
-        'Return strict JSON only, no other text, one of:\n'
+        "Return strict JSON only, no other text, one of:\n"
         '{"verdict": "duplicate"}      (same claim, rephrased)\n'
         '{"verdict": "related"}        (different but topically connected claims)\n'
         '{"verdict": "contradiction"}  (claims that cannot both be true)\n'
@@ -157,7 +160,9 @@ def parse_verdict(raw: str) -> str | None:
 # ---------------------------------------------------------------------------
 
 
-def upsert_entity(conn: sqlite3.Connection, text: str, *, confidence: float = 0.5) -> tuple[int, bool]:
+def upsert_entity(
+    conn: sqlite3.Connection, text: str, *, confidence: float = 0.5
+) -> tuple[int, bool]:
     """Insert or reuse an entity node by exact normalized text. Returns (id, created)."""
     existing = _find_exact(conn, "entity", text)
     if existing is not None:
@@ -191,12 +196,18 @@ def attach_provenance(
     return row_id
 
 
-def add_edge(conn: sqlite3.Connection, src: int, dst: int, edge_type: str) -> int | None:
+def add_edge(
+    conn: sqlite3.Connection, src: int, dst: int, edge_type: str
+) -> int | None:
     """Insert a typed edge; (src, dst, type) is unique so re-adding is a no-op."""
-    conn.execute("INSERT OR IGNORE INTO edges (src, dst, type) VALUES (?, ?, ?)", (src, dst, edge_type))
+    conn.execute(
+        "INSERT OR IGNORE INTO edges (src, dst, type) VALUES (?, ?, ?)",
+        (src, dst, edge_type),
+    )
     conn.commit()
     row = conn.execute(
-        "SELECT id FROM edges WHERE src = ? AND dst = ? AND type = ?", (src, dst, edge_type)
+        "SELECT id FROM edges WHERE src = ? AND dst = ? AND type = ?",
+        (src, dst, edge_type),
     ).fetchone()
     return row["id"] if row else None
 
@@ -223,7 +234,9 @@ def add_fact(
     rows = _as_provenance_rows(provenance, sentence)
 
     def merge(existing_id: int) -> FactAdd:
-        old_conf = conn.execute("SELECT confidence FROM nodes WHERE id = ?", (existing_id,)).fetchone()[0]
+        old_conf = conn.execute(
+            "SELECT confidence FROM nodes WHERE id = ?", (existing_id,)
+        ).fetchone()[0]
         try:
             merged_conf = max(float(old_conf), float(confidence))
         except (TypeError, ValueError):
@@ -241,7 +254,9 @@ def add_fact(
         return merge(exact)
 
     embedding_blob = (
-        np.asarray(list(embedding), dtype=np.float32).tobytes() if embedding is not None else None
+        np.asarray(list(embedding), dtype=np.float32).tobytes()
+        if embedding is not None
+        else None
     )
 
     candidates = _fact_candidates(conn, sentence, embedding)
@@ -364,5 +379,7 @@ def stats(conn: sqlite3.Connection) -> dict[str, Any]:
         "edges": conn.execute("SELECT COUNT(*) FROM edges").fetchone()[0],
         "edges_by_type": counts("SELECT type, COUNT(*) FROM edges GROUP BY type"),
         "provenance": conn.execute("SELECT COUNT(*) FROM provenance").fetchone()[0],
-        "retrieval_traces": conn.execute("SELECT COUNT(*) FROM retrieval_traces").fetchone()[0],
+        "retrieval_traces": conn.execute(
+            "SELECT COUNT(*) FROM retrieval_traces"
+        ).fetchone()[0],
     }
