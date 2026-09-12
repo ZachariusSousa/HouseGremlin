@@ -108,14 +108,14 @@ New component mirrors `pc_brain/` / `pc_tracking/` layout: FastAPI service on **
 
 **Status:**
 
-- [ ] Trace export helper: CSV/JSONL of question → visited path; CLI `export-traces`.
-- [ ] Curated question set (≥10 questions, multi-hop included) as JSON under `pc_memory/evals/`.
-- [ ] Evaluation harness stub that scores returned context against expected key facts for LLM router vs learned router A/B (learned side is a documented placeholder).
+- [x] Trace export helper: CSV/JSONL of question → visited path; CLI `export-traces`. (`app/traces.py`: `load_traces` + `export_traces` with full-fidelity JSONL and flat CSV.)
+- [x] Curated question set (≥10 questions, multi-hop included) as JSON under `pc_memory/evals/`. (`evals/questions.json`: 12 questions over the sky chain + distractors; `full-chain` requires ≥3 expected facts across hops.)
+- [x] Evaluation harness stub that scores returned context against expected key facts for LLM router vs learned router A/B (learned side is a documented placeholder). (`app/eval.py`: `score_context` case-insensitive substring scoring, `run_eval` over the curated set; `router="learned"` raises `NotImplementedError` with a pointer to `retrieval_traces` until a model is trained.)
 
 **Verify:**
 
-- [ ] From repo root: `pytest pc_memory/tests -q` is green.
-- [ ] `export-traces` produces a non-empty file from the seeded DB.
+- [x] From repo root: `pytest pc_memory/tests -q` is green (41 passed).
+- [x] `export-traces` produces a non-empty file from the seeded DB (verified both `jsonl` and `csv` on a scratch DB).
 
 **Done when:** Traces export cleanly, curated set + harness stub are in place, tests pass.
 
@@ -145,5 +145,5 @@ New component mirrors `pc_brain/` / `pc_tracking/` layout: FastAPI service on **
 - [x] TODO 2 — Phase 1: core store with dedup/merge and forget cascade
 - [x] TODO 3 — Phase 2: ingestion pipeline (LLM extraction + web)
 - [x] TODO 4 — Phase 3: routed retrieval with trace logging
-- [ ] TODO 5 — Phase 4: learned-router groundwork (design-for-now)
+- [x] TODO 5 — Phase 4: learned-router groundwork (design-for-now)
 - [ ] TODO 6 — Docs, end-to-end verification, final checkpoint

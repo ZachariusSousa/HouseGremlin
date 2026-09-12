@@ -10,6 +10,7 @@ Examples (from repo root, using the package venv):
     python -m pc_memory.app.cli health
     python -m pc_memory.app.cli rebuild
     python -m pc_memory.app.cli forget 42
+    python -m pc_memory.app.cli export-traces --out traces.jsonl [--format csv]
 """
 
 from __future__ import annotations
@@ -27,6 +28,7 @@ from pc_memory.app.llm import ChatClient, LLMError
 from pc_memory.app.retrieve import retrieve
 from pc_memory.app.seed import seed_sky_chain
 from pc_memory.app.store import add_fact, forget_node, inspect_node, stats
+from pc_memory.app.traces import export_traces
 
 
 def _open(args: argparse.Namespace):
@@ -156,6 +158,16 @@ def cmd_retrieve(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_export_traces(args: argparse.Namespace) -> int:
+    _settings, conn = _open(args)
+    try:
+        count = export_traces(conn, args.out, fmt=args.format)
+    finally:
+        conn.close()
+    print(json.dumps({"exported": count, "path": str(args.out), "format": args.format}))
+    return 0
+
+
 def cmd_inspect(args: argparse.Namespace) -> int:
     _settings, conn = _open(args)
     try:
@@ -261,6 +273,13 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("rebuild", help="Re-sync the FTS5 index from nodes")
     p.set_defaults(func=cmd_rebuild)
+
+    p = sub.add_parser(
+        "export-traces", help="Export retrieval traces (JSONL or CSV) for router training"
+    )
+    p.add_argument("--out", required=True, help="Output file path")
+    p.add_argument("--format", choices=["jsonl", "csv"], default="jsonl")
+    p.set_defaults(func=cmd_export_traces)
 
     p = sub.add_parser("forget", help="Delete a node and cascade edges/provenance")
     p.add_argument("node_id", type=int)

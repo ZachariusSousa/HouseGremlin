@@ -185,6 +185,7 @@ def test_triple_links_entities_to_canonical_fact(conn):
     )
     assert result.verdict == "new"
     info = inspect_node(conn, result.node_id)
+    assert info is not None
     node = info["node"]
     assert node["kind"] == "fact" and node["text"] == "Alice lives in Seattle."
     links = {e["type"]: (e["src_text"], e["dst_text"]) for e in info["edges"]}
