@@ -125,17 +125,17 @@ New component mirrors `pc_brain/` / `pc_tracking/` layout: FastAPI service on **
 
 **Status:**
 
-- [ ] `pc_memory/README.md`: quickstart, endpoints, env vars, agent usage examples, CLI walkthrough.
-- [ ] Update `DESIGN.md` memory section: pc_memory is the graph substrate Gate 4 semantic memory builds on; note the deliberate pivot from "RAG before GraphRAG" for this component.
-- [ ] Full suite from repo root: `pytest pc_memory/tests -q` and `pytest pc_brain/tests -q` both green (regression check).
-- [ ] E2E: if a live LLM is available (try 8081, else 8888): start the service on 8092, `ingest-url` a Rayleigh-scattering page, `retrieve "why is the sky blue"` returns context containing the causal chain within budget; trace shows seeds → hops → visited. If no live LLM works: run the equivalent flow against the mocked-LLM harness and record that e2e was mock-verified.
-- [ ] Curated set check: ≥10 questions answered from the seed corpus with all key facts present in returned context (mocked or live).
-- [ ] Forget test: delete a node, confirm edges + provenance gone and FTS/vector indexes consistent after `rebuild`.
-- [ ] Manual: `GET /stats`, `GET /health`; commit all completed work as the final checkpoint.
+- [x] `pc_memory/README.md`: quickstart, endpoints, env vars, agent usage examples, CLI walkthrough.
+- [x] Update `DESIGN.md` memory section: pc_memory is the graph substrate Gate 4 semantic memory builds on; note the deliberate pivot from "RAG before GraphRAG" for this component (added under "RAG before GraphRAG").
+- [x] Full suite from repo root: `pytest pc_memory/tests -q` → 41 passed; `pytest pc_brain/tests -q` → 118 passed (regression check; required installing Pillow into the shared venv — pre-existing missing dependency, not a regression).
+- [x] E2E: no live LLM available (8081 down; 8888 up but requires an API key and none is configured) → **e2e mock-verified**: seeded DB + keyword-plan router walks seeds `[1,4,5]` → hop 1 picks node 2 ("rayleigh") → hop 2 picks node 3 ("wavelength") → visited `[1,4,5,2,3]`; context 1027/6000 chars contains the full causal chain; trace row shows seeds → per-hop decisions → visited.
+- [x] Curated set check: **11/12** questions fully answered (all expected facts in context) with a deterministic token-overlap router — ≥10 required. Sole miss: `octopus-probe` ("Is there anything stored about octopuses?") — plural "octopuses" does not lexically match the node text "octopus" (FTS5 has no stemming); a discriminating probe, expected to fail on the lexical path.
+- [x] Forget test: deleted a distractor node → node gone, 0 edges / 0 provenance rows left, `rebuild_fts` leaves fts_rows == nodes_rows (7 == 7).
+- [x] Manual: `GET /health` → `{"status":"ok","embedding_mode":"fts5_only"}`, `GET /stats` shows the seeded graph on port 8092; final checkpoint committed.
 
 **Verify:**
 
-- [ ] `git status` clean (only intentional artifacts), all tests green, e2e evidence recorded in the task result.
+- [x] `git status` clean (only intentional untracked artifacts: `pc_memory/.gitkeep`, `plans/`), all tests green, e2e evidence recorded above.
 
 **Done when:** Docs complete, all tests green, e2e evidence recorded, repo committed and recoverable.
 
@@ -146,4 +146,4 @@ New component mirrors `pc_brain/` / `pc_tracking/` layout: FastAPI service on **
 - [x] TODO 3 — Phase 2: ingestion pipeline (LLM extraction + web)
 - [x] TODO 4 — Phase 3: routed retrieval with trace logging
 - [x] TODO 5 — Phase 4: learned-router groundwork (design-for-now)
-- [ ] TODO 6 — Docs, end-to-end verification, final checkpoint
+- [x] TODO 6 — Docs, end-to-end verification, final checkpoint
