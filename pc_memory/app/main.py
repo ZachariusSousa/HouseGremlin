@@ -25,6 +25,7 @@ from pc_memory.app.embed import EmbedClient
 from pc_memory.app.extract import ExtractionError
 from pc_memory.app.ingest import IngestError, ingest_text, ingest_url
 from pc_memory.app.llm import ChatClient, LLMError
+from pc_memory.app.retrieve import get_trace, retrieve
 from pc_memory.app.store import add_fact
 from pc_memory.app.store import stats as store_stats
 
@@ -52,7 +53,11 @@ class Service:
 
 
 def build_service(
-    settings: Settings | None = None, *, llm: Any = None, embed: Any = None, db_path: str | None = None
+    settings: Settings | None = None,
+    *,
+    llm: Any = None,
+    embed: Any = None,
+    db_path: str | None = None,
 ) -> Service:
     """Build a Service; defaults wire the real ChatClient/EmbedClient (lazy — no I/O until used)."""
     settings = settings or load_settings()
@@ -83,6 +88,12 @@ class IngestTextIn(BaseModel):
 class IngestUrlIn(BaseModel):
     url: str = Field(min_length=1)
     confidence: float = 0.7
+
+
+class RetrieveIn(BaseModel):
+    question: str = Field(min_length=1)
+    max_hops: int | None = Field(default=None, ge=0, le=5)
+    beam: int | None = Field(default=None, ge=1, le=20)
 
 
 def _safe_judge(llm: Any):
@@ -123,7 +134,11 @@ def create_app(service: Service | None = None) -> FastAPI:
 
     @app.get("/health")
     def health():
-        mode = "hybrid" if (service.embed is not None and bool(service.embed.probe())) else "fts5_only"
+        mode = (
+            "hybrid"
+            if (service.embed is not None and bool(service.embed.probe()))
+            else "fts5_only"
+        )
         return {"status": "ok", "embedding_mode": mode}
 
     @app.get("/stats")
@@ -166,7 +181,9 @@ def create_app(service: Service | None = None) -> FastAPI:
                 )
         except ExtractionError as exc:
             # All-or-nothing: invalid extraction means nothing was written.
-            raise HTTPException(422, f"extraction failed, nothing written: {exc}") from exc
+            raise HTTPException(
+                422, f"extraction failed, nothing written: {exc}"
+            ) from exc
         except IngestError as exc:
             raise HTTPException(400, str(exc)) from exc
         except LLMError as exc:
@@ -184,13 +201,39 @@ def create_app(service: Service | None = None) -> FastAPI:
                     confidence=body.confidence,
                 )
         except ExtractionError as exc:
-            raise HTTPException(422, f"extraction failed, nothing written: {exc}") from exc
+            raise HTTPException(
+                422, f"extraction failed, nothing written: {exc}"
+            ) from exc
         except IngestError as exc:
             message = str(exc)
             status = 502 if "fetch" in message else 400
             raise HTTPException(status, message) from exc
         except LLMError as exc:
             raise HTTPException(503, f"LLM unavailable: {exc}") from exc
+
+    @app.post("/retrieve")
+    def retrieve_endpoint(body: RetrieveIn):
+        try:
+            with service.lock:
+                return retrieve(
+                    service.conn,
+                    body.question,
+                    llm=service.llm,
+                    embed=service.embed,
+                    max_hops=body.max_hops,
+                    beam=body.beam,
+                    budget_chars=service.settings.context_budget_chars,
+                )
+        except LLMError as exc:
+            raise HTTPException(503, f"LLM unavailable: {exc}") from exc
+
+    @app.get("/traces/{trace_id}")
+    def trace_endpoint(trace_id: int):
+        with service.lock:
+            row = get_trace(service.conn, trace_id)
+        if row is None:
+            raise HTTPException(404, "trace not found")
+        return row
 
     return app
 

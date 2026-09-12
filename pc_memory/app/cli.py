@@ -24,6 +24,8 @@ from pc_memory.app.db import connect, init_schema, rebuild_fts
 from pc_memory.app.embed import EmbedClient
 from pc_memory.app.ingest import IngestError, ingest_text, ingest_url
 from pc_memory.app.llm import ChatClient, LLMError
+from pc_memory.app.retrieve import retrieve
+from pc_memory.app.seed import seed_sky_chain
 from pc_memory.app.store import add_fact, forget_node, inspect_node, stats
 
 
@@ -41,7 +43,10 @@ def _judge_or_warn(llm: ChatClient) -> Callable[[str], str]:
         try:
             return llm.chat(prompt)
         except LLMError as exc:
-            print(f"warning: LLM unavailable ({exc}); using exact-match dedup only", file=sys.stderr)
+            print(
+                f"warning: LLM unavailable ({exc}); using exact-match dedup only",
+                file=sys.stderr,
+            )
             return ""
 
     return judge
@@ -92,7 +97,11 @@ def cmd_ingest_url(args: argparse.Namespace) -> int:
     settings, conn = _open(args)
     try:
         result = ingest_url(
-            conn, args.url, llm=ChatClient(settings), embed=EmbedClient(settings), confidence=args.confidence
+            conn,
+            args.url,
+            llm=ChatClient(settings),
+            embed=EmbedClient(settings),
+            confidence=args.confidence,
         )
     except IngestError as exc:
         print(f"error: {exc}", file=sys.stderr)
@@ -100,6 +109,50 @@ def cmd_ingest_url(args: argparse.Namespace) -> int:
     finally:
         conn.close()
     print(json.dumps(result))
+    return 0
+
+
+def cmd_seed(args: argparse.Namespace) -> int:
+    settings, conn = _open(args)
+    try:
+        result = seed_sky_chain(conn, embed=EmbedClient(settings))
+    finally:
+        conn.close()
+    print(json.dumps(result, indent=2))
+    return 0
+
+
+def cmd_retrieve(args: argparse.Namespace) -> int:
+    settings, conn = _open(args)
+    try:
+        embed = EmbedClient(settings)
+        try:
+            result = retrieve(
+                conn,
+                args.question,
+                llm=ChatClient(settings),
+                embed=embed,
+                max_hops=args.max_hops,
+                beam=args.beam,
+                budget_chars=settings.context_budget_chars,
+            )
+        except LLMError as exc:
+            print(
+                f"warning: LLM unavailable ({exc}); seed-only retrieval",
+                file=sys.stderr,
+            )
+            result = retrieve(
+                conn,
+                args.question,
+                llm=None,
+                embed=embed,
+                max_hops=args.max_hops,
+                beam=args.beam,
+                budget_chars=settings.context_budget_chars,
+            )
+    finally:
+        conn.close()
+    print(json.dumps(result, indent=2))
     return 0
 
 
@@ -157,7 +210,9 @@ def cmd_forget(args: argparse.Namespace) -> int:
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="pc_memory", description="SQLite knowledge-graph memory service CLI")
+    parser = argparse.ArgumentParser(
+        prog="pc_memory", description="SQLite knowledge-graph memory service CLI"
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     p = sub.add_parser("add-fact", help="Add one canonical fact node with provenance")
@@ -174,10 +229,25 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--source-ref", default=None)
     p.set_defaults(func=cmd_ingest_text)
 
-    p = sub.add_parser("ingest-url", help="Fetch a URL (cached) and LLM-extract triples/facts")
+    p = sub.add_parser(
+        "ingest-url", help="Fetch a URL (cached) and LLM-extract triples/facts"
+    )
     p.add_argument("url")
     p.add_argument("--confidence", type=float, default=0.7)
     p.set_defaults(func=cmd_ingest_url)
+
+    p = sub.add_parser(
+        "seed", help="Seed the sky-is-blue causal chain + distractors (idempotent)"
+    )
+    p.set_defaults(func=cmd_seed)
+
+    p = sub.add_parser(
+        "retrieve", help="Routed retrieval for a question (writes a trace row)"
+    )
+    p.add_argument("question")
+    p.add_argument("--max-hops", type=int, default=None)
+    p.add_argument("--beam", type=int, default=None)
+    p.set_defaults(func=cmd_retrieve)
 
     p = sub.add_parser("inspect", help="Show a node with its edges and provenance")
     p.add_argument("node_id", type=int)

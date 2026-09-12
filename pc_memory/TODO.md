@@ -90,19 +90,17 @@ New component mirrors `pc_brain/` / `pc_tracking/` layout: FastAPI service on **
 
 **Status:**
 
-- [ ] `app/retrieve.py`: seeds = FTS5 lexical scores + embedding cosine (when available) → RRF fusion → top-k entrance nodes. Router loop `max_hops=3`, beam ≤6: candidates = typed edge neighbors of visited set ∪ embedding-similar unvisited nodes; LLM returns strict JSON chosen node ids with one-line reasons or `stop`; early-stop on `stop`.
-- [ ] Context assembly: visited nodes ordered by hop/relevance → compact text blocks (node text + edge types to neighbors); enforce the hard rendered-context budget (`MEMORY_CONTEXT_BUDGET_CHARS`, default 6000) by dropping lowest-relevance nodes until under budget (correction 4). Return both structured JSON and a rendered context string.
-- [ ] Every run writes a `retrieval_traces` row: question, seed ids, per-hop decisions (candidates/chosen/reason), visited ids, rendered context, optional feedback — training-ready schema.
-- [ ] `POST /retrieve` `{question, max_hops?, beam?}` → `{context, nodes[], trace_id}`; `GET /traces/{id}`; CLI `retrieve`.
-- [ ] Seed script: hand-built sky-is-blue causal chain (sky → Rayleigh scattering → short-wavelength scatter) + distractor facts.
-- [ ] Tests: seed ranking, hop budget enforcement, early stop, trace completeness, FTS5-only fallback when embeddings unavailable, context-budget truncation.
+- [x] `app/retrieve.py`: seeds = FTS5 lexical scores + embedding cosine (when available) → RRF fusion → top-k entrance nodes. Router loop `max_hops=3`, beam ≤6: candidates = typed edge neighbors of visited set ∪ embedding-similar unvisited nodes; LLM returns strict JSON chosen node ids with one-line reasons or `stop`; early-stop on `stop`. (FTS seeds filter stopwords so function words can't pollute the seed set.)
+- [x] Context assembly: visited nodes ordered by hop/relevance → compact text blocks (node text + edge types to neighbors); enforce the hard rendered-context budget (`MEMORY_CONTEXT_BUDGET_CHARS`, default 6000) by dropping lowest-relevance nodes until under budget (correction 4). Return both structured JSON and a rendered context string.
+- [x] Every run writes a `retrieval_traces` row: question, seed ids, per-hop decisions (candidates/chosen/reason), visited ids, rendered context, optional feedback — training-ready schema.
+- [x] `POST /retrieve` `{question, max_hops?, beam?}` → `{context, nodes[], trace_id}`; `GET /traces/{id}`; CLI `retrieve` (+ `seed`).
+- [x] Seed script: hand-built sky-is-blue causal chain (sky → Rayleigh scattering → short-wavelength scatter) + distractor facts — idempotent (`app/seed.py`, CLI `seed`).
+- [x] Tests: seed ranking, hop budget enforcement, early stop, trace completeness, FTS5-only fallback when embeddings unavailable, context-budget truncation, seed idempotency (9 tests in `tests/test_retrieve.py`).
 
 **Verify:**
 
-- [ ] From repo root: `pytest pc_memory/tests -q` is green.
-- [ ] CLI `retrieve "why is the sky blue"` on the seeded DB returns context containing the causal chain within budget.
-
-**Done when:** Retrieval works end-to-end with a mocked LLM + seeded corpus and all Phase 3 tests pass from the repo root.
+- [x] From repo root: `pytest pc_memory/tests -q` is green (33 passed).
+- [x] CLI `retrieve "why is the sky blue"` on the seeded DB returns context containing the causal chain within budget (verified; degrades to seed-only with a stderr warning when the live LLM at 8081 is down).
 
 ## TODO 5 — Phase 4: learned-router groundwork (design-for-now)
 
@@ -146,6 +144,6 @@ New component mirrors `pc_brain/` / `pc_tracking/` layout: FastAPI service on **
 - [x] TODO 1 — Phase 0: scaffold pc_memory package
 - [x] TODO 2 — Phase 1: core store with dedup/merge and forget cascade
 - [x] TODO 3 — Phase 2: ingestion pipeline (LLM extraction + web)
-- [ ] TODO 4 — Phase 3: routed retrieval with trace logging
+- [x] TODO 4 — Phase 3: routed retrieval with trace logging
 - [ ] TODO 5 — Phase 4: learned-router groundwork (design-for-now)
 - [ ] TODO 6 — Docs, end-to-end verification, final checkpoint
