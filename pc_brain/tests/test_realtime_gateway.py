@@ -480,7 +480,7 @@ def test_browser_uses_approved_retro_anime_console_shell():
 
 def test_browser_contains_six_functional_mode_panels():
     page = (Path(__file__).resolve().parents[2] / "web_control" / "index.html").read_text(encoding="utf-8")
-    for mode in ("overview", "optical", "manual", "voice", "memory", "diagnostic"):
+    for mode in ("overview", "telemetry", "manual", "voice", "memory", "diagnostic"):
         assert f'data-panel="{mode}"' in page
     assert 'id="cameraStream"' in page
     assert 'id="trackingOverlay"' in page
