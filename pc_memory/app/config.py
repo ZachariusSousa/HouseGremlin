@@ -10,6 +10,7 @@ DEFAULT_LLM_MODEL = "ggml-org/gemma-4-E4B-it-GGUF:Q4_0"
 try:
     from dotenv import load_dotenv
 except ImportError:  # pragma: no cover - only used before dependencies are installed.
+
     def load_dotenv(*args, **kwargs) -> bool:
         return False
 

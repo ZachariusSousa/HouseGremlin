@@ -50,7 +50,9 @@ def load_questions(path: str | Path | None = None) -> list[dict[str, Any]]:
     return data
 
 
-def score_context(context: str, expected_facts: list[str]) -> tuple[list[str], list[str]]:
+def score_context(
+    context: str, expected_facts: list[str]
+) -> tuple[list[str], list[str]]:
     """Case-insensitive substring scoring. Returns (hits, misses)."""
     lowered = context.lower()
     hits = [fact for fact in expected_facts if fact.lower() in lowered]
@@ -94,7 +96,9 @@ def run_eval(
             beam=beam,
             budget_chars=budget_chars,
         )
-        hits, misses = score_context(outcome["context"], item.get("expected_facts") or [])
+        hits, misses = score_context(
+            outcome["context"], item.get("expected_facts") or []
+        )
         total = len(hits) + len(misses)
         results.append(
             EvalResult(
@@ -110,4 +114,10 @@ def run_eval(
     return results
 
 
-__all__ = ["DEFAULT_QUESTIONS", "EvalResult", "load_questions", "run_eval", "score_context"]
+__all__ = [
+    "DEFAULT_QUESTIONS",
+    "EvalResult",
+    "load_questions",
+    "run_eval",
+    "score_context",
+]

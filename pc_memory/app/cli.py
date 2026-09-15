@@ -275,7 +275,8 @@ def build_parser() -> argparse.ArgumentParser:
     p.set_defaults(func=cmd_rebuild)
 
     p = sub.add_parser(
-        "export-traces", help="Export retrieval traces (JSONL or CSV) for router training"
+        "export-traces",
+        help="Export retrieval traces (JSONL or CSV) for router training",
     )
     p.add_argument("--out", required=True, help="Output file path")
     p.add_argument("--format", choices=["jsonl", "csv"], default="jsonl")

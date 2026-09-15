@@ -50,7 +50,10 @@ class MockRouterLLM:
 
 
 def test_score_context_hits_and_misses():
-    hits, misses = score_context("The sky is blue via Rayleigh scattering.", ["rayleigh scattering", "potassium-40"])
+    hits, misses = score_context(
+        "The sky is blue via Rayleigh scattering.",
+        ["rayleigh scattering", "potassium-40"],
+    )
     assert hits == ["rayleigh scattering"]
     assert misses == ["potassium-40"]
 
@@ -113,8 +116,16 @@ def test_load_traces_roundtrip(conn):
 
 def test_run_eval_seed_only_scores_expected_facts(conn):
     questions = [
-        {"id": "octopus", "question": "How many hearts does an octopus have?", "expected_facts": ["three hearts"]},
-        {"id": "eyes", "question": "What color is the scattered sunlight reaching our eyes?", "expected_facts": ["predominantly blue"]},
+        {
+            "id": "octopus",
+            "question": "How many hearts does an octopus have?",
+            "expected_facts": ["three hearts"],
+        },
+        {
+            "id": "eyes",
+            "question": "What color is the scattered sunlight reaching our eyes?",
+            "expected_facts": ["predominantly blue"],
+        },
     ]
     results = run_eval(conn, questions, llm=None)
     assert [r.score for r in results] == [1.0, 1.0]
@@ -127,7 +138,11 @@ def test_run_eval_with_mock_router_walks_chain(conn):
         {
             "id": "full-chain",
             "question": "Why is the sky blue?",
-            "expected_facts": ["rayleigh scattering", "shorter wavelengths", "predominantly blue"],
+            "expected_facts": [
+                "rayleigh scattering",
+                "shorter wavelengths",
+                "predominantly blue",
+            ],
         }
     ]
     results = run_eval(conn, questions, llm=router)

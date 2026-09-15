@@ -7,7 +7,6 @@ no live model is ever called.
 import json
 
 import pytest
-
 from pc_memory.app.db import connect, init_schema
 from pc_memory.app.store import (
     add_edge,
@@ -58,7 +57,9 @@ def test_entity_dedup_exact_normalized(conn):
     second, created2 = upsert_entity(conn, "  alice ")
     assert created is True and created2 is False
     assert first == second
-    count = conn.execute("SELECT COUNT(*) FROM nodes WHERE kind = 'entity'").fetchone()[0]
+    count = conn.execute("SELECT COUNT(*) FROM nodes WHERE kind = 'entity'").fetchone()[
+        0
+    ]
     assert count == 1
 
 
@@ -214,7 +215,9 @@ def test_forget_cascade_leaves_fts_consistent(conn):
 
     # Node, its edges and provenance are gone.
     assert (
-        conn.execute("SELECT COUNT(*) FROM nodes WHERE id = ?", (result.node_id,)).fetchone()[0]
+        conn.execute(
+            "SELECT COUNT(*) FROM nodes WHERE id = ?", (result.node_id,)
+        ).fetchone()[0]
         == 0
     )
     assert (
@@ -244,9 +247,7 @@ def test_forget_missing_node_returns_false(conn):
 
 
 def test_inspect_and_stats(conn):
-    add_triple(
-        conn, "Alice", "lives_in", "Seattle", judge=_judge("new")
-    )
+    add_triple(conn, "Alice", "lives_in", "Seattle", judge=_judge("new"))
     s = stats(conn)
     assert s["nodes"] == 3  # 2 entities + 1 fact
     assert s["nodes_by_kind"] == {"entity": 2, "fact": 1}
