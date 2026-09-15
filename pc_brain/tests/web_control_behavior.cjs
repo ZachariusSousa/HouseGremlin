@@ -120,6 +120,11 @@ const clearTimeoutFake = (id) => timeouts.delete(id);
 class FakeWebSocket {
   static OPEN = 1;
   constructor(url) {
+    if (FakeWebSocket.constructorError) {
+      const error = FakeWebSocket.constructorError;
+      FakeWebSocket.constructorError = null;
+      throw error;
+    }
     this.url = url;
     this.readyState = 0;
     this.listeners = {};
@@ -131,6 +136,7 @@ class FakeWebSocket {
   close() { this.readyState = 3; }
 }
 FakeWebSocket.instances = [];
+FakeWebSocket.constructorError = null;
 
 const windowListeners = {};
 const sandbox = {
@@ -327,9 +333,36 @@ assert.match(element("trackingTelemetryStatus").textContent, /ACTIVE/);
   assert.equal(element("chatStatus").textContent, "READY");
   assert.equal(element("command").value, "");
 
-  api.overrideRealtimeAudio(async () => { api.state.realtime.audioContext = {currentTime: 0}; });
   api.state.realtime.url = "ws://localhost/v1/realtime";
   api.state.mode = "voice";
+  let setupTrackStops = 0;
+  let setupCaptureDisconnects = 0;
+  let setupSourceDisconnects = 0;
+  let setupSinkDisconnects = 0;
+  api.overrideRealtimeAudio(async () => {
+    api.state.realtime.audioContext = {currentTime: 0};
+    api.state.realtime.micStream = {getTracks: () => [{stop() { setupTrackStops += 1; }}]};
+    api.state.realtime.captureNode = {disconnect() { setupCaptureDisconnects += 1; }};
+    api.state.realtime.micSource = {disconnect() { setupSourceDisconnects += 1; }};
+    api.state.realtime.captureSink = {disconnect() { setupSinkDisconnects += 1; }};
+  });
+  FakeWebSocket.constructorError = new Error("websocket construction failed");
+  await assert.rejects(api.connectRealtime(), /websocket construction failed/);
+  assert.equal(setupTrackStops, 1, "connect failure after microphone acquisition must stop its track");
+  assert.equal(setupCaptureDisconnects, 1, "connect failure must disconnect the capture node");
+  assert.equal(setupSourceDisconnects, 1, "connect failure must disconnect the microphone source");
+  assert.equal(setupSinkDisconnects, 1, "connect failure must disconnect the capture sink");
+  assert.equal(api.state.realtime.micStream, null);
+  assert.equal(api.state.realtime.captureNode, null);
+  assert.equal(api.state.realtime.micSource, null);
+  assert.equal(api.state.realtime.captureSink, null);
+  assert.equal(api.state.realtime.ws, null);
+  assert.equal(api.state.realtime.connecting, false);
+  assert.equal(api.state.realtime.connected, false);
+  assert.equal(element("voiceConnect").textContent, "CONNECT VOICE");
+  assert.equal(element("voiceStatus").textContent, "WEBSOCKET CONSTRUCTION FAILED");
+
+  api.overrideRealtimeAudio(async () => { api.state.realtime.audioContext = {currentTime: 0}; });
   let trackStops = 0;
   let captureDisconnects = 0;
   let sourceDisconnects = 0;
