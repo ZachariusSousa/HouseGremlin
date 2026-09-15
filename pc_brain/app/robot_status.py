@@ -58,14 +58,14 @@ def normalize_robot_status(
 
     if critical_fault or watchdog_fault:
         status = "fault"
+    elif not connected or not ready:
+        status = "offline"
     elif not usable_sample or age_ms is None or age_ms > STALE_MAX_AGE_MS:
         status = "offline"
     elif age_ms > ONLINE_MAX_AGE_MS:
         status = "stale"
-    elif connected and ready:
-        status = "online"
     else:
-        status = "offline"
+        status = "online"
 
     movement = _first(raw, "movement", "move")
     speed = _first(raw, "speed", "motor_speed")

@@ -19,6 +19,7 @@ from .brain_models import (
     utc_now,
 )
 from .correlation import current_correlation_id
+from .execution import policy_execution_outcome
 from .journal import EventJournal
 from .resource_lease import PriorityResourceLease
 from .sanitization import sanitize_public_text
@@ -266,11 +267,29 @@ class BrainCoordinator:
             finally:
                 current_correlation_id.reset(token)
             if isinstance(result, dict) and result.get("ok") is False:
-                error = str(
+                error = sanitize_public_text(
                     result.get("error")
                     or result.get("skipped")
-                    or "actuation returned ok=false"
+                    or "actuation returned ok=false",
+                    max_length=500,
+                    fallback="actuation returned ok=false",
                 )
+                policy_outcome = policy_execution_outcome(result)
+                if policy_outcome is not None:
+                    self.record(
+                        f"action.{policy_outcome}",
+                        EventSource.policy,
+                        intent.correlation_id,
+                        {"action": intent.action, "reason": error, "result": result},
+                        intent.priority,
+                        proposed.event_id,
+                    )
+                    self.transition(
+                        intent.correlation_id,
+                        EventSource.system,
+                        body=BodyState.stationary,
+                    )
+                    return result
                 self.record(
                     "action.failed",
                     EventSource.firmware,

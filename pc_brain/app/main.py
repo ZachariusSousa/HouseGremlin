@@ -32,11 +32,13 @@ from .control_channel import ActuatorBroker, ControlChannelClient
 from .coordinator import BrainCoordinator
 from .correlation import current_correlation_id
 from .eye_controller import EMOTIONAL_EYE_EXPRESSIONS, EyeController
+from .execution import policy_execution_result
 from .frame_broker import FrameBroker
 from .journal import EventJournal
 from .llm import OpenAICompatibleChatClient
 from .realtime_gateway import RealtimeGateway, explicit_robot_action
 from .robot_status import normalize_robot_status
+from .sanitization import sanitize_public_text
 from .telemetry import HostSampler, LlmHealthState, SystemTelemetryService
 from .timing import timed
 from .tracking import PersonTrackingService, RFDetrClient
@@ -320,7 +322,7 @@ async def tracking_head_command(
     allow_search: bool = False,
 ) -> dict:
     if not tracking_motion_authorized(generation, body=False, allow_search=allow_search):
-        return {"ok": False, "skipped": "tracking authorization expired"}
+        return policy_execution_result("tracking authorization expired")
     return await get_actuator_broker().head_target(
         pan,
         tilt,
@@ -336,7 +338,7 @@ async def tracking_head_command(
 
 async def tracking_move_command(direction: str, speed: int, duration_ms: int, generation: int) -> dict:
     if not tracking_motion_authorized(generation, body=True):
-        return {"ok": False, "skipped": "tracking authorization expired"}
+        return policy_execution_result("tracking authorization expired")
     correlation_id = get_brain_coordinator().new_correlation_id()
     intent = ActionIntent(
         action={"movement": {"direction": direction, "speed": speed, "duration_ms": duration_ms}},
@@ -348,7 +350,7 @@ async def tracking_move_command(direction: str, speed: int, duration_ms: int, ge
 
     async def execute(payload: dict) -> dict:
         if not tracking_motion_authorized(generation, body=True):
-            return {"ok": False, "skipped": "tracking authorization expired"}
+            return policy_execution_result("tracking authorization expired")
         movement = payload["movement"]
         return await get_actuator_broker().tracking_drive(
             movement["direction"],
@@ -478,16 +480,22 @@ TRACKING_OFF_MARKERS = re.compile(
 async def execute_explicit_tracking_request(text: str) -> dict | None:
     if TRACKING_OFF_MARKERS.search(text):
         status = await get_tracking_service().stop(reason="explicit request")
-        return {"ok": True, "command": "off", "status": status.model_dump(mode="json")}
+        return {"ok": True, "command": "off", "status": public_tracking_status(status)}
     if TRACKING_STOP_MARKERS.search(text):
         status = await get_tracking_service().stop(reason="explicit request")
-        return {"ok": True, "command": "off", "status": status.model_dump(mode="json")}
+        return {"ok": True, "command": "off", "status": public_tracking_status(status)}
     if TRACKING_START_MARKERS.search(text):
         service = get_tracking_service()
         if not service.detector.available and not await service.detector.probe():
-            return {"ok": False, "command": "track", "error": service.detector.reason}
+            return {
+                "ok": False,
+                "command": "track",
+                "error": sanitize_public_text(
+                    service.detector.reason or "RF-DETR is unavailable"
+                ),
+            }
         status = await service.enable()
-        return {"ok": True, "command": "track", "status": status.model_dump(mode="json")}
+        return {"ok": True, "command": "track", "status": public_tracking_status(status)}
     return None
 
 
@@ -580,7 +588,7 @@ async def robot_request(
     async with robot_request_lock:
         for attempt in range(retries + 1):
             if authorization is not None and not authorization():
-                return {"ok": False, "skipped": "tracking authorization expired"}
+                return policy_execution_result("tracking authorization expired")
             try:
                 correlation_id = current_correlation_id.get()
                 headers = {"x-robit-correlation-id": correlation_id} if correlation_id else None
@@ -618,7 +626,7 @@ async def robot_post(
     authorization: Callable[[], bool] | None = None,
 ):
     if authorization is not None and not authorization():
-        return {"ok": False, "skipped": "tracking authorization expired"}
+        return policy_execution_result("tracking authorization expired")
     payload = body or {}
     broker = get_actuator_broker()
     if path == "/api/move":
@@ -874,6 +882,25 @@ async def coordinated_action(
     return {**result, "correlation_id": correlation_id}
 
 
+def action_execution_error(result: dict | None) -> str | None:
+    if not isinstance(result, dict) or result.get("ok") is not False:
+        return None
+    candidates = [result.get("error"), result.get("skipped")]
+    for item in result.get("executed") or []:
+        nested = item.get("result") if isinstance(item, dict) else None
+        if isinstance(nested, dict) and nested.get("ok") is False:
+            candidates.extend((nested.get("error"), nested.get("skipped")))
+    for item in result.get("skipped") or []:
+        if isinstance(item, dict):
+            candidates.append(item.get("reason"))
+    reason = next((value for value in candidates if value), "robot action was not acknowledged")
+    return sanitize_public_text(
+        reason,
+        max_length=300,
+        fallback="robot action was not acknowledged",
+    )
+
+
 def manual_action_response(result: dict) -> dict:
     executed = result.get("executed") or []
     if executed and isinstance(executed[0].get("result"), dict):
@@ -1053,6 +1080,14 @@ def public_base_url(value: str) -> str:
     return urlunparse((parsed.scheme, netloc, parsed.path, "", "", ""))
 
 
+def public_tracking_status(tracking) -> dict:
+    payload = tracking.model_dump(mode="json")
+    for field in ("reason", "stop_reason"):
+        if payload.get(field):
+            payload[field] = sanitize_public_text(payload[field])
+    return payload
+
+
 def tracking_telemetry_payload(tracking, broker) -> dict:
     latest_frame = broker.latest
     latest_frame_age_seconds = None
@@ -1066,7 +1101,7 @@ def tracking_telemetry_payload(tracking, broker) -> dict:
         "active": bool(tracking.enabled),
         "latest_frame_age_seconds": latest_frame_age_seconds,
         "latest_result_age_seconds": getattr(tracking, "target_age_seconds", None),
-        "error": tracking.reason,
+        "error": sanitize_public_text(tracking.reason) if tracking.reason else None,
     }
 
 
@@ -1138,7 +1173,11 @@ def readiness_components(robot: dict, tracking, broker, voice_health: dict) -> d
         },
         "tracking": {
             "status": "ready" if tracking_ready else "degraded",
-            "reason": None if tracking_ready else (tracking.reason or "tracking is unavailable"),
+            "reason": (
+                None
+                if tracking_ready
+                else sanitize_public_text(tracking.reason or "tracking is unavailable")
+            ),
             "checked_at": checked_at,
             "latency_ms": tracking.detector_latency_ms,
         },
@@ -1191,7 +1230,7 @@ async def health(request: Request):
             "available": tracking.available,
             "mode": tracking.mode,
             "backend": tracking.backend,
-            "reason": tracking.reason,
+            "reason": sanitize_public_text(tracking.reason) if tracking.reason else None,
             "detector_latency_ms": tracking.detector_latency_ms,
             "detector_queue_ms": tracking.detector_queue_ms,
             "detector_cadence_fps": tracking.detector_cadence_fps,
@@ -1333,25 +1372,28 @@ async def perception_query(query: PerceptionQueryRequest):
 
 @app.get("/tracking/status")
 async def tracking_status():
-    return get_tracking_service().status().model_dump(mode="json")
+    return public_tracking_status(get_tracking_service().status())
 
 
 @app.post("/tracking/start")
 async def tracking_start():
     service = get_tracking_service()
     if not service.detector.available and not await service.detector.probe():
-        raise HTTPException(status_code=503, detail=service.detector.reason or "RF-DETR is unavailable")
+        raise HTTPException(
+            status_code=503,
+            detail=sanitize_public_text(service.detector.reason or "RF-DETR is unavailable"),
+        )
     try:
         status = await service.enable()
     except RuntimeError as exc:
-        raise HTTPException(status_code=503, detail=str(exc)) from exc
-    return status.model_dump(mode="json")
+        raise HTTPException(status_code=503, detail=sanitize_public_text(exc)) from exc
+    return public_tracking_status(status)
 
 
 @app.post("/tracking/stop")
 async def tracking_stop():
     status = await get_tracking_service().stop(reason="API request")
-    return status.model_dump(mode="json")
+    return public_tracking_status(status)
 
 
 @app.post("/robot/drive")
@@ -1446,7 +1488,12 @@ async def chat_action(chat_request: ChatActionRequest, request: Request):
             WorkPriority.manual_action,
             execute_text_model_action_payload,
         )
-        response_text = "I stopped Robit's movement."
+        execution_error = action_execution_error(action_result)
+        response_text = (
+            "I could not complete that robot action. Please retry."
+            if execution_error
+            else "I stopped Robit's movement."
+        )
         coordinator.record_turn("assistant", response_text, EventSource.system, correlation_id)
         coordinator.transition(correlation_id, EventSource.system, conversation=ConversationState.idle)
         return {
@@ -1456,11 +1503,13 @@ async def chat_action(chat_request: ChatActionRequest, request: Request):
             "correlation_id": correlation_id,
             "action": {"movement": {"direction": "stop"}},
             "action_result": action_result,
+            "execution_error": execution_error,
             "vision": None,
             "parse_error": None,
         }
     tracking_result = await execute_explicit_tracking_request(chat_request.text)
     if tracking_result is not None:
+        execution_error = action_execution_error(tracking_result)
         if tracking_result.get("ok"):
             responses = {
                 "track": "I am tracking the visible person continuously.",
@@ -1478,6 +1527,7 @@ async def chat_action(chat_request: ChatActionRequest, request: Request):
             "correlation_id": correlation_id,
             "action": None,
             "action_result": tracking_result,
+            "execution_error": execution_error,
             "vision": None,
             "parse_error": None,
         }
@@ -1511,6 +1561,7 @@ async def chat_action(chat_request: ChatActionRequest, request: Request):
                 "correlation_id": correlation_id,
                 "action": action_body if isinstance(action_body, dict) else None,
                 "action_result": None,
+                "execution_error": None,
                 "vision": None,
                 "parse_error": f"LLM returned an invalid robot action; no robot action was executed: {exc}",
             }
@@ -1533,6 +1584,7 @@ async def chat_action(chat_request: ChatActionRequest, request: Request):
             "correlation_id": correlation_id,
             "action": None,
             "action_result": None,
+            "execution_error": None,
             "vision": vision,
             "parse_error": None,
         }
@@ -1546,6 +1598,7 @@ async def chat_action(chat_request: ChatActionRequest, request: Request):
             "correlation_id": correlation_id,
             "action": None,
             "action_result": None,
+            "execution_error": None,
             "vision": None,
             "parse_error": "LLM did not return strict JSON; no robot action was executed.",
         }
@@ -1561,6 +1614,10 @@ async def chat_action(chat_request: ChatActionRequest, request: Request):
             execute_text_model_action_payload,
         )
 
+    execution_error = action_execution_error(action_result)
+    if execution_error:
+        response_text = "I could not complete that robot action. Please retry."
+
     coordinator.record_turn("assistant", response_text, EventSource.text_model, correlation_id)
     coordinator.transition(correlation_id, EventSource.text_model, conversation=ConversationState.idle)
 
@@ -1571,6 +1628,7 @@ async def chat_action(chat_request: ChatActionRequest, request: Request):
         "correlation_id": correlation_id,
         "action": action_body if isinstance(action_body, dict) else None,
         "action_result": action_result,
+        "execution_error": execution_error,
         "vision": None,
         "parse_error": None,
     }

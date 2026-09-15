@@ -337,6 +337,72 @@ def test_system_telemetry_never_serializes_secrets_from_fault_messages(monkeypat
     assert len(fault["message"]) <= 500
 
 
+def test_tracking_public_health_telemetry_status_and_errors_are_sanitized(monkeypatch):
+    secret_reason = (
+        "remote https://tracking-user:tracking-pass@private-tracking/status"
+        "?api_key=query-secret Bearer bearer-secret token=plain-secret"
+    )
+
+    class UnsafeDetector:
+        available = False
+        reason = secret_reason
+
+        async def probe(self):
+            return False
+
+    class UnsafeTrackingService:
+        detector = UnsafeDetector()
+
+        def status(self):
+            from app.tracking import TrackingStatus
+
+            return TrackingStatus(
+                available=False,
+                reason=secret_reason,
+                enabled=False,
+                state="off",
+                mode="off",
+                head={"pan": 90, "tilt": 90},
+                effective_camera_fps=0.2,
+            )
+
+        async def enable(self):
+            raise AssertionError("unavailable tracking must not be enabled")
+
+    health = RecordingLlmHealth("openai_compatible", "gemma4:e4b")
+    health.record_probe(
+        success=True,
+        checked_at="2026-09-08T00:00:00+00:00",
+        latency_ms=1.0,
+    )
+    configure_readiness_fakes(monkeypatch, health)
+    service = UnsafeTrackingService()
+    monkeypatch.setattr(main, "get_tracking_service", lambda: service)
+
+    client = TestClient(main.app)
+    payloads = [
+        client.get("/health").json(),
+        client.get("/system/telemetry").json(),
+        client.get("/tracking/status").json(),
+        client.post("/tracking/start").json(),
+    ]
+
+    for payload in payloads:
+        serialized = str(payload)
+        assert "[redacted-url]" in serialized
+        assert "Bearer [redacted]" in serialized
+        assert "token=[redacted]" in serialized
+        for secret in (
+            "tracking-user",
+            "tracking-pass",
+            "private-tracking",
+            "query-secret",
+            "bearer-secret",
+            "plain-secret",
+        ):
+            assert secret not in serialized
+
+
 def test_health_keeps_liveness_true_but_reports_truthful_not_ready_components(monkeypatch):
     health = RecordingLlmHealth("openai_compatible", "gemma4:e4b")
     configure_readiness_fakes(monkeypatch, health)
@@ -585,7 +651,10 @@ async def test_successful_probe_uses_models_endpoint_without_generating_tokens(m
             return None
 
         def json(self):
-            return {"object": "list", "data": [{"id": "gemma4:e4b"}]}
+            return {
+                "object": "list",
+                "data": [{"id": main.llm_client.settings.llm_model}],
+            }
 
     class FakeAsyncClient:
         def __init__(self, timeout):

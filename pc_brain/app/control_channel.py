@@ -11,6 +11,8 @@ from contextlib import suppress
 from dataclasses import dataclass, field
 from typing import Any
 
+from .execution import policy_execution_result
+
 
 logger = logging.getLogger("uvicorn.error")
 MAX_MESSAGE_BYTES = 512
@@ -445,7 +447,7 @@ class ActuatorBroker:
     ) -> dict[str, Any]:
         if source == "tracking" and not self.tracking_allowed():
             self.stats.suppressed_tracking += 1
-            return {"ok": False, "skipped": "manual control lease active"}
+            return policy_execution_result("manual control lease active")
         if source != "tracking":
             self._manual_lease_until = time.monotonic() + self.manual_lease_seconds
         pan = max(55, min(135, int(pan)))
@@ -492,12 +494,12 @@ class ActuatorBroker:
     ) -> dict[str, Any]:
         if not self.tracking_allowed():
             self.stats.suppressed_tracking += 1
-            return {"ok": False, "skipped": "manual control lease active"}
+            return policy_execution_result("manual control lease active")
         if authorization is not None and not authorization():
-            return {"ok": False, "skipped": "tracking authorization expired"}
+            return policy_execution_result("tracking authorization expired")
         await self.channel.wait_ready()
         if authorization is not None and not authorization():
-            return {"ok": False, "skipped": "tracking authorization expired"}
+            return policy_execution_result("tracking authorization expired")
         return await self._send(
             "drive",
             ttl_ms=max(250, min(duration_ms + 500, 2000)),
@@ -537,15 +539,14 @@ class ActuatorBroker:
                         target.authorization is not None
                         and not target.authorization()
                     ):
-                        result = {
-                            "ok": False,
-                            "skipped": "tracking authorization expired",
-                        }
+                        result = policy_execution_result(
+                            "tracking authorization expired"
+                        )
                     elif (
                         target.source == "tracking"
                         and not self.tracking_allowed()
                     ):
-                        result = {"ok": False, "skipped": "manual control lease active"}
+                        result = policy_execution_result("manual control lease active")
                         self.stats.suppressed_tracking += 1
                     elif (
                         target.source == "tracking"

@@ -185,6 +185,7 @@ async def test_tracking_targets_are_coalesced_and_manual_lease_suppresses_tracki
         await broker.head_target(100, 90, source="manual")
         suppressed = await broker.head_target(120, 90, source="tracking")
         assert suppressed["ok"] is False
+        assert suppressed["execution_outcome"] == "cancelled"
         assert broker.stats.suppressed_tracking == 1
     finally:
         await broker.shutdown()

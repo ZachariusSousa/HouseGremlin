@@ -235,7 +235,7 @@ async def test_nvidia_gpu_cancellation_kills_and_reaps_child_process():
     assert process.waited is True
 
 
-def test_llm_health_transitions_and_successful_probe_recovers_readiness():
+def test_llm_health_probe_recovery_preserves_newer_inference_failure():
     health = LlmHealthState(provider="openai_compatible", model="gemma4:e4b")
 
     assert health.snapshot()["status"] == "unknown"
@@ -270,9 +270,17 @@ def test_llm_health_transitions_and_successful_probe_recovers_readiness():
         latency_ms=40.0,
     )
     recovered = health.snapshot()
-    assert recovered["status"] == "ready"
+    assert recovered["status"] == "degraded"
     assert recovered["last_probe_error"] is None
     assert recovered["last_probe_latency_ms"] == 40.0
+    assert recovered["last_inference_error"] == "inference failed (HTTPException)"
+
+    health.record_inference(
+        success=True,
+        checked_at="2026-09-08T00:00:04+00:00",
+        latency_ms=50.0,
+    )
+    assert health.snapshot()["status"] == "ready"
 
 
 def test_malformed_inference_degrades_a_reachable_llm_without_losing_latency():

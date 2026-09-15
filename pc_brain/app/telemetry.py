@@ -206,7 +206,7 @@ class LlmHealthState:
         self.last_probe_at = checked_at
         self.last_probe_latency_ms = max(0.0, float(latency_ms))
         self.last_probe_error = None if success else error
-        self.status = "ready" if success else "unavailable"
+        self._refresh_status()
 
     def record_inference(
         self,
@@ -220,20 +220,24 @@ class LlmHealthState:
         self.last_inference_latency_ms = max(0.0, float(latency_ms))
         self.last_inference_error = None if success else error
         self.last_inference_success = success
-        if self.status == "unavailable":
-            return
-        if self.last_probe_at is None:
-            self.status = "unknown"
-            return
-        self.status = "ready" if success else "degraded"
+        self._refresh_status()
 
     def mark_last_inference_malformed(self, error: str) -> None:
         if self.last_inference_at is None:
             return
         self.last_inference_error = error
         self.last_inference_success = False
-        if self.status != "unavailable":
+        self._refresh_status()
+
+    def _refresh_status(self) -> None:
+        if self.last_probe_at is None:
+            self.status = "unknown"
+        elif self.last_probe_error is not None:
+            self.status = "unavailable"
+        elif self.last_inference_success is False:
             self.status = "degraded"
+        else:
+            self.status = "ready"
 
     def snapshot(self) -> dict[str, Any]:
         return {

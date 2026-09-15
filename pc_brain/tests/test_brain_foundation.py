@@ -200,6 +200,48 @@ async def test_returned_actuation_failure_stays_failed_without_raising(tmp_path)
         )
     ]
     assert "action.failed" in event_types
+    assert "action.cancelled" not in event_types
+    assert "action.completed" not in event_types
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "reason",
+    ["tracking authorization expired", "manual control lease active"],
+)
+async def test_policy_cancelled_action_stays_stationary_without_a_critical_fault(
+    tmp_path, reason
+):
+    coordinator = BrainCoordinator(EventJournal(tmp_path / "brain.db"))
+    intent = ActionIntent(
+        action={"movement": {"direction": "left"}},
+        origin=EventSource.policy,
+        correlation_id=f"corr-{reason.replace(' ', '-')}",
+        priority=WorkPriority.background,
+    )
+    cancellation = {
+        "ok": False,
+        "execution_outcome": "cancelled",
+        "skipped": reason,
+    }
+
+    async def executor(action):
+        return cancellation
+
+    result = await coordinator.execute_action(intent, executor)
+
+    assert result is cancellation
+    assert coordinator.active_faults == []
+    assert coordinator.state.body == BodyState.stationary
+    assert coordinator.state.safety == "normal"
+    event_types = [
+        event.event_type
+        for event in coordinator.journal.list_events(
+            correlation_id=intent.correlation_id
+        )
+    ]
+    assert "action.cancelled" in event_types
+    assert "action.failed" not in event_types
     assert "action.completed" not in event_types
 
 

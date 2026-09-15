@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field, field_validator
 from .brain_models import EventSource, WorkPriority
 from .coordinator import BrainCoordinator
 from .frame_broker import CameraFrame, FrameBroker
+from .sanitization import sanitize_public_text
 
 
 TrackingMode = Literal["off", "track"]
@@ -154,12 +155,16 @@ class RFDetrClient:
             response = await self._http().get(f"{self.base_url}/health")
             payload = response.json()
             self.available = bool(response.is_success and payload.get("available"))
-            self.reason = None if self.available else str(payload.get("reason") or "RF-DETR is unavailable")
+            self.reason = (
+                None
+                if self.available
+                else sanitize_public_text(payload.get("reason") or "RF-DETR is unavailable")
+            )
             self.backend = payload.get("backend")
             self.model = payload.get("model")
         except (httpx.HTTPError, ValueError, TypeError) as exc:
             self.available = False
-            self.reason = (
+            self.reason = sanitize_public_text(
                 f"RF-DETR sidecar unavailable during probe "
                 f"({type(exc).__name__}): {exc}"
             )
@@ -183,7 +188,7 @@ class RFDetrClient:
                 raise ValueError("RF-DETR returned a result for a different camera frame")
         except (httpx.HTTPError, ValueError, TypeError) as exc:
             self.available = False
-            self.reason = (
+            self.reason = sanitize_public_text(
                 f"RF-DETR inference unavailable during detect "
                 f"({type(exc).__name__}): {exc}"
             )
@@ -513,7 +518,11 @@ class PersonTrackingService:
         )
         return TrackingStatus(
             available=self.detector.available,
-            reason=self.detector.reason,
+            reason=(
+                sanitize_public_text(self.detector.reason)
+                if self.detector.reason
+                else None
+            ),
             enabled=self.enabled and self.mode != "off",
             state=self.state,
             mode=self.mode,
@@ -527,7 +536,11 @@ class PersonTrackingService:
             backend=self.backend or self.detector.backend,
             model=self.model or self.detector.model,
             started_at=self.started_at,
-            stop_reason=self.stop_reason,
+            stop_reason=(
+                sanitize_public_text(self.stop_reason)
+                if self.stop_reason
+                else None
+            ),
             target_age_seconds=target_age,
             target_confidence=self.target.confidence if self.target else None,
             detector_cadence_fps=self._detector_cadence_fps,
@@ -1098,13 +1111,14 @@ class PersonTrackingService:
                 continue
             except Exception as exc:
                 self.state = "fault"
-                self.detector.reason = f"{type(exc).__name__}: {exc}"
+                safe_error = sanitize_public_text(f"{type(exc).__name__}: {exc}")
+                self.detector.reason = safe_error
                 self._record(
                     "tracking.faulted",
                     {
                         "stage": "detection_loop",
                         "exception_class": type(exc).__name__,
-                        "error": str(exc),
+                        "error": safe_error,
                     },
                 )
                 await asyncio.sleep(1.0)

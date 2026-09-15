@@ -261,8 +261,32 @@ class OpenAICompatibleChatClient:
                 body = response.json()
         except (httpx.HTTPError, ValueError, TypeError) as exc:
             raise RuntimeError("OpenAI-compatible model probe failed") from exc
-        if not isinstance(body, dict) or not isinstance(body.get("data"), list):
+        if not isinstance(body, dict):
             raise RuntimeError("OpenAI-compatible model probe returned malformed data")
+        collections = [
+            value
+            for key in ("data", "models")
+            if isinstance((value := body.get(key)), list)
+        ]
+        descriptors = [
+            item
+            for collection in collections
+            for item in collection
+            if isinstance(item, dict)
+        ]
+        configured_model = self.settings.llm_model
+        if not any(
+            configured_model
+            in {
+                value
+                for field in ("id", "name", "model")
+                if isinstance((value := descriptor.get(field)), str)
+            }
+            for descriptor in descriptors
+        ):
+            raise RuntimeError(
+                "OpenAI-compatible model probe did not advertise the configured model"
+            )
 
     async def warmup(self) -> None:
         await self.chat("Say ready.")

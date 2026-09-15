@@ -413,6 +413,51 @@ async def test_detector_client_rejects_mismatched_frame(monkeypatch):
 
 
 @pytest.mark.anyio
+async def test_detector_client_sanitizes_remote_probe_and_http_detect_failures():
+    secret_reason = (
+        "GET https://tracking-user:tracking-pass@private-tracking/health"
+        "?api_key=query-secret Bearer bearer-secret token=plain-secret"
+    )
+
+    class UnsafeProbeResponse:
+        is_success = False
+
+        def json(self):
+            return {"available": False, "reason": secret_reason}
+
+    class UnsafeClient:
+        is_closed = False
+
+        async def get(self, url):
+            return UnsafeProbeResponse()
+
+        async def post(self, url, content, headers):
+            request = httpx.Request("POST", url)
+            raise httpx.ConnectError(secret_reason, request=request)
+
+    client = RFDetrClient("http://tracking")
+    client._client = UnsafeClient()
+
+    assert await client.probe() is False
+    assert "[redacted-url]" in client.reason
+    for secret in (
+        "tracking-user",
+        "tracking-pass",
+        "private-tracking",
+        "query-secret",
+        "bearer-secret",
+        "plain-secret",
+    ):
+        assert secret not in client.reason
+
+    frame = CameraFrame("frame-safe", datetime.now(timezone.utc), b"jpeg")
+    with pytest.raises(RuntimeError) as caught:
+        await client.detect(frame, frame.content, 0.55)
+    assert "[redacted-url]" in str(caught.value)
+    assert "tracking-pass" not in str(caught.value)
+
+
+@pytest.mark.anyio
 async def test_skipped_head_command_does_not_drift_internal_position(tmp_path):
     service, _, head_commands, _ = make_service(tmp_path, skip_head=True)
     service.pivot_confirmation_seconds = 999

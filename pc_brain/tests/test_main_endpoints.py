@@ -609,6 +609,25 @@ def test_robot_status_freshness_boundaries(age_ms, expected):
     assert result["status"] == expected
 
 
+@pytest.mark.parametrize("age_ms", [0.0, 3000.0, 3000.001, 15000.0, 15000.001])
+@pytest.mark.parametrize(
+    ("connected", "ready"),
+    [(False, False), (False, True), (True, False)],
+)
+def test_disconnected_or_unready_robot_is_offline_at_every_sample_age(
+    age_ms, connected, ready
+):
+    result = main.normalize_robot_status(
+        {"ok": True, "pan_actual": 90, "tilt_actual": 90},
+        source="cache",
+        sample_age_ms=age_ms,
+        connected=connected,
+        ready=ready,
+    )
+
+    assert result["status"] == "offline"
+
+
 def test_tcp_http_and_cache_samples_share_canonical_head_eyes_watchdog_shape():
     samples = [
         (
@@ -796,6 +815,41 @@ async def test_continuous_tracking_head_command_uses_direct_control_path(monkeyp
     assert calls == [(108, 76, "tracking")]
 
 
+@pytest.mark.anyio
+async def test_tracking_authorization_expiry_is_a_policy_cancellation_not_a_fault(
+    monkeypatch,
+):
+    class ExpiringTracking:
+        def __init__(self):
+            self.authorization_checks = 0
+
+        def motion_authorized(self, generation, *, body, allow_search=False):
+            self.authorization_checks += 1
+            return self.authorization_checks == 1
+
+    class UnexpectedBroker:
+        async def tracking_drive(self, *args, **kwargs):
+            raise AssertionError("expired tracking must not reach the actuator")
+
+    monkeypatch.setattr(main, "tracking_service", ExpiringTracking())
+    monkeypatch.setattr(main, "get_actuator_broker", lambda: UnexpectedBroker())
+
+    result = await main.tracking_move_command("left", 140, 300, 7)
+
+    assert result == {
+        "ok": False,
+        "execution_outcome": "cancelled",
+        "skipped": "tracking authorization expired",
+    }
+    coordinator = main.get_brain_coordinator()
+    assert coordinator.active_faults == []
+    assert coordinator.state.body.value == "stationary"
+    assert any(
+        event.event_type == "action.cancelled"
+        for event in coordinator.journal.list_events()
+    )
+
+
 def test_robot_action_clamps_movement_speed_and_duration(monkeypatch):
     calls = []
     monkeypatch.setattr(
@@ -951,6 +1005,42 @@ def test_chat_action_executes_strict_json_action(monkeypatch):
     assert response.json()["response"] == "moving now"
     assert response.json()["parse_error"] is None
     assert calls == [("/api/move", {"direction": "left", "speed": 120, "duration_ms": 300})]
+
+
+def test_chat_action_exposes_real_head_execution_failure_without_claiming_success(
+    monkeypatch,
+):
+    monkeypatch.setattr(main, "tracking_service", FakeTrackingService())
+    monkeypatch.setattr(
+        main,
+        "llm_client",
+        FakeActionLlmClient(
+            '{"response":"I moved my head.","action":{"head":{"pan":100,"tilt":80}}}'
+        ),
+    )
+
+    async def failed_robot_post(path, body=None):
+        assert path == "/api/head"
+        return {
+            "ok": False,
+            "error": "control acknowledgement rejected",
+            "pan_target": 90,
+            "tilt_target": 90,
+        }
+
+    monkeypatch.setattr(main, "robot_post", failed_robot_post)
+
+    response = TestClient(main.app).post(
+        "/chat/action", json={"text": "look to the left"}
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["action_result"]["ok"] is False
+    assert "control acknowledgement rejected" in payload["execution_error"]
+    assert payload["response"] == "I could not complete that robot action. Please retry."
+    assert payload["response"] != "I moved my head."
+    assert payload["parse_error"] is None
 
 
 def test_chat_action_normalizes_fractional_llm_speed(monkeypatch):

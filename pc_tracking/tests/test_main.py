@@ -65,6 +65,48 @@ def test_unavailable_is_clean_503(monkeypatch):
     assert response.json()["detail"] == "model missing"
 
 
+def test_public_health_and_detect_errors_sanitize_remote_credentials(monkeypatch):
+    secret_reason = (
+        "remote https://tracking-user:tracking-pass@private-tracking/detect?api_key=query-secret "
+        "Bearer bearer-secret token=plain-secret"
+    )
+
+    class FailingBackend(FakeBackend):
+        def detect(self, jpeg: bytes, threshold: float):
+            raise RuntimeError(secret_reason)
+
+    fake = FailingBackend(BackendStatus(False, "unavailable", secret_reason))
+    monkeypatch.setattr(main, "backend", fake)
+    with TestClient(main.app) as client:
+        health = client.get("/health")
+        fake.status = BackendStatus(True, "cpu/float32", None)
+        failed_detect = client.post(
+            "/detect",
+            content=b"jpeg",
+            headers={
+                "Content-Type": "image/jpeg",
+                "X-Robit-Frame-Id": "frame-1",
+                "X-Robit-Captured-At": "2026-07-23T00:00:00Z",
+            },
+        )
+
+    assert failed_detect.status_code == 500
+    for payload in (health.json(), failed_detect.json()):
+        rendered = str(payload)
+        assert "[redacted-url]" in rendered
+        assert "Bearer [redacted]" in rendered
+        assert "token=[redacted]" in rendered
+        for secret in (
+            "tracking-user",
+            "tracking-pass",
+            "private-tracking",
+            "query-secret",
+            "bearer-secret",
+            "plain-secret",
+        ):
+            assert secret not in rendered
+
+
 def test_backend_filters_everything_except_person():
     class FakeModel:
         def predict(self, image, threshold, include_source_image):

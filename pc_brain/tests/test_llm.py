@@ -75,6 +75,62 @@ def chat_response(content, *, status_code=200, error=None):
     return httpx.Response(status_code, json=body, request=request)
 
 
+def install_models_http_client(monkeypatch, body):
+    class ModelsAsyncClient:
+        def __init__(self, timeout):
+            self.timeout = timeout
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, traceback):
+            return None
+
+        async def get(self, url, headers):
+            return httpx.Response(
+                200,
+                json=body,
+                request=httpx.Request("GET", url, headers=headers),
+            )
+
+    monkeypatch.setattr("app.llm.httpx.AsyncClient", ModelsAsyncClient)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"object": "list", "data": []},
+        {"object": "list", "data": [{"id": "other-model"}]},
+        {"models": [{"name": "prefix-gemma4:e4b-suffix"}]},
+    ],
+)
+async def test_model_probe_rejects_empty_wrong_and_fuzzy_model_lists(
+    monkeypatch, body
+):
+    install_models_http_client(monkeypatch, body)
+
+    with pytest.raises(RuntimeError, match="configured model"):
+        await OpenAICompatibleChatClient(settings_for_test()).probe_models()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"object": "list", "data": [{"id": "gemma4:e4b"}]},
+        {"models": [{"name": "gemma4:e4b"}]},
+        {"models": [{"model": "gemma4:e4b"}]},
+    ],
+)
+async def test_model_probe_accepts_exact_configured_model_descriptor_shapes(
+    monkeypatch, body
+):
+    install_models_http_client(monkeypatch, body)
+
+    assert await OpenAICompatibleChatClient(settings_for_test()).probe_models() is None
+
+
 @pytest.mark.anyio
 async def test_action_chat_requests_strict_schema_with_bounded_robot_actions(
     monkeypatch,

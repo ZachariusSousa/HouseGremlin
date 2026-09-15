@@ -11,6 +11,8 @@ from typing import Any
 from fastapi import FastAPI, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
+from .sanitization import sanitize_public_text
+
 
 MODEL_NAME = "Roboflow/rf-detr-nano"
 PERSON_LABEL = "person"
@@ -62,7 +64,9 @@ class RFDetrBackend:
             self.status = BackendStatus(available=True, backend=f"{device}/{precision}", reason=None)
         except Exception as exc:
             self.model = None
-            self.status = BackendStatus(reason=f"{type(exc).__name__}: {exc}")
+            self.status = BackendStatus(
+                reason=sanitize_public_text(f"{type(exc).__name__}: {exc}")
+            )
 
     def _resolve_device(self, torch: Any) -> str:
         requested = self.requested_device
@@ -141,7 +145,11 @@ async def health() -> dict[str, Any]:
     return {
         "ok": backend.status.available,
         "available": backend.status.available,
-        "reason": backend.status.reason,
+        "reason": (
+            sanitize_public_text(backend.status.reason)
+            if backend.status.reason
+            else None
+        ),
         "backend": backend.status.backend,
         "model": MODEL_NAME,
         "last_detection": last_metrics,
@@ -156,7 +164,12 @@ async def detect(
     x_robit_threshold: float = Header(default=0.55, ge=0.0, le=1.0),
 ) -> DetectionResponse:
     if not backend.status.available:
-        raise HTTPException(status_code=503, detail=backend.status.reason or "RF-DETR is unavailable")
+        raise HTTPException(
+            status_code=503,
+            detail=sanitize_public_text(
+                backend.status.reason or "RF-DETR is unavailable"
+            ),
+        )
     jpeg = await request.body()
     if not jpeg:
         raise HTTPException(status_code=400, detail="JPEG body is required")
@@ -173,7 +186,9 @@ async def detect(
         )
         raise HTTPException(
             status_code=500,
-            detail=f"RF-DETR inference failed ({type(exc).__name__}): {exc}",
+            detail=sanitize_public_text(
+                f"RF-DETR inference failed ({type(exc).__name__}): {exc}"
+            ),
         ) from exc
     last_metrics.update(
         queue_ms=queue_ms,
