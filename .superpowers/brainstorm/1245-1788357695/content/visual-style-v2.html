@@ -1,0 +1,59 @@
+<style>
+  :root{--amber:#ffb12b;--amber-hi:#ffd36b;--blue:#518cff;--blue-hi:#8ab5ff;--black:#060605}
+  .variants{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:18px;margin-top:22px}
+  .variant{overflow:hidden;border:1px solid #4b4030;border-radius:3px;background:#080806;cursor:pointer;transition:.15s ease}
+  .variant:hover,.variant.selected{transform:translateY(-2px) rotate(-.1deg);border-color:var(--amber);box-shadow:0 0 0 2px #171109,0 0 30px rgba(255,160,20,.2)}
+  .variant.selected{outline:2px solid var(--blue);outline-offset:3px}
+  .screen{position:relative;min-height:420px;overflow:hidden;padding:14px;color:var(--amber);font-family:Consolas,"Courier New",monospace;text-shadow:1px 0 rgba(255,171,31,.45),0 0 8px rgba(255,160,20,.25);background:#080704}
+  .screen:before{position:absolute;z-index:4;pointer-events:none;inset:0;content:"";background:repeating-linear-gradient(0deg,rgba(0,0,0,.08) 0 2px,rgba(0,0,0,.32) 3px 4px),linear-gradient(90deg,rgba(255,156,24,.025),transparent 22%,rgba(72,128,255,.025) 74%,transparent);mix-blend-mode:multiply}
+  .screen:after{position:absolute;z-index:5;pointer-events:none;inset:-15%;content:"";background:radial-gradient(ellipse at center,transparent 52%,rgba(0,0,0,.78) 83%),repeating-linear-gradient(113deg,transparent 0 67px,rgba(255,190,80,.035) 68px,transparent 70px)}
+  .header{position:relative;display:flex;justify-content:space-between;align-items:center;gap:8px;padding:7px 9px;border:1px solid rgba(255,177,43,.58);font-size:9px;letter-spacing:.14em}
+  .brand{font-size:17px;font-weight:900;letter-spacing:.18em}
+  .blue{color:var(--blue-hi);border-color:rgba(81,140,255,.76)!important;text-shadow:0 0 8px rgba(62,120,255,.48)}
+  .stamp{display:inline-block;padding:3px 6px;border:1px solid;transform:rotate(-1deg)}
+  .tabs{display:flex;gap:3px;margin:9px 0}.tab{padding:5px 8px;border:1px solid rgba(255,177,43,.42);font-size:9px;letter-spacing:.08em}.active{background:var(--amber);color:#1b1000;text-shadow:none}
+  .grid{display:grid;grid-template-columns:1.45fr .8fr;gap:8px}.box{position:relative;padding:8px;border:1px solid rgba(255,177,43,.5);background:rgba(22,12,2,.34)}
+  .camera{display:grid;min-height:190px;place-items:center;background:linear-gradient(rgba(0,0,0,.22),rgba(0,0,0,.22)),repeating-linear-gradient(135deg,transparent 0 31px,rgba(255,177,43,.11) 32px 33px);font-size:10px;letter-spacing:.14em}
+  .cross{font-size:38px;opacity:.55}.side{display:grid;gap:7px;align-content:start}.label{font-size:8px;letter-spacing:.14em;opacity:.8}.value{font-size:21px;font-weight:900}.metric{padding-bottom:5px;border-bottom:1px dashed rgba(255,177,43,.38)}.metric small{display:flex;justify-content:space-between}.bar{height:7px;margin-top:4px;border:1px solid currentColor}.bar i{display:block;width:58%;height:100%;background:currentColor}
+  .console{min-height:74px;margin-top:8px;font-size:9px;line-height:1.55}.noise{opacity:.55}.warning{margin-top:7px;padding:5px;border-left:5px solid var(--blue);background:rgba(46,97,205,.17);color:var(--blue-hi);font-size:9px;letter-spacing:.08em}
+  .bolts:before,.bolts:after{position:absolute;color:#6c4d20;content:"×";font-size:13px}.bolts:before{top:2px;left:3px}.bolts:after{right:3px;bottom:2px}
+  .tape{position:absolute;z-index:3;top:34px;right:-27px;width:115px;padding:3px;background:rgba(65,108,201,.72);color:#dce9ff;text-align:center;font-size:8px;transform:rotate(38deg);text-shadow:none}
+  .caption{padding:12px 13px 14px;border-top:1px solid #352a1c;background:#0e0d0a}.caption h3{margin:0 0 5px;color:#f0e8d9;font-size:14px}.caption p{margin:0;color:#9e9588;font-size:12px;line-height:1.4}
+  .a{background:radial-gradient(circle at 48% 42%,#261603,#080704 68%)}
+  .b{color:#f2a922;background:linear-gradient(101deg,#090806 0 68%,#0b1222 68%)}.b .grid{grid-template-columns:.8fr 1.45fr}.b .camera{order:2}.b .side{order:1}.b .header{border-left:8px solid var(--amber)}
+  .c{background:radial-gradient(ellipse at 10% 10%,rgba(54,88,180,.2),transparent 36%),radial-gradient(circle at 55% 48%,#201302,#060606 68%)}.c .box{clip-path:polygon(0 0,calc(100% - 10px) 0,100% 10px,100% 100%,10px 100%,0 calc(100% - 10px))}.c .header{border-right:14px solid var(--blue)}
+  @media(max-width:1000px){.variants{grid-template-columns:1fr}.screen{min-height:390px}}
+</style>
+
+<h2>Amber CRT — three grungier passes</h2>
+<p class="subtitle">Amber remains the voice of the machine. The blue marks live state, AI activity, and abnormal conditions.</p>
+
+<div class="variants">
+  <div class="variant" data-choice="salvaged_maintenance" onclick="toggleSelect(this)">
+    <div class="screen a">
+      <div class="tape">SERVICE CHANNEL 04</div>
+      <div class="header bolts"><span class="brand">ROBIT//OS</span><span class="stamp blue">FIELD UNIT 01</span></div>
+      <div class="tabs"><span class="tab active">MONITOR</span><span class="tab">MANUAL</span><span class="tab blue">DEBUG</span></div>
+      <div class="grid"><div><div class="box camera bolts"><span class="cross">⊕</span><span>OPTICAL FEED // DEGRADED</span></div><div class="box console"><span class="noise">09:14:22 BUS WATCHDOG.........OK<br>09:14:22 CAMERA DMA............ACTIVE</span><br><span class="blue">09:14:23 AI CORE LINK..........LISTENING</span><br>&gt; _</div></div><div class="box side bolts"><span class="label">SYSTEM BURDEN</span><div class="metric"><small><span>CORE.0</span><span>48%</span></small><div class="bar"><i></i></div></div><div><span class="label">HEAP LOW-WATER</span><div class="value">171K</div></div><div><span class="label">FRAME P95</span><div class="value">118ms</div></div><div class="warning">Δ TIMING WITHIN FIELD LIMIT</div></div></div>
+    </div>
+    <div class="caption"><h3>A — Salvaged Maintenance Terminal</h3><p>Worn service-console character: tape marks, faded diagnostics, scratches, and utilitarian blue annotations.</p></div>
+  </div>
+
+  <div class="variant" data-choice="deep_bunker" onclick="toggleSelect(this)">
+    <div class="screen b">
+      <div class="header"><span class="brand">HGRM/OPS</span><span class="stamp">RESTRICTED // 02</span></div>
+      <div class="tabs"><span class="tab active">LIVE</span><span class="tab">ORDERS</span><span class="tab">MANUAL</span><span class="tab blue">DIAGNOSTIC</span></div>
+      <div class="grid"><div class="box side"><span class="label blue">INSTRUMENT BLOCK</span><div><span class="label">CPU HEADROOM</span><div class="value">52.4%</div></div><div class="metric blue"><small><span>PSRAM USE</span><span>71%</span></small><div class="bar"><i style="width:71%"></i></div></div><div><span class="label">CONTROL P99</span><div class="value">06.8ms</div></div><div class="warning">BLUE BUS: AI PROCESSING</div></div><div><div class="box camera"><span class="cross blue">⌖</span><span>CAM://01 LIVE</span></div><div class="box console"><span class="blue">[VOICE SYSTEM] CHANNEL OPEN</span><br>TRACK TARGET..........NONE<br>CAMERA ACQUIRE........2.00 FPS<br>PACKET RETRY..........0.8%<br>&gt; awaiting operator_</div></div></div>
+    </div>
+    <div class="caption"><h3>B — Deep-Bunker Operations</h3><p>Heavier 90s command-room influence: asymmetric layout, deep cobalt instrument bay, clipped military labeling.</p></div>
+  </div>
+
+  <div class="variant" data-choice="haunted_ai" onclick="toggleSelect(this)">
+    <div class="screen c">
+      <div class="header"><span class="brand">GREMLIN_01</span><span class="stamp blue">COGNITIVE LINK: ON</span></div>
+      <div class="tabs"><span class="tab active">EYE</span><span class="tab blue">MIND</span><span class="tab">BODY</span><span class="tab">DEBUG</span></div>
+      <div class="grid"><div><div class="box camera"><span class="cross">◎</span><span>VISION BUFFER 000184</span></div><div class="box console"><span class="noise">MEMORY MAP / 33-A / UNCLEAN SHUTDOWN: 01</span><br><span class="blue">ROBIT&gt; I AM WATCHING THE EAST DOOR.</span><br>OPERATOR&gt; status<br>ROBIT&gt; resources nominal_</div></div><div class="box side"><span class="label">MACHINE VITALS</span><div class="metric"><small><span>CORE 0</span><span>48%</span></small><div class="bar"><i></i></div></div><div class="metric blue"><small><span>CORE 1 / AI BUS</span><span>31%</span></small><div class="bar"><i style="width:31%"></i></div></div><div><span class="label">THERMAL</span><div class="value">52°C</div></div><div><span class="label">UPTIME</span><div class="value">14:08:22</div></div><div class="warning">NO ANOMALY DETECTED // PROBABLY</div></div></div>
+    </div>
+    <div class="caption"><h3>C — Haunted 90s Machine Intelligence</h3><p>More personality and unease: battered angular glass, AI dialogue in blue, slightly unreliable-machine atmosphere.</p></div>
+  </div>
+</div>

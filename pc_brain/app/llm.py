@@ -1,10 +1,16 @@
+import re
 from dataclasses import dataclass
 
 import httpx
 from fastapi import HTTPException
+from pydantic import BaseModel
 
+from .action_models import ActionChatOutput
 from .config import Settings
 from .timing import timed
+
+
+LLM_PROBE_TIMEOUT_SECONDS = 5.0
 
 
 SYSTEM_PROMPT = (
@@ -50,6 +56,8 @@ class OpenAICompatibleChatClient:
         system_prompt: str = SYSTEM_PROMPT,
         num_predict: int = 60,
         history: list[dict[str, str]] | None = None,
+        response_model: type[BaseModel] | None = None,
+        response_schema_name: str | None = None,
     ) -> dict:
         messages = [{"role": "system", "content": system_prompt}]
         messages.extend(history or [])
@@ -63,6 +71,15 @@ class OpenAICompatibleChatClient:
         }
         if self.settings.llm_think is False:
             payload["think"] = False
+        if response_model is not None:
+            payload["response_format"] = {
+                "type": "json_schema",
+                "json_schema": {
+                    "name": response_schema_name or response_model.__name__,
+                    "strict": True,
+                    "schema": response_model.model_json_schema(),
+                },
+            }
         return payload
 
     @staticmethod
@@ -90,12 +107,85 @@ class OpenAICompatibleChatClient:
                     parts.append(content.get("text", ""))
         return " ".join(parts).strip()
 
+    @staticmethod
+    def _provider_rejected_response_format(response: httpx.Response) -> bool:
+        if response.status_code not in {400, 404, 422}:
+            return False
+
+        message = response.text
+        error_code = ""
+        error_type = ""
+        error_field = ""
+        try:
+            payload = response.json()
+        except ValueError:
+            payload = None
+        if isinstance(payload, dict):
+            error = payload.get("error", payload)
+            if isinstance(error, dict):
+                structured_message = error.get("message") or error.get("detail")
+                if isinstance(structured_message, str):
+                    message = structured_message
+                error_code = str(error.get("code") or "")
+                error_type = str(error.get("type") or "")
+                error_field = str(
+                    error.get("param") or error.get("parameter") or error.get("field") or ""
+                )
+            elif isinstance(error, str):
+                message = error
+
+        detail = message.lower()
+        diagnostic_context = " ".join((detail, error_code.lower(), error_type.lower()))
+        schema_validation_patterns = (
+            r"\b(?:schema[_ ]+)?keywords?\b",
+            r"\bpropert(?:y|ies)\b",
+            r"\bpaths?\b",
+            r"\binvalid[_ -]?schema\b",
+            r"\bschema\b.{0,24}\b(?:is\s+)?invalid\b",
+            r"\bschema[_ ]validation\b",
+            r"\b(?:anyof|oneof|allof|additionalproperties|\$defs)\b",
+        )
+        if any(re.search(pattern, diagnostic_context) for pattern in schema_validation_patterns):
+            return False
+
+        normalized_field = re.sub(r"[^a-z0-9]+", "_", error_field.lower()).strip("_")
+        structured_rejection_markers = (
+            "unsupported",
+            "not_supported",
+            "unknown_parameter",
+            "unknown_field",
+            "unrecognized_parameter",
+            "unrecognized_field",
+        )
+        structured_kind = f"{error_code.lower()} {error_type.lower()}"
+        if normalized_field == "response_format" and any(
+            marker in structured_kind for marker in structured_rejection_markers
+        ):
+            return True
+
+        capability_rejection_patterns = (
+            r"\bresponse[_ ]format(?:\s+(?:parameter|field|capability|type))?"
+            r"(?:\s*[:=]\s*|\s+)(?:['\"]?json[_ ]schema['\"]?\s+)?"
+            r"(?:is\s+|are\s+)?not supported\b",
+            r"\bjson[_ ]schema\s+(?:is\s+|are\s+)?not supported\b",
+            r"\bstructured outputs?\s+(?:is\s+|are\s+)?not supported\b",
+            r"\b(?:unsupported|unknown|unrecognized)\s+(?:parameter|field)"
+            r"\s*[:=]?\s*['\"]?response[_ ]format\b",
+            r"\b(?:parameter|field)\s+['\"]?response[_ ]format['\"]?"
+            r"\s+(?:is\s+|was\s+)?(?:unsupported|not supported|unknown|unrecognized)\b",
+            r"\b(?:does not|doesn't|cannot) support\b.{0,32}\b"
+            r"(?:response[_ ]format|structured outputs?)\b",
+        )
+        return any(re.search(pattern, detail) for pattern in capability_rejection_patterns)
+
     async def _chat_with_prompt(
         self,
         text: str,
         system_prompt: str,
         num_predict: int,
         history: list[dict[str, str]] | None = None,
+        response_model: type[BaseModel] | None = None,
+        response_schema_name: str | None = None,
     ) -> ChatResult:
         stripped = text.strip()
         if not stripped:
@@ -106,12 +196,37 @@ class OpenAICompatibleChatClient:
         try:
             async with httpx.AsyncClient(timeout=self.settings.llm_timeout) as client:
                 with timed("llm.chat.http", model=self.settings.llm_model, prompt_chars=len(stripped)):
+                    payload = self._payload(
+                        stripped,
+                        system_prompt,
+                        num_predict,
+                        history,
+                        response_model,
+                        response_schema_name,
+                    )
                     response = await client.post(
                         f"{self.settings.llm_base_url}/chat/completions",
                         headers={"authorization": "Bearer local"},
-                        json=self._payload(stripped, system_prompt, num_predict, history),
+                        json=payload,
                     )
-                response.raise_for_status()
+                    try:
+                        response.raise_for_status()
+                    except httpx.HTTPStatusError:
+                        if response_model is None or not self._provider_rejected_response_format(
+                            response
+                        ):
+                            raise
+                        response = await client.post(
+                            f"{self.settings.llm_base_url}/chat/completions",
+                            headers={"authorization": "Bearer local"},
+                            json=self._payload(
+                                stripped,
+                                system_prompt,
+                                num_predict,
+                                history,
+                            ),
+                        )
+                        response.raise_for_status()
         except httpx.HTTPError as exc:
             raise HTTPException(status_code=502, detail=f"OpenAI-compatible chat request failed: {exc}") from exc
 
@@ -124,10 +239,54 @@ class OpenAICompatibleChatClient:
         return await self._chat_with_prompt(text, SYSTEM_PROMPT, 60, history)
 
     async def action_chat(self, text: str, history: list[dict[str, str]] | None = None) -> ChatResult:
-        return await self._chat_with_prompt(text, ACTION_SYSTEM_PROMPT, 220, history)
+        return await self._chat_with_prompt(
+            text,
+            ACTION_SYSTEM_PROMPT,
+            220,
+            history,
+            ActionChatOutput,
+            "robit_action",
+        )
+
+    async def probe_models(self) -> None:
+        if self.settings.llm_provider != "openai_compatible":
+            raise RuntimeError("Only OpenAI-compatible chat is supported.")
+        try:
+            async with httpx.AsyncClient(timeout=LLM_PROBE_TIMEOUT_SECONDS) as client:
+                response = await client.get(
+                    f"{self.settings.llm_base_url}/models",
+                    headers={"authorization": "Bearer local"},
+                )
+                response.raise_for_status()
+                body = response.json()
+        except (httpx.HTTPError, ValueError, TypeError) as exc:
+            raise RuntimeError("OpenAI-compatible model probe failed") from exc
+        if not isinstance(body, dict):
+            raise RuntimeError("OpenAI-compatible model probe returned malformed data")
+        collections = [
+            value
+            for key in ("data", "models")
+            if isinstance((value := body.get(key)), list)
+        ]
+        descriptors = [
+            item
+            for collection in collections
+            for item in collection
+            if isinstance(item, dict)
+        ]
+        configured_model = self.settings.llm_model
+        if not any(
+            configured_model
+            in {
+                value
+                for field in ("id", "name", "model")
+                if isinstance((value := descriptor.get(field)), str)
+            }
+            for descriptor in descriptors
+        ):
+            raise RuntimeError(
+                "OpenAI-compatible model probe did not advertise the configured model"
+            )
 
     async def warmup(self) -> None:
-        try:
-            await self.chat("Say ready.")
-        except HTTPException:
-            return
+        await self.chat("Say ready.")

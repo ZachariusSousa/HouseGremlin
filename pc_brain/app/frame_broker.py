@@ -34,6 +34,9 @@ class FrameBroker:
         self._last_fetch_at = 0.0
         self.last_acquisition_ms: float | None = None
         self.last_frame_bytes: int | None = None
+        self.last_success_at: datetime | None = None
+        self.last_error_at: datetime | None = None
+        self.last_error: str | None = None
         self._lock = asyncio.Lock()
         self._task: asyncio.Task[None] | None = None
         self._rate_changed = asyncio.Event()
@@ -72,7 +75,13 @@ class FrameBroker:
             if force_fresh and self._frame is not None and age < interval:
                 await asyncio.sleep(interval - age)
             started_at = monotonic()
-            content, media_type = await self.fetcher()
+            try:
+                content, media_type = await self.fetcher()
+            except Exception as exc:
+                self.last_acquisition_ms = (monotonic() - started_at) * 1000.0
+                self.last_error_at = datetime.now(timezone.utc)
+                self.last_error = f"camera acquisition failed ({type(exc).__name__})"
+                raise
             self.last_acquisition_ms = (monotonic() - started_at) * 1000.0
             self.last_frame_bytes = len(content)
             self._frame = CameraFrame(
@@ -81,6 +90,8 @@ class FrameBroker:
                 content=content,
                 media_type=media_type,
             )
+            self.last_success_at = self._frame.captured_at
+            self.last_error = None
             self._rotated_cache.clear()
             self._preview_cache = None
             self._last_fetch_at = monotonic()
@@ -129,11 +140,21 @@ class FrameBroker:
             return output.getvalue()
 
     def status(self) -> dict:
+        frame_age_seconds = None
+        if self._frame is not None:
+            frame_age_seconds = max(
+                0.0,
+                (datetime.now(timezone.utc) - self._frame.captured_at).total_seconds(),
+            )
         return {
             "effective_fps": self.effective_fps,
             "last_acquisition_ms": self.last_acquisition_ms,
             "last_frame_bytes": self.last_frame_bytes,
             "frame_id": self._frame.frame_id if self._frame else None,
+            "last_success_at": self.last_success_at.isoformat() if self.last_success_at else None,
+            "last_error_at": self.last_error_at.isoformat() if self.last_error_at else None,
+            "last_error": self.last_error,
+            "frame_age_seconds": frame_age_seconds,
         }
 
     async def start(self) -> None:

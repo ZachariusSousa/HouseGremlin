@@ -11,10 +11,12 @@
 #endif
 
 #include "camera.h"
+#include "control_channel.h"
 #include "eyes.h"
 #include "motors.h"
 #include "robot_state.h"
 #include "servos.h"
+#include "telemetry_serialization.h"
 
 namespace {
 WebServer server(80);
@@ -29,39 +31,40 @@ constexpr unsigned long WIFI_RECONNECT_INTERVAL_MS = 5000;
 #define ROBIT_CONTROL_TCP_PORT 82
 #endif
 
-String jsonEscape(const String& value) {
-  String escaped;
-  escaped.reserve(value.length());
-  for (size_t i = 0; i < value.length(); i++) {
-    const char c = value[i];
-    if (c == '"' || c == '\\') escaped += '\\';
-    escaped += c;
-  }
-  return escaped;
+robit::telemetry::HttpStatusSnapshot httpStatusSnapshot() {
+  robit::telemetry::HttpStatusSnapshot status;
+  robit::telemetry::StateSnapshot& state = status.state;
+  state.movement = robotState.movement.c_str();
+  state.speed = robotState.motorSpeed;
+  state.pan = robotState.panAngle;
+  state.tilt = robotState.tiltAngle;
+  state.pan_actual = getActualPanAngle();
+  state.tilt_actual = getActualTiltAngle();
+  state.pan_target = getTargetPanAngle();
+  state.tilt_target = getTargetTiltAngle();
+  state.eyes = robotState.eyeExpression.c_str();
+  state.wifi_rssi = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0;
+  state.camera_enabled = robotState.cameraEnabled;
+  state.heartbeat_armed = isBrainHeartbeatArmed();
+  state.heartbeat_fault = isBrainHeartbeatFaultActive();
+  state.uptime_ms = millis();
+  state.wifi_mode = robotState.apFallback ? "ap" : "sta";
+  state.heap_free_bytes = ESP.getFreeHeap();
+  state.heap_min_free_bytes = ESP.getMinFreeHeap();
+  state.heap_total_bytes = ESP.getHeapSize();
+  state.psram_free_bytes = ESP.getFreePsram();
+  state.psram_total_bytes = ESP.getPsramSize();
+  state.control_last_receive_age_ms = controlLastReceiveAgeMs();
+  status.ip = getRobotIp().c_str();
+  status.hostname = (String(ROBIT_HOSTNAME) + ".local").c_str();
+  return status;
 }
 
 String statusJson() {
-  String json = "{";
-  json += "\"ok\":true,";
-  json += "\"mode\":\"" + String(robotState.apFallback ? "ap" : "sta") + "\",";
-  json += "\"ip\":\"" + jsonEscape(getRobotIp()) + "\",";
-  json += "\"hostname\":\"" + jsonEscape(String(ROBIT_HOSTNAME) + ".local") + "\",";
-  json += "\"wifi_rssi\":" + String(WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0) + ",";
-  json += "\"movement\":\"" + jsonEscape(robotState.movement) + "\",";
-  json += "\"move\":\"" + jsonEscape(robotState.movement) + "\",";
-  json += "\"speed\":" + String(robotState.motorSpeed) + ",";
-  json += "\"pan\":" + String(robotState.panAngle) + ",";
-  json += "\"tilt\":" + String(robotState.tiltAngle) + ",";
-  json += "\"pan_actual\":" + String(getActualPanAngle()) + ",";
-  json += "\"tilt_actual\":" + String(getActualTiltAngle()) + ",";
-  json += "\"pan_target\":" + String(getTargetPanAngle()) + ",";
-  json += "\"tilt_target\":" + String(getTargetTiltAngle()) + ",";
-  json += "\"eyes\":\"" + jsonEscape(robotState.eyeExpression) + "\",";
-  json += "\"brain_heartbeat_armed\":" + String(isBrainHeartbeatArmed() ? "true" : "false") + ",";
-  json += "\"brain_heartbeat_fault\":" + String(isBrainHeartbeatFaultActive() ? "true" : "false") + ",";
-  json += "\"camera\":" + String(robotState.cameraEnabled ? "true" : "false");
-  json += "}";
-  return json;
+  const std::string json = robit::telemetry::httpStatusJson(
+    httpStatusSnapshot()
+  );
+  return String(json.c_str());
 }
 
 void sendJson(int status, const String& payload) {

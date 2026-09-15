@@ -6,7 +6,6 @@ from datetime import timedelta
 from typing import Any
 
 from .brain_models import (
-    BodyState,
     BrainEvent,
     CognitiveState,
     ConversationState,
@@ -62,7 +61,6 @@ class EyeController:
         self._last_sent: EyeExpression | None = None
         self._heartbeat_failed = False
         self._heartbeat_ready = heartbeat_interval_seconds is None
-        self._server_faults: set[str] = set()
         self._voice_session_active = False
         self._running = False
         coordinator.subscribe_state(self.observe_state)
@@ -153,28 +151,32 @@ class EyeController:
         self.observe_state(self.coordinator.state)
 
     def set_server_fault(self, reason: str, active: bool, correlation_id: str | None = None) -> None:
-        was_active = reason in self._server_faults
-        if active == was_active:
-            return
-        if active:
-            self._server_faults.add(reason)
-        else:
-            self._server_faults.discard(reason)
         correlation_id = correlation_id or self.coordinator.state.active_correlation_id or self.coordinator.new_correlation_id()
+        if active:
+            existing = any(fault.source == reason for fault in self.coordinator.active_faults)
+            self.coordinator.register_fault(
+                reason,
+                "degraded",
+                f"{reason} service unavailable",
+                correlation_id,
+            )
+        else:
+            existing = self.coordinator.clear_fault(reason, correlation_id)
+        if active == existing:
+            return
         self.coordinator.record(
             "eyes.server_fault.activated" if active else "eyes.server_fault.cleared",
             EventSource.system,
             correlation_id,
             {"reason": reason},
         )
-        self.observe_state(self.coordinator.state)
 
     def force_sync(self) -> None:
         self._last_requested = None
         self._enqueue(self.coordinator.state.eyes.effective_expression)
 
     def _desired_expression(self, state: CognitiveState) -> EyeExpression:
-        if self._server_faults or state.safety == "fault" or state.body == BodyState.fault:
+        if self.coordinator.has_critical_fault:
             return "fault"
         if state.conversation == ConversationState.formulating:
             return "thinking"
@@ -285,6 +287,7 @@ class EyeController:
                 recovered = bool(result.get("heartbeat_recovered"))
                 first_success = not self._heartbeat_ready
                 self._heartbeat_ready = True
+                self.coordinator.clear_fault("esp_heartbeat")
                 if first_success or self._heartbeat_failed or recovered:
                     correlation_id = self.coordinator.state.active_correlation_id or self.coordinator.new_correlation_id()
                     self.coordinator.record(
@@ -296,8 +299,14 @@ class EyeController:
                     self.force_sync()
                 self._heartbeat_failed = False
             except Exception as exc:
+                correlation_id = self.coordinator.state.active_correlation_id or self.coordinator.new_correlation_id()
+                self.coordinator.register_fault(
+                    "esp_heartbeat",
+                    "critical",
+                    str(exc) or type(exc).__name__,
+                    correlation_id,
+                )
                 if not self._heartbeat_failed:
-                    correlation_id = self.coordinator.state.active_correlation_id or self.coordinator.new_correlation_id()
                     self.coordinator.record(
                         "eyes.heartbeat.failed",
                         EventSource.firmware,

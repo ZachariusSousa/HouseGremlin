@@ -446,17 +446,48 @@ def test_browser_contains_no_voice_tool_execution_path():
     assert "realtimeToolDefinitions" not in page
     assert "executeRealtimeTool" not in page
     assert 'postJson("/robot/action"' not in page
-    assert 'getJson("/brain/state")' in page
-    assert "Voice active in another tab" in page
-    assert "Voice reconnecting" in page
-    assert "enabledRequested: true" in page
-    assert 'getJson("/tracking/status")' in page
-    assert 'runTrackingCommand("/tracking/start"' in page
-    assert 'runTrackingCommand("/tracking/stop"' in page
     assert "/tracking/approach" not in page
+    assert 'getJson("/health")' in page
+    assert 'getJson("/brain/state")' in page
+    assert 'getJson("/robot/status")' in page
+    assert 'getJson("/robot/camera")' in page
+    assert 'getJson("/tracking/status")' in page
+    assert 'getJson("/perception/latest")' in page
+    assert 'postJson("/tracking/start"' in page
+    assert 'postJson("/tracking/stop"' in page
+    assert 'postJson("/chat/action"' in page
+    assert 'postJson("/robot/drive"' in page
+    assert 'postJson("/robot/head"' in page
+    assert 'postJson("/robot/stop"' in page
     assert 'response.headers.get("X-Robit-Frame-Id")' in page
     assert "targetFrameId !== state.cameraFrameId" in page
     assert "URL.createObjectURL(blob)" in page
+    assert "new WebSocket(state.realtime.url)" in page
+    assert "navigator.mediaDevices.getUserMedia" in page
+    assert "enabledRequested:false" in page
+    assert "disarmControls({stop:true})" in page
+
+
+def test_browser_uses_approved_retro_anime_console_shell():
+    page = (Path(__file__).resolve().parents[2] / "web_control" / "index.html").read_text(encoding="utf-8")
+    assert "ROBIT RB-01 // OPERATIONS CONSOLE" in page
+    assert 'id="screen"' in page
+    assert "OPTICAL ACQUISITION // CAM-01" in page
+    assert "EMERGENCY STOP / 非常停止" in page
+    assert ".screen:before" in page
+    assert "repeating-linear-gradient(0deg" in page
+
+
+def test_browser_contains_six_functional_mode_panels():
+    page = (Path(__file__).resolve().parents[2] / "web_control" / "index.html").read_text(encoding="utf-8")
+    for mode in ("overview", "telemetry", "manual", "voice", "memory", "diagnostic"):
+        assert f'data-panel="{mode}"' in page
+    assert 'id="cameraStream"' in page
+    assert 'id="trackingOverlay"' in page
+    assert 'id="voiceConnect"' in page
+    assert 'id="speed"' in page
+    assert 'id="pan"' in page
+    assert 'id="tilt"' in page
 
 
 @pytest.mark.anyio

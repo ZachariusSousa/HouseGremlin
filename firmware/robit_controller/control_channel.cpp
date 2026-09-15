@@ -12,9 +12,11 @@
 #include "motors.h"
 #include "robot_state.h"
 #include "servos.h"
+#include "telemetry_serialization.h"
 
 namespace {
 constexpr size_t MAX_CONTROL_MESSAGE_BYTES = 512;
+constexpr size_t MAX_CONTROL_SESSION_BYTES = 48;
 
 #ifndef ROBIT_CONTROL_TCP_PORT
 #define ROBIT_CONTROL_TCP_PORT 82
@@ -98,24 +100,50 @@ unsigned long jsonUnsignedLongValue(
 
 void sendLine(const String& payload) {
   if (!controlClient || !controlClient.connected()) return;
+  if (payload.length() >= MAX_CONTROL_MESSAGE_BYTES) {
+    Serial.printf(
+      "[CONTROL][ERROR] refusing oversized outbound message bytes=%u\n",
+      static_cast<unsigned int>(payload.length())
+    );
+    return;
+  }
   controlClient.print(payload);
   controlClient.print('\n');
 }
 
-String compactStateJson() {
-  String json = "{";
-  json += "\"movement\":\"" + jsonEscape(robotState.movement) + "\",";
-  json += "\"speed\":" + String(robotState.motorSpeed) + ",";
-  json += "\"pan_actual\":" + String(getActualPanAngle()) + ",";
-  json += "\"tilt_actual\":" + String(getActualTiltAngle()) + ",";
-  json += "\"pan_target\":" + String(getTargetPanAngle()) + ",";
-  json += "\"tilt_target\":" + String(getTargetTiltAngle()) + ",";
-  json += "\"eyes\":\"" + jsonEscape(robotState.eyeExpression) + "\",";
-  json += "\"wifi_rssi\":" + String(WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0) + ",";
-  json += "\"camera\":" + String(robotState.cameraEnabled ? "true" : "false") + ",";
-  json += "\"fault\":" + String(isBrainHeartbeatFaultActive() ? "true" : "false");
-  json += "}";
-  return json;
+robit::telemetry::StateSnapshot controlStateSnapshot() {
+  robit::telemetry::StateSnapshot snapshot;
+  snapshot.movement = robotState.movement.c_str();
+  snapshot.speed = robotState.motorSpeed;
+  snapshot.pan = robotState.panAngle;
+  snapshot.tilt = robotState.tiltAngle;
+  snapshot.pan_actual = getActualPanAngle();
+  snapshot.tilt_actual = getActualTiltAngle();
+  snapshot.pan_target = getTargetPanAngle();
+  snapshot.tilt_target = getTargetTiltAngle();
+  snapshot.eyes = robotState.eyeExpression.c_str();
+  snapshot.wifi_rssi = WiFi.status() == WL_CONNECTED ? WiFi.RSSI() : 0;
+  snapshot.camera_enabled = robotState.cameraEnabled;
+  snapshot.heartbeat_armed = isBrainHeartbeatArmed();
+  snapshot.heartbeat_fault = isBrainHeartbeatFaultActive();
+  snapshot.uptime_ms = millis();
+  snapshot.wifi_mode = robotState.apFallback ? "ap" : "sta";
+  snapshot.heap_free_bytes = ESP.getFreeHeap();
+  snapshot.heap_min_free_bytes = ESP.getMinFreeHeap();
+  snapshot.heap_total_bytes = ESP.getHeapSize();
+  // ESP32 reports zero for these values if PSRAM is unsupported.
+  snapshot.psram_free_bytes = ESP.getFreePsram();
+  snapshot.psram_total_bytes = ESP.getPsramSize();
+  snapshot.control_last_receive_age_ms = controlLastReceiveAgeMs();
+  return snapshot;
+}
+
+String compactStateJson(bool includeHealth = false) {
+  const robit::telemetry::StateSnapshot snapshot = controlStateSnapshot();
+  const std::string json = includeHealth
+    ? robit::telemetry::telemetryStateJson(snapshot)
+    : robit::telemetry::legacyStateJson(snapshot);
+  return String(json.c_str());
 }
 
 void sendAck(unsigned long sequence, const String& status, const String& detail = "") {
@@ -128,10 +156,11 @@ void sendAck(unsigned long sequence, const String& status, const String& detail 
 }
 
 void sendTelemetry() {
-  String json = "{\"v\":1,\"type\":\"telemetry\",\"session\":\"" + jsonEscape(activeSession) + "\"";
-  json += ",\"last_seq\":" + String(lastAcceptedSequence);
-  json += ",\"state\":" + compactStateJson() + "}";
-  sendLine(json);
+  const robit::telemetry::StateSnapshot snapshot = controlStateSnapshot();
+  const std::string packet = robit::telemetry::telemetryPacketJson(
+    activeSession.c_str(), lastAcceptedSequence, snapshot
+  );
+  sendLine(String(packet.c_str()));
   lastTelemetryAt = millis();
   telemetryDirty = false;
   lastObservedMovement = robotState.movement;
@@ -196,7 +225,11 @@ bool validateCommandEnvelope(const String& line, unsigned long& sequence) {
 
 void handleHello(const String& line) {
   const String session = jsonStringValue(line, "session");
-  if (jsonLongValue(line, "v", 0) != 1 || session.length() == 0) {
+  if (
+    jsonLongValue(line, "v", 0) != 1 ||
+    session.length() == 0 ||
+    session.length() > MAX_CONTROL_SESSION_BYTES
+  ) {
     sendLine("{\"v\":1,\"type\":\"hello_ack\",\"status\":\"invalid\"}");
     return;
   }
@@ -274,6 +307,11 @@ void initializeControlChannel() {
     "[CONTROL] Persistent TCP control listening on port %u\n",
     ROBIT_CONTROL_TCP_PORT
   );
+}
+
+unsigned long controlLastReceiveAgeMs() {
+  if (!handshakeComplete || lastControlMessageAt == 0) return 0;
+  return millis() - lastControlMessageAt;
 }
 
 void updateControlChannel() {

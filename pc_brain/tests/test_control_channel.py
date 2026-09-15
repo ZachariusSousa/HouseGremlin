@@ -57,6 +57,7 @@ async def test_reconnect_restores_latest_state_but_never_replays_drive():
         await broker.eyes("happy")
         await broker.drive("left", 140, 300)
         drives_before = sum(command["type"] == "drive" for command in fake.commands)
+        pings_before = sum(command["type"] == "ping" for command in fake.commands)
         await fake.disconnect_clients()
         for _ in range(30):
             if channel.stats.reconnect_count and channel.stats.ready:
@@ -64,10 +65,15 @@ async def test_reconnect_restores_latest_state_but_never_replays_drive():
             await asyncio.sleep(0.1)
         assert channel.stats.ready
         assert sum(command["type"] == "drive" for command in fake.commands) == drives_before
+        assert sum(command["type"] == "ping" for command in fake.commands) > pings_before
         assert any(
             command["type"] == "head_target"
             and command["pan"] == 110
             and command["tilt"] == 75
+            for command in fake.commands
+        )
+        assert any(
+            command["type"] == "eyes" and command["expression"] == "happy"
             for command in fake.commands
         )
     finally:
@@ -137,6 +143,20 @@ class RecordingChannel:
         return {}
 
 
+def test_control_channel_tracks_sample_time_and_consumes_real_watchdog_recovery(monkeypatch):
+    channel = ControlChannelClient("robot.local")
+    now = 100.0
+    monkeypatch.setattr(time, "monotonic", lambda: now)
+
+    channel._store_telemetry({"heartbeat_fault": True, "eyes": "fault"})
+    now = 101.5
+    channel._store_telemetry({"heartbeat_fault": False, "eyes": "neutral"})
+
+    assert channel.status()["telemetry_received_at"] == 101.5
+    assert channel.consume_watchdog_recovery() is True
+    assert channel.consume_watchdog_recovery() is False
+
+
 @pytest.mark.anyio
 async def test_tracking_targets_are_coalesced_and_manual_lease_suppresses_tracking():
     channel = RecordingChannel()
@@ -165,6 +185,7 @@ async def test_tracking_targets_are_coalesced_and_manual_lease_suppresses_tracki
         await broker.head_target(100, 90, source="manual")
         suppressed = await broker.head_target(120, 90, source="tracking")
         assert suppressed["ok"] is False
+        assert suppressed["execution_outcome"] == "cancelled"
         assert broker.stats.suppressed_tracking == 1
     finally:
         await broker.shutdown()
