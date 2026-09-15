@@ -177,7 +177,7 @@ sandbox.window.setTimeout = setTimeoutFake;
 sandbox.window.clearTimeout = clearTimeoutFake;
 
 vm.createContext(sandbox);
-vm.runInContext(`${source}\n;globalThis.__api={state,applyTelemetry,refreshTelemetry,startTelemetryPolling,stopTelemetryPolling,handleVisibilityChange,sendText,connectRealtime,overrideRealtimeAudio:value=>setupRealtimeAudio=value};`, sandbox, {filename: "index.html"});
+vm.runInContext(`${source}\n;globalThis.__api={state,applyTelemetry,refreshTelemetry,startTelemetryPolling,stopTelemetryPolling,handleVisibilityChange,showCameraError,applyTrackingStatus,renderTrackingOverlay,sendText,connectRealtime,overrideRealtimeAudio:value=>setupRealtimeAudio=value};`, sandbox, {filename: "index.html"});
 const api = sandbox.__api;
 
 function telemetrySample(index, rtt = 18.5) {
@@ -283,6 +283,30 @@ assert.match(element("trackingTelemetryStatus").textContent, /ACTIVE/);
   assert.deepEqual(fetches.slice(-1), ["/system/telemetry"]);
   assert.equal([...intervals.values()].filter((timer) => timer.delay === 1000).length, 1);
 
+  api.stopTelemetryPolling();
+  intervals.clear();
+  const pendingTelemetry = [];
+  sandbox.fetch = (path, options = {}) => new Promise((resolve) => {
+    pendingTelemetry.push({path, signal: options.signal, resolve});
+  });
+  const staleTelemetry = api.refreshTelemetry();
+  assert.equal(pendingTelemetry.length, 1);
+  document.hidden = true;
+  document.visibilityState = "hidden";
+  api.handleVisibilityChange();
+  assert.equal(pendingTelemetry[0].signal?.aborted, true, "hiding must abort the unresolved telemetry request");
+
+  document.hidden = false;
+  document.visibilityState = "visible";
+  const freshTelemetry = api.handleVisibilityChange();
+  assert.equal(pendingTelemetry.length, 2, "visibility regain must launch a fresh telemetry request immediately");
+  pendingTelemetry[1].resolve({ok: true, json: async () => telemetrySample(73)});
+  await freshTelemetry;
+  assert.equal(api.state.telemetry.latest.sequence, 73);
+  pendingTelemetry[0].resolve({ok: true, json: async () => telemetrySample(72)});
+  await staleTelemetry;
+  assert.equal(api.state.telemetry.latest.sequence, 73, "a late hidden-generation response must not overwrite visible data");
+
   let rejectChat;
   sandbox.fetch = () => new Promise((_resolve, reject) => { rejectChat = reject; });
   const failed = api.sendText("move left", false);
@@ -306,6 +330,14 @@ assert.match(element("trackingTelemetryStatus").textContent, /ACTIVE/);
   api.overrideRealtimeAudio(async () => { api.state.realtime.audioContext = {currentTime: 0}; });
   api.state.realtime.url = "ws://localhost/v1/realtime";
   api.state.mode = "voice";
+  let trackStops = 0;
+  let captureDisconnects = 0;
+  let sourceDisconnects = 0;
+  let sinkDisconnects = 0;
+  api.state.realtime.micStream = {getTracks: () => [{stop() { trackStops += 1; }}]};
+  api.state.realtime.captureNode = {disconnect() { captureDisconnects += 1; }};
+  api.state.realtime.micSource = {disconnect() { sourceDisconnects += 1; }};
+  api.state.realtime.captureSink = {disconnect() { sinkDisconnects += 1; }};
   await api.connectRealtime();
   const socket = FakeWebSocket.instances.at(-1);
   socket.emit("error", {});
@@ -313,10 +345,38 @@ assert.match(element("trackingTelemetryStatus").textContent, /ACTIVE/);
   assert.equal(api.state.realtime.connected, false);
   assert.equal(api.state.realtime.reconnectTimer, null);
   assert.match(element("voiceStatus").textContent, /CONNECTION ERROR/);
+  assert.equal(trackStops, 1, "terminal socket error must stop microphone tracks");
+  assert.equal(captureDisconnects, 1, "terminal socket error must disconnect capture node");
+  assert.equal(sourceDisconnects, 1, "terminal socket error must disconnect microphone source");
+  assert.equal(sinkDisconnects, 1, "terminal socket error must disconnect capture sink");
+  assert.equal(api.state.realtime.micStream, null);
+  assert.equal(api.state.realtime.captureNode, null);
+  assert.equal(api.state.realtime.micSource, null);
+  assert.equal(api.state.realtime.captureSink, null);
   socket.emit("close", {code: 1006});
   assert.equal(api.state.realtime.connecting, false);
   assert.equal(api.state.realtime.reconnectTimer, null);
   assert.equal(element("voiceConnect").textContent, "CONNECT VOICE");
+  assert.equal(trackStops, 1, "error followed by close must not stop tracks twice");
+  assert.equal(captureDisconnects, 1, "error followed by close must not disconnect capture twice");
+  assert.equal(sourceDisconnects, 1, "error followed by close must not disconnect source twice");
+  assert.equal(sinkDisconnects, 1, "error followed by close must not disconnect sink twice");
+
+  const trackingStatus = {
+    available: true,
+    enabled: true,
+    state: "tracking",
+    target: {frame_id: "frame-7", bounding_box: [0.1, 0.2, 0.5, 0.7], track_id: 7, confidence: 0.9},
+  };
+  api.state.cameraFrameId = "frame-7";
+  element("cameraStream").hidden = false;
+  api.applyTrackingStatus(trackingStatus);
+  assert.equal(element("trackingOverlay").hidden, false);
+  api.showCameraError("camera offline");
+  assert.equal(element("trackingOverlay").hidden, true);
+  api.applyTrackingStatus(trackingStatus);
+  assert.equal(element("trackingOverlay").hidden, true, "tracking status must not redraw an overlay after camera failure");
+  assert.equal(api.state.cameraFrameId, null, "camera failure must invalidate decoded-frame ownership");
 
   console.log("web control behavior: ok");
 })().catch((error) => {
