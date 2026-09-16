@@ -13,7 +13,7 @@ if not exist "%BRAIN_PYTHON%" (
 "%BRAIN_PYTHON%" --version >nul 2>&1
 if errorlevel 1 (
   echo [run][error] pc_brain\.venv points to a missing or incompatible Python.
-  echo Install 64-bit Python 3.11, then run Scripts\setup.bat.
+  echo Install 64-bit Python 3.13, then run Scripts\setup.bat.
   exit /b 1
 )
 

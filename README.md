@@ -30,10 +30,10 @@ Maindesign.stl                Current printable model
 
 ## Windows Quick Start
 
-Install 64-bit Python 3.11 first, then run from PowerShell:
+Install 64-bit Python 3.13 first, then run from PowerShell:
 
 ```powershell
-py -3.11 --version
+py -3.13 --version
 .\Scripts\setup.bat
 .\Scripts\run.bat
 ```

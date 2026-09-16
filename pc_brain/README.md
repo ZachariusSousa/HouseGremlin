@@ -6,7 +6,7 @@ The realtime speech server runs as a sidecar process, but it uses the same `pc_b
 
 ## Prerequisites
 
-- Python 3.11 for the shared `pc_brain\.venv`
+- Python 3.13 for the shared `pc_brain\.venv`
 - `llama-server` from [llama.cpp](https://github.com/ggml-org/llama.cpp/releases) for the shared Gemma 4 E4B language backend
 - NVIDIA GPU recommended for local realtime speech
 
@@ -57,7 +57,7 @@ Manual PC brain setup, if you need to debug it directly:
 
 ```powershell
 cd C:\Users\z1sou\HouseGremlin\pc_brain
-py -3.11 -m venv .venv
+py -3.13 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt

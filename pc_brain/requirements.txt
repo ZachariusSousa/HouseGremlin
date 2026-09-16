@@ -14,5 +14,5 @@ sounddevice==0.5.2
 websocket-client==1.8.0
 websockets==16.1
 pytest==8.3.4
-numpy==1.26.4
+numpy==2.2.6
 zeroconf==0.150.0

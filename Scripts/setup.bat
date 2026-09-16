@@ -7,48 +7,50 @@ set "VENV=%PC_BRAIN%\.venv"
 set "PC_TRACKING=%ROOT%\pc_tracking"
 set "TRACKING_VENV=%PC_TRACKING%\.venv"
 set "LLAMA_SERVER_EXE=llama-server"
-set "PYTHON311="
+set "PYTHON313="
 
 echo [setup] HouseGremlin setup starting
 cd /d "%PC_BRAIN%" || exit /b 1
 
-py -3.11 --version >nul 2>&1
+py -3.13 --version >nul 2>&1
 if not errorlevel 1 (
-  set "PYTHON311=py -3.11"
-) else if exist "%LOCALAPPDATA%\Programs\Python\Python311\python.exe" (
-  set "PYTHON311=%LOCALAPPDATA%\Programs\Python\Python311\python.exe"
+  set "PYTHON313=py -3.13"
+) else if exist "C:\Python313\python.exe" (
+  set "PYTHON313=C:\Python313\python.exe"
+) else if exist "%LOCALAPPDATA%\Programs\Python\Python313\python.exe" (
+  set "PYTHON313=%LOCALAPPDATA%\Programs\Python\Python313\python.exe"
 ) else (
-  echo [setup][error] Python 3.11 was not found.
-  echo Install Python 3.11, then run Scripts\setup.bat again.
+  echo [setup][error] Python 3.13 was not found.
+  echo Install Python 3.13, then run Scripts\setup.bat again.
   exit /b 1
 )
 
 if exist "%VENV%\Scripts\python.exe" (
-  "%VENV%\Scripts\python.exe" --version >nul 2>&1
+  %PYTHON313% "%ROOT%\Scripts\check_python_runtime.py" "%VENV%\Scripts\python.exe" 3 13
   if errorlevel 1 (
-    echo [setup] Existing PC brain virtual environment is broken; recreating it
+    echo [setup] Existing PC brain virtual environment is broken or not Python 3.13; recreating it
     rmdir /s /q "%VENV%" || exit /b 1
   )
 )
 
 if not exist "%VENV%\Scripts\python.exe" (
   echo [setup] Creating virtual environment
-  %PYTHON311% -m venv "%VENV%" || exit /b 1
+  %PYTHON313% -m venv "%VENV%" || exit /b 1
 ) else (
   echo [setup] Reusing existing virtual environment
 )
 
 if exist "%TRACKING_VENV%\Scripts\python.exe" (
-  "%TRACKING_VENV%\Scripts\python.exe" --version >nul 2>&1
+  %PYTHON313% "%ROOT%\Scripts\check_python_runtime.py" "%TRACKING_VENV%\Scripts\python.exe" 3 13
   if errorlevel 1 (
-    echo [setup] Existing tracking virtual environment is broken; recreating it
+    echo [setup] Existing tracking virtual environment is broken or not Python 3.13; recreating it
     rmdir /s /q "%TRACKING_VENV%" || exit /b 1
   )
 )
 
 if not exist "%TRACKING_VENV%\Scripts\python.exe" (
   echo [setup] Creating isolated RF-DETR virtual environment
-  %PYTHON311% -m venv "%TRACKING_VENV%" || exit /b 1
+  %PYTHON313% -m venv "%TRACKING_VENV%" || exit /b 1
 ) else (
   echo [setup] Reusing isolated RF-DETR virtual environment
 )
@@ -73,7 +75,7 @@ if errorlevel 1 (
   "%TRACKING_VENV%\Scripts\python.exe" -m pip install --force-reinstall "torch==2.6.0+cu124" "torchvision==0.21.0+cu124" --index-url https://download.pytorch.org/whl/cu124 || exit /b 1
 )
 "%TRACKING_VENV%\Scripts\python.exe" -m pip install -r "%PC_TRACKING%\requirements.txt" || exit /b 1
-"%TRACKING_VENV%\Scripts\python.exe" -c "import importlib.metadata, torch, torchvision, sys; ok = importlib.metadata.version('rfdetr') == '1.8.3' and torch.__version__ == '2.6.0+cu124' and torchvision.__version__ == '0.21.0+cu124'; sys.exit(0 if ok else 1)" >nul 2>&1
+"%TRACKING_VENV%\Scripts\python.exe" -c "import importlib.metadata, torch, torchvision, sys; ok = sys.version_info[:2] == (3, 13) and importlib.metadata.version('rfdetr') == '1.8.3' and torch.__version__ == '2.6.0+cu124' and torchvision.__version__ == '0.21.0+cu124'; sys.exit(0 if ok else 1)" >nul 2>&1
 if errorlevel 1 (
   echo [setup][error] RF-DETR tracking environment validation failed.
   exit /b 1
@@ -82,7 +84,7 @@ if errorlevel 1 (
 echo [setup] Installing PC brain requirements
 python -m pip install -r requirements.txt || exit /b 1
 
-python -c "import huggingface_hub, numpy, pydantic, torch, torchaudio, transformers, sys; from packaging.version import Version; ok = transformers.__version__ == '4.57.3' and Version('0.34.0') <= Version(huggingface_hub.__version__) < Version('1.0') and numpy.__version__ == '1.26.4' and pydantic.__version__ == '2.13.4' and torch.__version__ == '2.6.0+cu124' and torchaudio.__version__ == '2.6.0+cu124'; sys.exit(0 if ok else 1)" >nul 2>&1
+python -c "import huggingface_hub, numpy, pydantic, torch, torchaudio, transformers, sys; from packaging.version import Version; ok = sys.version_info[:2] == (3, 13) and transformers.__version__ == '4.57.3' and Version('0.34.0') <= Version(huggingface_hub.__version__) < Version('1.0') and numpy.__version__ == '2.2.6' and pydantic.__version__ == '2.13.4' and torch.__version__ == '2.6.0+cu124' and torchaudio.__version__ == '2.6.0+cu124'; sys.exit(0 if ok else 1)" >nul 2>&1
 if errorlevel 1 (
   echo [setup][error] Package installation did not produce the validated voice and vision environment.
   exit /b 1
