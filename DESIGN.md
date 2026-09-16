@@ -215,6 +215,19 @@ improves accuracy by at least 15 percentage points without adding more than
 This keeps graph-shaped data available without paying the indexing and
 debugging cost of a full GraphRAG pipeline before the memory corpus justifies it.
 
+**Implemented substrate (2026-09): `pc_memory`.** The first durable-memory
+implementation deliberately pivots from pure RAG for this component: `pc_memory`
+stores entity/fact nodes with typed edges and provenance, retrieval enters via
+hybrid FTS5 + embedding seeds fused by reciprocal-rank fusion, and a bounded LLM
+hop router then walks the graph (≤3 hops, beam ≤6) under a hard rendered-context
+budget. This is scoped GraphRAG-style traversal, not a full pipeline — no
+community summaries, and every hop decision is logged to `retrieval_traces` so
+the empirical test above can still be run: the curated multi-hop question set in
+`pc_memory/evals/` is scored against expected key facts by the A/B harness in
+`pc_memory/app/eval.py`, before or after a learned router replaces the LLM hop.
+Gate 4's semantic layer builds on this substrate rather than re-deriving storage
+and retrieval.
+
 ## Vision Design
 
 The conversation model should not consume every camera frame. The perception

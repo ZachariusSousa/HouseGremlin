@@ -66,12 +66,22 @@ class Service:
     startup_timeout: float
     restart_limit: int = 3
     restart_count: int = 0
+    optional: bool = False
     process: subprocess.Popen | None = None
     output_thread: threading.Thread | None = None
     _handler: RotatingFileHandler | None = field(default=None, init=False)
 
     def start(self) -> None:
         LOGS.mkdir(parents=True, exist_ok=True)
+        if self.optional:
+            model_args = [a for a in self.command[1:] if a.endswith(".gguf")]
+            if model_args and not Path(model_args[0]).exists():
+                print(
+                    f"[supervisor][warn] optional {self.name} skipped: "
+                    f"model missing ({model_args[0]})",
+                    flush=True,
+                )
+                return
         if self._handler is not None:
             self._handler.close()
         self._handler = RotatingFileHandler(
@@ -108,12 +118,27 @@ class Service:
             f"[supervisor] starting {self.name}; log={LOGS / f'{self.name}.log'}",
             flush=True,
         )
-        wait_ready(
-            self.name,
-            self.readiness,
-            self.process,
-            self.startup_timeout,
-        )
+        if self.optional:
+            try:
+                wait_ready(
+                    self.name,
+                    self.readiness,
+                    self.process,
+                    self.startup_timeout,
+                )
+            except (RuntimeError, TimeoutError) as exc:
+                print(
+                    f"[supervisor][warn] optional {self.name} not ready "
+                    f"({exc}); continuing without it",
+                    flush=True,
+                )
+        else:
+            wait_ready(
+                self.name,
+                self.readiness,
+                self.process,
+                self.startup_timeout,
+            )
 
     def _copy_output(self) -> None:
         assert self.process is not None and self.process.stdout is not None
@@ -275,6 +300,30 @@ def main() -> int:
             180,
         ),
         Service(
+            "embedding-server",
+            [
+                str(llama),
+                "-m",
+                str(ROOT / "models" / "bekko-embedding-v1-a25m-Q8_0.gguf"),
+                "--host",
+                "127.0.0.1",
+                "--port",
+                "8093",
+                "--embedding",
+                "--pooling",
+                "mean",
+                "--embd-normalize",
+                "2",
+                "--ctx-size",
+                "8192",
+            ],
+            ROOT,
+            environment,
+            lambda: http_ready("http://127.0.0.1:8093/v1/models"),
+            120,
+            optional=True,
+        ),
+        Service(
             "voice",
             [
                 brain_python,
@@ -400,6 +449,8 @@ def main() -> int:
         while True:
             time.sleep(1)
             for service in services[:-1]:
+                if service.optional:
+                    continue
                 if not service.restart_if_failed():
                     raise RuntimeError(f"required sidecar failed: {service.name}")
             if services[-1].process and services[-1].process.poll() is not None:

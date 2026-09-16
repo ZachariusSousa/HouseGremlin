@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "housegremlin"
+version = "0.1.0"
+description = "HouseGremlin local agent workspace (pc_brain, pc_memory)"
+requires-python = ">=3.11"
+
+# Only pc_memory is a regular package (has __init__.py); pc_brain is a
+# namespace package consumed via pytest pythonpath and is not installed here.
+[tool.setuptools.packages.find]
+include = ["pc_memory*"]

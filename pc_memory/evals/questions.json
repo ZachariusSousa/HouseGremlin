@@ -1,0 +1,62 @@
+[
+  {
+    "id": "sky-why-blue",
+    "question": "Why is the sky blue?",
+    "expected_facts": ["rayleigh scattering"]
+  },
+  {
+    "id": "rayleigh-what",
+    "question": "What is Rayleigh scattering?",
+    "expected_facts": ["particles much smaller than its wavelength", "air molecules"]
+  },
+  {
+    "id": "blue-scatters-more",
+    "question": "Why does blue light scatter more strongly than red light?",
+    "expected_facts": ["shorter wavelength"]
+  },
+  {
+    "id": "eyes-blue",
+    "question": "What color is the scattered sunlight reaching our eyes?",
+    "expected_facts": ["predominantly blue"]
+  },
+  {
+    "id": "full-chain",
+    "question": "Explain the full causal chain from sunlight to the sky appearing blue.",
+    "expected_facts": ["rayleigh scattering", "shorter wavelengths", "predominantly blue"]
+  },
+  {
+    "id": "scattering-law",
+    "question": "What law describes how scattering intensity depends on wavelength?",
+    "expected_facts": ["1/lambda^4"]
+  },
+  {
+    "id": "which-scatters-most",
+    "question": "Which wavelengths scatter most strongly in Rayleigh scattering?",
+    "expected_facts": ["shorter wavelengths"]
+  },
+  {
+    "id": "sky-not-white",
+    "question": "What makes the sky appear blue rather than white?",
+    "expected_facts": ["rayleigh scattering", "predominantly blue"]
+  },
+  {
+    "id": "octopus-hearts",
+    "question": "How many hearts does an octopus have?",
+    "expected_facts": ["three hearts"]
+  },
+  {
+    "id": "banana-radioactive",
+    "question": "Why are bananas slightly radioactive?",
+    "expected_facts": ["potassium-40"]
+  },
+  {
+    "id": "eiffel-tower",
+    "question": "Why is the Eiffel Tower taller in summer?",
+    "expected_facts": ["heat expands the metal"]
+  },
+  {
+    "id": "octopus-probe",
+    "question": "Is there anything stored about octopuses?",
+    "expected_facts": ["three hearts"]
+  }
+]
