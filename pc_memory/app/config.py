@@ -6,6 +6,10 @@ from pathlib import Path
 
 DEFAULT_LLM_BASE_URL = "http://127.0.0.1:8081/v1"
 DEFAULT_LLM_MODEL = "ggml-org/gemma-4-E4B-it-GGUF:Q4_0"
+# Dedicated embedding endpoint (Bekko a25m via llama-server --embedding).
+# Kept separate from the chat LLM so retrieval degrades independently.
+DEFAULT_EMBED_BASE_URL = "http://127.0.0.1:8093/v1"
+DEFAULT_EMBED_MODEL = "bekko"
 
 try:
     from dotenv import load_dotenv
@@ -39,6 +43,8 @@ class Settings:
     context_budget_chars: int
     max_hops: int
     beam: int
+    embed_base_url: str
+    embed_model: str
 
 
 def load_settings() -> Settings:
@@ -57,6 +63,10 @@ def load_settings() -> Settings:
         context_budget_chars=_int_env("MEMORY_CONTEXT_BUDGET_CHARS", 6000),
         max_hops=_int_env("MEMORY_MAX_HOPS", 3),
         beam=_int_env("MEMORY_BEAM", 6),
+        embed_base_url=os.getenv(
+            "MEMORY_EMBED_BASE_URL", DEFAULT_EMBED_BASE_URL
+        ).rstrip("/"),
+        embed_model=os.getenv("MEMORY_EMBED_MODEL", DEFAULT_EMBED_MODEL),
     )
 
 

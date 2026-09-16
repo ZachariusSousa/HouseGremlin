@@ -7,5 +7,6 @@ data/
 pc_brain/data/
 pc_brain/evals/vision_frames/
 pc_memory/data/*.db*
+models/
 tmp/
 housegremlin.egg-info/

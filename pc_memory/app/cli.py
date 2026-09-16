@@ -27,7 +27,7 @@ from pc_memory.app.ingest import IngestError, ingest_text, ingest_url
 from pc_memory.app.llm import ChatClient, LLMError
 from pc_memory.app.retrieve import retrieve
 from pc_memory.app.seed import seed_sky_chain
-from pc_memory.app.store import add_fact, forget_node, inspect_node, stats
+from pc_memory.app.store import add_fact, forget_node, inspect_node, re_embed, stats
 from pc_memory.app.traces import export_traces
 
 
@@ -211,6 +211,16 @@ def cmd_rebuild(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_re_embed(args: argparse.Namespace) -> int:
+    settings, conn = _open(args)
+    try:
+        result = re_embed(conn, EmbedClient(settings))
+    finally:
+        conn.close()
+    print(json.dumps(result))
+    return 0 if result.get("failed_at_batch") is None else 1
+
+
 def cmd_forget(args: argparse.Namespace) -> int:
     _settings, conn = _open(args)
     try:
@@ -273,6 +283,12 @@ def build_parser() -> argparse.ArgumentParser:
 
     p = sub.add_parser("rebuild", help="Re-sync the FTS5 index from nodes")
     p.set_defaults(func=cmd_rebuild)
+
+    p = sub.add_parser(
+        "re-embed",
+        help="Regenerate all node embeddings with the current model (run after changing embedding backend)",
+    )
+    p.set_defaults(func=cmd_re_embed)
 
     p = sub.add_parser(
         "export-traces",

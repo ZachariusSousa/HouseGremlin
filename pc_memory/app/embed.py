@@ -24,9 +24,9 @@ class EmbedClient:
         try:
             with httpx.Client(timeout=timeout) as client:
                 response = client.post(
-                    f"{self.settings.llm_base_url}/embeddings",
+                    f"{self.settings.embed_base_url}/embeddings",
                     headers={"authorization": "Bearer local"},
-                    json={"model": self.settings.llm_model, "input": texts},
+                    json={"model": self.settings.embed_model, "input": texts},
                 )
             response.raise_for_status()
             body = response.json()

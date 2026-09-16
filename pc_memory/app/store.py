@@ -383,3 +383,33 @@ def stats(conn: sqlite3.Connection) -> dict[str, Any]:
             "SELECT COUNT(*) FROM retrieval_traces"
         ).fetchone()[0],
     }
+
+
+def re_embed(conn: sqlite3.Connection, embed) -> dict[str, Any]:
+    """Re-embed every node with the current embedding model.
+
+    Needed whenever the embedding backend changes (e.g. switching from one
+    model to another): vectors from different models are not comparable, so
+    all stored blobs must be regenerated in one pass. Returns a summary.
+    """
+    rows = conn.execute("SELECT id, text FROM nodes ORDER BY id").fetchall()
+    batch_size = 32
+    updated = 0
+    for start in range(0, len(rows), batch_size):
+        chunk = rows[start : start + batch_size]
+        vectors = embed.embed([r["text"] for r in chunk])
+        if vectors is None or len(vectors) != len(chunk):
+            return {
+                "embedded": updated,
+                "total": len(rows),
+                "failed_at_batch": start // batch_size,
+            }
+        for row, vec in zip(chunk, vectors):
+            blob = np.asarray(list(vec), dtype=np.float32).tobytes()
+            conn.execute(
+                "UPDATE nodes SET embedding = ?, updated_at = datetime('now') WHERE id = ?",
+                (blob, row["id"]),
+            )
+            updated += 1
+    conn.commit()
+    return {"embedded": updated, "total": len(rows), "failed_at_batch": None}
