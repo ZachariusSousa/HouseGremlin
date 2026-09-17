@@ -18,14 +18,26 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from collections.abc import Callable
+from pathlib import Path
 
+from pc_memory.app.brain_ingest import (
+    DEFAULT_BRAIN_DB,
+    DEFAULT_STATE_FILE,
+    ingest_brain,
+    watch_brain,
+)
 from pc_memory.app.config import load_settings
 from pc_memory.app.db import connect, init_schema, rebuild_fts
 from pc_memory.app.embed import EmbedClient
 from pc_memory.app.ingest import IngestError, ingest_text, ingest_url
 from pc_memory.app.llm import ChatClient, LLMError
 from pc_memory.app.retrieve import retrieve
+from pc_memory.app.research import (
+    load_research_state,
+    research_topic,
+)
 from pc_memory.app.seed import seed_sky_chain
 from pc_memory.app.store import add_fact, forget_node, inspect_node, re_embed, stats
 from pc_memory.app.traces import export_traces
@@ -231,6 +243,116 @@ def cmd_forget(args: argparse.Namespace) -> int:
     return 0
 
 
+def _resolve_brain_db(settings, explicit: str | None) -> Path:
+    if explicit:
+        return Path(explicit).expanduser()
+    # Default: <repo root>/pc_brain/data/brain.db (package root is pc_memory/).
+    return settings.db_path.parent.parent.parent / "pc_brain" / "data" / "brain.db"
+
+
+def _resolve_state_file(settings, explicit: str | None) -> Path:
+    """Default state file sits next to the memory DB (not CWD-relative)."""
+    if explicit:
+        return Path(explicit).expanduser()
+    return settings.db_path.parent / DEFAULT_STATE_FILE
+
+
+def _resolve_research_state(settings, explicit: str | None) -> Path:
+    """Research BFS state also lives next to the memory DB."""
+    if explicit:
+        return Path(explicit).expanduser()
+    return settings.db_path.parent / "research_state.json"
+
+
+def cmd_ingest_brain(args: argparse.Namespace) -> int:
+    settings, conn = _open(args)
+    try:
+        embed = None if args.no_embed else EmbedClient(settings)
+        summary = ingest_brain(
+            _resolve_brain_db(settings, args.brain_db),
+            _resolve_state_file(settings, args.state_file),
+            conn,
+            embed=embed,
+            confidence=args.confidence,
+            dry_run=args.dry_run,
+        )
+    finally:
+        conn.close()
+    print(json.dumps(summary, indent=2))
+    return 0
+
+
+def cmd_watch_brain(args: argparse.Namespace) -> int:
+    settings, conn = _open(args)
+    try:
+        embed = None if args.no_embed else EmbedClient(settings)
+        watch_brain(
+            _resolve_brain_db(settings, args.brain_db),
+            _resolve_state_file(settings, args.state_file),
+            conn,
+            embed=embed,
+            confidence=args.confidence,
+            poll_interval=args.poll_seconds,
+        )
+    finally:
+        conn.close()
+    return 0
+
+
+def cmd_research(args: argparse.Namespace) -> int:
+    settings, conn = _open(args)
+    try:
+        state_path = _resolve_research_state(settings, args.state_file)
+        if args.reset and state_path.exists():
+            state_path.unlink()
+        embed = None if args.no_embed else EmbedClient(settings)
+        summary = research_topic(
+            args.subject,
+            conn,
+            llm=ChatClient(settings),
+            state_path=_resolve_research_state(settings, args.state_file),
+            embed=embed,
+            confidence=args.confidence,
+            max_depth=args.max_depth,
+            breadth_per_level=args.breadth,
+            max_sources=args.max_sources,
+        )
+    finally:
+        conn.close()
+    print(json.dumps(summary, indent=2))
+    return 0
+
+
+def cmd_watch_research(args: argparse.Namespace) -> int:
+    """Keep expanding the frontier until it's empty (the 'while I'm away' mode)."""
+    settings, conn = _open(args)
+    try:
+        embed = None if args.no_embed else EmbedClient(settings)
+        state_path = _resolve_research_state(settings, args.state_file)
+        while True:
+            state = load_research_state(state_path)
+            if state is None or not state.frontier:
+                print("frontier exhausted (or no research started); nothing to do.")
+                break
+            summary = research_topic(
+                state.seed or args.subject,
+                conn,
+                llm=ChatClient(settings),
+                state_path=state_path,
+                embed=embed,
+                confidence=args.confidence,
+                max_depth=1,
+                breadth_per_level=args.breadth,
+                max_sources=args.max_sources,
+            )
+            print(json.dumps({"round": summary["totals"], "frontier_remaining": summary["frontier_remaining"]}))
+            if args.poll_seconds > 0:
+                time.sleep(args.poll_seconds)
+    finally:
+        conn.close()
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pc_memory", description="SQLite knowledge-graph memory service CLI"
@@ -301,6 +423,61 @@ def build_parser() -> argparse.ArgumentParser:
     p = sub.add_parser("forget", help="Delete a node and cascade edges/provenance")
     p.add_argument("node_id", type=int)
     p.set_defaults(func=cmd_forget)
+
+    common_brain = [
+        ("--brain-db", dict(default=None, help=f"Path to brain.db (default: {DEFAULT_BRAIN_DB} under repo root)")),
+        # None (not a string) so the resolver picks the DB-adjacent default path.
+        ("--state-file", dict(default=None, help="Ingestion state file (default: next to the memory DB)")),
+        ("--confidence", dict(type=float, default=0.7)),
+        ("--no-embed", dict(action="store_true", help="Skip embeddings (FTS5-only mode)")),
+    ]
+
+    p = sub.add_parser(
+        "ingest-brain",
+        help="One-shot: ingest new robot events from brain.db into the memory graph (no LLM)",
+    )
+    for name, opts in common_brain:
+        p.add_argument(name, **opts)
+    p.add_argument("--dry-run", action="store_true", help="Show claims without writing to the store")
+    p.set_defaults(func=cmd_ingest_brain)
+
+    p = sub.add_parser(
+        "watch-brain",
+        help="Background: poll brain.db for new events and ingest them continuously (no LLM)",
+    )
+    for name, opts in common_brain:
+        p.add_argument(name, **opts)
+    p.add_argument("--poll-seconds", type=float, default=15.0, help="Poll interval (default 15s)")
+    p.set_defaults(func=cmd_watch_brain)
+
+    common_research = [
+        ("--state-file", dict(default=None, help="Research BFS state file (default: next to the memory DB)")),
+        ("--confidence", dict(type=float, default=0.6)),
+        ("--no-embed", dict(action="store_true", help="Skip embeddings (FTS5-only mode)")),
+        ("--max-sources", dict(type=int, default=3, help="Web sources fetched per subject (default 3)")),
+        ("--breadth", dict(type=int, default=5, help="Subjects researched per BFS level (default 5)")),
+        ("--reset", dict(action="store_true", help="Delete the research state file before starting")),
+    ]
+
+    p = sub.add_parser(
+        "research",
+        help="Grow the knowledge graph from a subject: web search + LLM extraction + related-subject frontier",
+    )
+    p.add_argument("subject")
+    for name, opts in common_research:
+        p.add_argument(name, **opts)
+    p.add_argument("--max-depth", type=int, default=1, help="BFS levels beyond the seed (default 1)")
+    p.set_defaults(func=cmd_research)
+
+    p = sub.add_parser(
+        "watch-research",
+        help="Keep expanding the research frontier until it's empty (runs while you're away)",
+    )
+    p.add_argument("subject", nargs="?", default=None, help="Seed subject (only used if no state file exists)")
+    for name, opts in common_research:
+        p.add_argument(name, **opts)
+    p.add_argument("--poll-seconds", type=float, default=5.0, help="Pause between rounds (default 5s; 0 = none)")
+    p.set_defaults(func=cmd_watch_research)
 
     return parser
 
