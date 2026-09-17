@@ -28,6 +28,21 @@ if not DATA.is_absolute():
 LOGS = DATA / "logs"
 
 
+def cached_snapshot_or_model_id(model_id: str, cache_root: Path | None = None) -> str:
+    """Prefer the checked-out main snapshot when a Hugging Face model is cached."""
+    cache = cache_root or Path(
+        os.getenv("HF_HUB_CACHE", str(Path.home() / ".cache" / "huggingface" / "hub"))
+    )
+    model_cache = cache / f"models--{model_id.replace('/', '--')}"
+    ref = model_cache / "refs" / "main"
+    try:
+        revision = ref.read_text(encoding="utf-8").strip()
+    except OSError:
+        return model_id
+    snapshot = model_cache / "snapshots" / revision
+    return str(snapshot) if snapshot.is_dir() else model_id
+
+
 def http_ready(url: str) -> bool:
     try:
         with urllib.request.urlopen(url, timeout=2) as response:
@@ -271,6 +286,9 @@ def main() -> int:
     voice = environment.get("ROBIT_REALTIME_VOICE", "serena")
     device = environment.get("ROBIT_TRACKING_DEVICE", "auto")
     model = "ggml-org/gemma-4-E4B-it-GGUF:Q4_0"
+    tts_model = cached_snapshot_or_model_id(
+        "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"
+    )
     services = [
         Service(
             "llama-server",
@@ -356,7 +374,7 @@ def main() -> int:
                 "--tts",
                 "qwen3",
                 "--qwen3_tts_model_name",
-                "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+                tts_model,
                 "--qwen3_tts_device",
                 "cuda",
                 "--qwen3_tts_speaker",
