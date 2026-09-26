@@ -465,7 +465,8 @@ def test_browser_contains_no_voice_tool_execution_path():
     assert "new WebSocket(state.realtime.url)" in page
     assert "navigator.mediaDevices.getUserMedia" in page
     assert "enabledRequested:false" in page
-    assert "disarmControls({stop:true})" in page
+    assert "disarmControls" not in page
+    assert "controlsArmed" not in page
 
 
 def test_browser_uses_approved_retro_anime_console_shell():

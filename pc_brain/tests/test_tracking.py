@@ -134,12 +134,21 @@ async def test_head_steps_are_bounded_and_default_tracking_can_pivot(tmp_path):
 
 
 @pytest.mark.anyio
-async def test_head_aims_at_face_height_instead_of_person_box_center(tmp_path):
+async def test_head_aims_at_person_box_center_with_calibrated_tilt_direction(tmp_path):
     service, _, head_commands, _ = make_service(tmp_path)
 
     await service.process_result(result("one", [person((0.30, 0.10, 0.70, 0.90))]))
 
-    assert head_commands == [(90, 79)]
+    assert head_commands == []
+
+
+@pytest.mark.anyio
+async def test_head_uses_reversed_tilt_direction_for_a_target_below_center(tmp_path):
+    service, _, head_commands, _ = make_service(tmp_path)
+
+    await service.process_result(result("one", [person((0.30, 0.60, 0.70, 0.90))]))
+
+    assert head_commands == [(90, 80)]
 
 
 @pytest.mark.anyio
@@ -169,7 +178,7 @@ async def test_body_pivot_direction_reverses_at_opposite_pan_limit(tmp_path):
 @pytest.mark.anyio
 async def test_completed_pivot_discards_gaze_estimate_from_before_body_motion(tmp_path):
     service, _, head_commands, move_commands = make_service(tmp_path)
-    centered = person((0.35, 0.40, 0.65, 1.0))
+    centered = person((0.35, 0.20, 0.65, 0.80))
     service._last_head_command_at = float("inf")
     await service.process_result(result("acquire", [centered]))
 
@@ -464,7 +473,7 @@ async def test_skipped_head_command_does_not_drift_internal_position(tmp_path):
 
     await service.process_result(result("one", [person((0.72, 0.2, 0.98, 0.8))]))
 
-    assert head_commands == [(104, 82)]
+    assert head_commands == [(104, 90)]
     assert (service.head_pan, service.head_tilt) == (90, 90)
 
 

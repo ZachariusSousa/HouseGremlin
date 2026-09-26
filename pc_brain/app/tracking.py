@@ -38,7 +38,6 @@ STABLE_DETECTOR_FPS = 1.0
 VOICE_DETECTOR_FPS = 0.5
 TRACKING_CAMERA_FPS = 2.0
 TRACKING_CONTRAST_FACTOR = 1.20
-FACE_HEIGHT_FRACTION = 0.16
 TRACKING_SMOOTHING_MIN_ALPHA = 0.28
 TRACKING_SMOOTHING_MAX_ALPHA = 0.78
 TRACKING_SMOOTHING_SPEED_GAIN = 2.0
@@ -221,12 +220,6 @@ def _box_center(box: tuple[float, float, float, float]) -> tuple[float, float]:
     return ((box[0] + box[2]) / 2.0, (box[1] + box[3]) / 2.0)
 
 
-def _face_aim_point(box: tuple[float, float, float, float]) -> tuple[float, float]:
-    """Estimate face height from a person box without adding another model."""
-    x1, y1, x2, y2 = box
-    return ((x1 + x2) / 2.0, y1 + ((y2 - y1) * FACE_HEIGHT_FRACTION))
-
-
 def _box_area(box: tuple[float, float, float, float]) -> float:
     return max(0.0, box[2] - box[0]) * max(0.0, box[3] - box[1])
 
@@ -307,7 +300,7 @@ class PersonTrackingService:
         confidence: float = 0.40,
         rotate_degrees: int = 180,
         pan_sign: int = 1,
-        tilt_sign: int = 1,
+        tilt_sign: int = -1,
         search_fps: float = SEARCH_DETECTOR_FPS,
         stable_fps: float = STABLE_DETECTOR_FPS,
         voice_fps: float = VOICE_DETECTOR_FPS,
@@ -671,7 +664,7 @@ class PersonTrackingService:
         self._switch_count = 0
 
     def _update_estimator(self, candidate: PersonCandidate, now: float) -> None:
-        measured = _face_aim_point(candidate.bounding_box)
+        measured = _box_center(candidate.bounding_box)
         if self._estimator_center is None or self._estimator_at <= 0.0:
             self._estimator_center = measured
             self._estimator_velocity = (0.0, 0.0)

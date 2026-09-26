@@ -43,6 +43,15 @@ def cached_snapshot_or_model_id(model_id: str, cache_root: Path | None = None) -
     return str(snapshot) if snapshot.is_dir() else model_id
 
 
+def order_services_for_startup(services: list[Service]) -> list[Service]:
+    """Start the control UI before sidecars whose model warmup takes minutes."""
+    return sorted(services, key=lambda service: service.name != "pc-brain")
+
+
+def open_dashboard(port: int, opener: Callable[[str], object] = webbrowser.open) -> None:
+    opener(f"http://localhost:{port}")
+
+
 def http_ready(url: str) -> bool:
     try:
         with urllib.request.urlopen(url, timeout=2) as response:
@@ -422,6 +431,8 @@ def main() -> int:
         ),
     ]
 
+    services = order_services_for_startup(services)
+    pc_brain = next(service for service in services if service.name == "pc-brain")
     started: list[Service] = []
     return_code = 0
     try:
@@ -433,6 +444,9 @@ def main() -> int:
         for service in services:
             started.append(service)
             service.start()
+            if service is pc_brain:
+                open_dashboard(args.port)
+                print("[supervisor] Control UI is ready. Press Ctrl+C for clean shutdown.", flush=True)
             if service.name == "llama-server":
                 run_preparation(
                     "prewarming shared language/vision model",
@@ -462,16 +476,17 @@ def main() -> int:
                     ],
                     environment,
                 )
-        webbrowser.open(f"http://localhost:{args.port}")
         print("[supervisor] Robit is ready. Press Ctrl+C for clean shutdown.", flush=True)
         while True:
             time.sleep(1)
-            for service in services[:-1]:
+            for service in services:
+                if service is pc_brain:
+                    continue
                 if service.optional:
                     continue
                 if not service.restart_if_failed():
                     raise RuntimeError(f"required sidecar failed: {service.name}")
-            if services[-1].process and services[-1].process.poll() is not None:
+            if pc_brain.process and pc_brain.process.poll() is not None:
                 raise RuntimeError("PC Brain exited")
     except KeyboardInterrupt:
         print("[supervisor] shutting down", flush=True)

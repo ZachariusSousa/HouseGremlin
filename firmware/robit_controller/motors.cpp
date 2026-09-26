@@ -40,13 +40,13 @@ void stopMotors() {
 
 void moveForward() {
   analogWrite(MOTOR_PWM_PIN, robotState.motorSpeed);
-  setDirection(true, false, true, false);
+  setDirection(false, true, false, true);
   robotState.movement = "forward";
 }
 
 void moveReverse() {
   analogWrite(MOTOR_PWM_PIN, robotState.motorSpeed);
-  setDirection(false, true, false, true);
+  setDirection(true, false, true, false);
   robotState.movement = "reverse";
 }
 

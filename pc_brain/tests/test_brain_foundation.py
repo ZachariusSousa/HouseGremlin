@@ -9,6 +9,7 @@ from app.brain_models import (
     EventSource,
     WorkPriority,
 )
+from app import main
 from app.coordinator import BrainCoordinator
 from app.journal import EventJournal
 from app.resource_lease import PriorityResourceLease
@@ -77,6 +78,28 @@ def test_recent_model_context_is_bounded_to_twenty_turns(tmp_path):
     assert len(messages) == 20
     assert messages[0]["content"] == "turn 5"
     assert messages[-1]["content"] == "turn 24"
+
+
+def test_journal_clear_removes_prior_conversation_and_events(tmp_path):
+    journal = EventJournal(tmp_path / "brain.db")
+    coordinator = BrainCoordinator(journal)
+    coordinator.record_turn("user", "old context", EventSource.browser, "corr-old")
+
+    journal.clear()
+
+    restarted = BrainCoordinator(journal)
+    assert restarted.recent_messages() == []
+    assert restarted.snapshot()["events"] == []
+
+
+def test_startup_coordinator_reset_discards_prior_context():
+    coordinator = main.get_brain_coordinator()
+    coordinator.record_turn("user", "old context", EventSource.browser, "corr-old")
+
+    reset = main.get_brain_coordinator(reset=True)
+
+    assert reset.recent_messages() == []
+    assert reset.snapshot()["events"] == []
 
 
 @pytest.mark.anyio

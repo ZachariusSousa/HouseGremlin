@@ -6,6 +6,8 @@ const html = fs.readFileSync(process.argv[2], "utf8");
 const matches = [...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)];
 assert.ok(matches.length, "inline script is required");
 const source = matches.map((match) => match[1]).join("\n").replace(/\binitialize\(\);\s*$/, "");
+assert.doesNotMatch(html, /controlsArmed|ARM CTRL|CTRL INHIBITED/);
+assert.match(html, /\.viewport img,\.viewport canvas\{transform:rotate\(180deg\)\}/);
 
 class FakeClassList {
   constructor() { this.values = new Set(); }
@@ -449,8 +451,10 @@ assert.match(element("trackingTelemetryStatus").textContent, /ACTIVE/);
   api.setMode("telemetry");
   microphoneRequests[1]({getTracks: () => [{stop() { leftVoiceTrackStops += 1; }}]});
   await leftVoicePending;
-  assert.equal(leftVoiceTrackStops, 1, "leaving Voice must dispose its pending microphone attempt");
-  assert.equal(FakeWebSocket.instances.length, 0);
+  assert.equal(leftVoiceTrackStops, 0, "leaving Voice must keep the microphone session alive");
+  assert.equal(FakeWebSocket.instances.length, 1);
+  api.disconnectRealtime();
+  assert.equal(leftVoiceTrackStops, 1, "explicit disconnect must dispose the microphone session");
 
   let retiredTrackStops = 0;
   let currentTrackStops = 0;
