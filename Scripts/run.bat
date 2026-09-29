@@ -2,17 +2,17 @@
 setlocal EnableExtensions
 
 set "ROOT=%~dp0.."
-set "BRAIN_PYTHON=%ROOT%\pc_brain\.venv\Scripts\python.exe"
+set "BRAIN_PYTHON=%ROOT%\brain\.venv\Scripts\python.exe"
 
 if not exist "%BRAIN_PYTHON%" (
-  echo [run][error] pc_brain\.venv was not found.
+  echo [run][error] brain\.venv was not found.
   echo Run Scripts\setup.bat first.
   exit /b 1
 )
 
 "%BRAIN_PYTHON%" --version >nul 2>&1
 if errorlevel 1 (
-  echo [run][error] pc_brain\.venv points to a missing or incompatible Python.
+  echo [run][error] brain\.venv points to a missing or incompatible Python.
   echo Install 64-bit Python 3.13, then run Scripts\setup.bat.
   exit /b 1
 )

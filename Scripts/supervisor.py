@@ -20,8 +20,8 @@ from typing import Callable
 
 
 ROOT = Path(__file__).resolve().parents[1]
-BRAIN = ROOT / "pc_brain"
-TRACKING = ROOT / "pc_tracking"
+BRAIN = ROOT / "brain"
+TRACKING = ROOT / "tracking"
 DATA = Path(os.getenv("ROBIT_DATA_DIR", str(BRAIN / "data"))).expanduser()
 if not DATA.is_absolute():
     DATA = BRAIN / DATA
@@ -238,8 +238,8 @@ def main() -> int:
     args = parser.parse_args()
 
     try:
-        brain_python = checked_python(BRAIN / ".venv", "pc_brain")
-        tracking_python = checked_python(TRACKING / ".venv", "pc_tracking")
+        brain_python = checked_python(BRAIN / ".venv", "brain")
+        tracking_python = checked_python(TRACKING / ".venv", "tracking")
         robot_url = resolve_robot(brain_python, args.robot)
         llama = (
             Path(r"C:\Tools\llama.cpp\llama-server.exe")
@@ -454,7 +454,7 @@ def main() -> int:
                 if not service.restart_if_failed():
                     raise RuntimeError(f"required sidecar failed: {service.name}")
             if services[-1].process and services[-1].process.poll() is not None:
-                raise RuntimeError("PC Brain exited")
+                raise RuntimeError("Brain exited")
     except KeyboardInterrupt:
         print("[supervisor] shutting down", flush=True)
         return_code = 0

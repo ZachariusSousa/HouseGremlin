@@ -40,7 +40,7 @@ flowchart LR
     Camera["ESP Camera"] --> Perception["Frame Gate -> Semantic VLM"]
     UI["Operator Console"] --> Brain
 
-    Voice --> Brain["pc_brain Cognitive Runtime"]
+    Voice --> Brain["brain Cognitive Runtime"]
     Perception --> World["Rolling World State"]
     World --> Brain
 
@@ -60,7 +60,7 @@ flowchart LR
     ESP --> Body["Tracks / Head / Eyes"]
 ```
 
-`pc_brain` should remain a modular Python application while the system is
+`brain` should remain a modular Python application while the system is
 small. Its interfaces should be compatible with a later ROS 2 bridge, but ROS 2
 should not be an early dependency.
 
@@ -215,16 +215,16 @@ improves accuracy by at least 15 percentage points without adding more than
 This keeps graph-shaped data available without paying the indexing and
 debugging cost of a full GraphRAG pipeline before the memory corpus justifies it.
 
-**Implemented substrate (2026-09): `pc_memory`.** The first durable-memory
-implementation deliberately pivots from pure RAG for this component: `pc_memory`
+**Implemented substrate (2026-09): `memory`.** The first durable-memory
+implementation deliberately pivots from pure RAG for this component: `memory`
 stores entity/fact nodes with typed edges and provenance, retrieval enters via
 hybrid FTS5 + embedding seeds fused by reciprocal-rank fusion, and a bounded LLM
 hop router then walks the graph (≤3 hops, beam ≤6) under a hard rendered-context
 budget. This is scoped GraphRAG-style traversal, not a full pipeline — no
 community summaries, and every hop decision is logged to `retrieval_traces` so
 the empirical test above can still be run: the curated multi-hop question set in
-`pc_memory/evals/` is scored against expected key facts by the A/B harness in
-`pc_memory/app/eval.py`, before or after a learned router replaces the LLM hop.
+`memory/evals/` is scored against expected key facts by the A/B harness in
+`memory/app/eval.py`, before or after a learned router replaces the LLM hop.
 Gate 4's semantic layer builds on this substrate rather than re-deriving storage
 and retrieval.
 
@@ -265,7 +265,7 @@ error remains large. It stops only on an explicit tracking request.
 
 ## MCP and Tool Policy
 
-`pc_brain` should act as the MCP host and capability broker. MCP servers are not
+`brain` should act as the MCP host and capability broker. MCP servers are not
 exposed directly to the speaker or thinker.
 
 The first integration wave should cover:
@@ -331,7 +331,7 @@ evaluation corpus into the opening Gate 1 baseline work. These artifacts remain
 required before making model or server sizing decisions, but they do not reopen
 the functional Gate 0 baseline.
 
-### Gate 1: Make `pc_brain` authoritative
+### Gate 1: Make `brain` authoritative
 
 **Status: functionally closed on 2026-07-15.**
 
@@ -347,7 +347,7 @@ action can be traced back to its originating request through the shared event
 and correlation flow.
 
 - Add the event model, state planes, append-only journal, and priority arbiter.
-- Put realtime session ownership behind `pc_brain` while reusing the current
+- Put realtime session ownership behind `brain` while reusing the current
   VAD, STT, and TTS components.
 - Move voice tool execution out of browser JavaScript.
 - Give foreground work a resource lease that can preempt background GPU jobs.
@@ -374,7 +374,7 @@ That test established display wiring and power before the Gate 2 renderer was
 implemented.
 
 The fixed expression renderer and firmware `/api/eyes` endpoint are implemented
-and physically validated. `pc_brain` now maintains a temporary LLM-selected base
+and physically validated. `brain` now maintains a temporary LLM-selected base
 mood beneath deterministic listening, thinking, speaking, and fault overlays.
 Eye commands use a latest-value asynchronous queue, and an armed firmware
 heartbeat watchdog displays `fault` after twelve seconds without the PC brain.
@@ -598,7 +598,7 @@ checks:
 
 ```powershell
 cd C:\Users\z1sou\HouseGremlin
-.\pc_brain\.venv\Scripts\python.exe -m pytest pc_brain\tests
+.\brain\.venv\Scripts\python.exe -m pytest brain\tests
 Invoke-RestMethod http://localhost:8080/health
 ```
 
@@ -628,7 +628,7 @@ script does not exist yet.
 - Web research is opt-in.
 - The current laptop is the development system; a dedicated server comes later.
 - Early autonomy is camera-led, mapless, supervised, and limited to one room.
-- `pc_brain` remains modular Python and ROS-ready without adopting ROS 2 now.
+- `brain` remains modular Python and ROS-ready without adopting ROS 2 now.
 - Memory supports one primary owner first and is useful by default with inspect,
   correct, forget, and export controls.
 - A dedicated tiny affect model drives emotional eye behavior, with operational

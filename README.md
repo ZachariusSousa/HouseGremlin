@@ -16,8 +16,8 @@ Do not put vision or LLM work on the motor controller. Keep the robot firmware b
 
 ```text
 firmware/robit_controller/    ESP/Arduino firmware for movement and head control
-pc_brain/                     FastAPI service that talks to the robot and owns future AI features
-pc_tracking/                  Isolated local RF-DETR Nano person detector
+brain/                     FastAPI service that talks to the robot and owns future AI features
+tracking/                  Isolated local RF-DETR Nano person detector
 web_control/                  Browser control panel for manual driving
 docs/architecture.md          Current system architecture and initial build roadmap
 DESIGN.md                     Long-term brain, memory, vision, tools, and autonomy roadmap
@@ -28,7 +28,7 @@ Maindesign.stl                Current printable model
 
 1. Flash `firmware/robit_controller/robit_controller.ino`.
 2. Edit Wi-Fi credentials in `firmware/robit_controller/config.example.h`, save as `config.h`, and keep it private.
-3. Deploy the matching PC Brain and confirm its `/robot/*` controls work.
+3. Deploy the matching Brain and confirm its `/robot/*` controls work.
 4. Run the PC brain and point it at the robot IP.
 5. Add camera streaming.
 6. Add LLM tool calling against the PC brain API, not directly against the microcontroller.
@@ -65,10 +65,10 @@ The firmware HTTP server exposes diagnostics and camera access only:
 Actuation uses protocol v1 on TCP port `82`. It is single-client, newline-delimited
 JSON with a 512-byte limit, acknowledgements, TTL/sequence rejection, a one-second
 PC heartbeat, and firmware telemetry. Direct ESP movement/head/eyes HTTP routes
-were intentionally removed; use the stable PC Brain `/robot/*` API.
+were intentionally removed; use the stable Brain `/robot/*` API.
 
 All camera acquisition is serialized and capped globally at 2 FPS
-(`ROBIT_CAMERA_MAX_FPS=2`). The PC Brain shares one raw JPEG, rotated JPEG, and
+(`ROBIT_CAMERA_MAX_FPS=2`). The Brain shares one raw JPEG, rotated JPEG, and
 preview for each frame. Idle acquisition is 0.2 FPS.
 
 The XIAO ESP32S3 Sense camera page and still endpoint are:
@@ -86,7 +86,7 @@ Current soldered pin assumptions:
 - `D6`/`D7` PCA9685 servo I2C
 - `D5`/`D8` reserved for the OLED eye I2C bus
 
-## PC Brain
+## Brain
 
 The PC service is intentionally a thin scaffold right now. It gives you a clean place to add:
 
@@ -113,7 +113,7 @@ The current Gate 5 surface is `GET /perception/latest` plus
 `POST /perception/query`. Visual results are descriptive only and cannot issue
 movement or head commands in the same turn.
 
-RF-DETR Nano runs in its own `pc_tracking\.venv`, so its Transformers 5
+RF-DETR Nano runs in its own `tracking\.venv`, so its Transformers 5
 dependency cannot alter the validated voice environment. It powers one simple
 always-on person tracker: Robit turns its head toward the visible person and
 uses a delayed, bounded in-place body turn only when the head cannot keep up.

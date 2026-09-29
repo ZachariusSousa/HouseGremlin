@@ -81,7 +81,7 @@ def measure_turn(connection, text: str) -> dict:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Capture Gate 1 warm/cold realtime latency and GPU use.")
     parser.add_argument("--brain-url", default="http://localhost:8080")
-    parser.add_argument("--output", type=Path, default=Path("pc_brain/data/gate1-benchmark.json"))
+    parser.add_argument("--output", type=Path, default=Path("brain/data/gate1-benchmark.json"))
     args = parser.parse_args()
 
     health = httpx.get(f"{args.brain_url.rstrip('/')}/health", timeout=10).json()

@@ -2,9 +2,9 @@
 setlocal EnableExtensions
 
 set "ROOT=%~dp0.."
-set "PC_BRAIN=%ROOT%\pc_brain"
+set "PC_BRAIN=%ROOT%\brain"
 set "VENV=%PC_BRAIN%\.venv"
-set "PC_TRACKING=%ROOT%\pc_tracking"
+set "PC_TRACKING=%ROOT%\tracking"
 set "TRACKING_VENV=%PC_TRACKING%\.venv"
 set "LLAMA_SERVER_EXE=llama-server"
 set "PYTHON313="
@@ -91,10 +91,10 @@ if errorlevel 1 (
 )
 
 if not exist ".env" (
-  echo [setup] Creating pc_brain\.env from .env.example
+  echo [setup] Creating brain\.env from .env.example
   copy ".env.example" ".env" >nul || exit /b 1
 ) else (
-  echo [setup] Keeping existing pc_brain\.env
+  echo [setup] Keeping existing brain\.env
 )
 
 echo [setup] Running PC brain tests

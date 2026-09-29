@@ -266,7 +266,7 @@ class RealtimeVoiceTester:
 
 def parse_args() -> argparse.Namespace:
     root = Path(__file__).resolve().parents[1]
-    load_env_file(root / "pc_brain" / ".env")
+    load_env_file(root / "brain" / ".env")
     parser = argparse.ArgumentParser(description="Standalone Robit realtime voice tester.")
     parser.add_argument(
         "--url",

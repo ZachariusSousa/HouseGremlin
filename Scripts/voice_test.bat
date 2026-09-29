@@ -2,7 +2,7 @@
 setlocal EnableExtensions
 
 set "ROOT=%~dp0.."
-set "PC_BRAIN=%ROOT%\pc_brain"
+set "PC_BRAIN=%ROOT%\brain"
 set "VENV=%PC_BRAIN%\.venv"
 set "REALTIME_PORT=7861"
 set "LLAMA_SERVER_PORT=8081"
@@ -28,14 +28,14 @@ set "S2S_RUNNER=%TEMP%\robit-realtime-voice-%RUN_ID%.bat"
 cd /d "%PC_BRAIN%" || exit /b 1
 
 if not exist "%VENV%\Scripts\python.exe" (
-  echo [voice-test][error] pc_brain\.venv was not found.
+  echo [voice-test][error] brain\.venv was not found.
   echo Run Scripts\setup.bat first.
   exit /b 1
 )
 
 "%VENV%\Scripts\python.exe" --version >nul 2>&1
 if errorlevel 1 (
-  echo [voice-test][error] pc_brain\.venv exists but its Python executable is broken.
+  echo [voice-test][error] brain\.venv exists but its Python executable is broken.
   echo Run Scripts\setup.bat to recreate it.
   exit /b 1
 )
