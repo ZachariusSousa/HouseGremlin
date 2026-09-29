@@ -2,6 +2,9 @@ from __future__ import annotations
 
 import re
 
+# Keep in sync with tracking/app/sanitization.py (byte-identical by design;
+# one copy per service on purpose — no shared package for 46 lines).
+
 
 _URI = re.compile(r"\b[a-z][a-z0-9+.-]*://[^\s<>\"']+", re.IGNORECASE)
 _AUTHORIZATION = re.compile(

@@ -78,8 +78,10 @@ Keep module-level singletons (`realtime_gateway` etc.) where they are; move only
 forces it. Gate after each: 227 green + `import brain.app.main` smoke.
 
 ## Phase 5 — Dedup + package hygiene (1 commit)
-- `sanitization.py` is byte-identical in brain/ and tracking/: inline the ~46 lines into
-  each (do NOT build a shared package for this).
+- `sanitization.py` is byte-identical in brain/ and tracking/. **Decision: keep one copy per
+  service** (verified 2026-09-18): brain has 3 consumers (coordinator, main, tracking) so
+  inlining would duplicate it 3x; a shared package for 46 lines is over-engineering.
+  Add a one-line header comment on each: "Keep in sync with <other>/app/sanitization.py".
 - Each package: own README ("run me alone in 5 min"), `.env.example` generated from
   config defaults, pyproject.toml.
 
