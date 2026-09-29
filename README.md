@@ -14,15 +14,37 @@ Do not put vision or LLM work on the motor controller. Keep the robot firmware b
 
 ## Repo Layout
 
+| Path | What it is | Runs standalone? |
+|---|---|---|
+| `brain/` | FastAPI PC service: talks to the robot, owns LLM/vision/speech/autonomy | needs robot + LLM |
+| `tracking/` | RF-DETR Nano person-detector sidecar (port 8091) | needs GPU, no robot |
+| `memory/` | SQLite knowledge graph + ingestion driver + web researcher (port 8092) | Python only |
+| `web_control/` | Browser control panel (served by the brain) | — |
+| `firmware/robit_controller/` | ESP32 firmware: motors, head, camera, control socket | on the robot |
+| `Scripts/` | Cross-package glue: `supervisor.py`, `setup.bat`, `run.bat` | — |
+| `cad/` | Printable model (Maindesign.stl) | — |
+| `docs/architecture.md` | What talks to what, and why | — |
+
+Port map: **8080** brain · **8081** llama-server (Gemma LLM) · **8091** tracking ·
+**8092** memory · **8093** Bekko embeddings. Each package has its own `.venv`,
+`requirements.txt`, and `.env.example`; start with the per-package README.
+
 ```text
-firmware/robit_controller/    ESP/Arduino firmware for movement and head control
-brain/                     FastAPI service that talks to the robot and owns future AI features
-tracking/                  Isolated local RF-DETR Nano person detector
-web_control/                  Browser control panel for manual driving
-docs/architecture.md          Current system architecture and initial build roadmap
-DESIGN.md                     Long-term brain, memory, vision, tools, and autonomy roadmap
-Maindesign.stl                Current printable model
+                 ┌──────────────┐  TCP 82 (control)   ┌─────────────┐
+ camera stream ─▶│    brain     │◀───────────────────▶│ Robit ESP32 │
+   (from robot)  │    :8080     │                     │  firmware   │
+                 └──┬───────┬───┘                     └─────────────┘
+        HTTP 8091   │       │  OpenAI-compat 8081 / 8093
+                    ▼       ▼
+             ┌──────────┐  ┌──────────────────────────┐
+             │ tracking │  │ llama-server (Gemma LLM) │ + Bekko embeds
+             └──────────┘  └──────────────────────────┘
+                 memory (:8092) is standalone — ingests brain telemetry,
+                 runs the web researcher; nothing else depends on it.
 ```
+
+`Scripts/supervisor.py` launches brain + tracking + both model servers together;
+`memory/` runs on its own (`memory/.venv/Scripts/python -m memory.app.cli`).
 
 ## First Build Path
 
@@ -88,13 +110,10 @@ Current soldered pin assumptions:
 
 ## Brain
 
-The PC service is intentionally a thin scaffold right now. It gives you a clean place to add:
-
-- camera capture and streaming
-- OpenAI/LLM tool calls
-- speech input/output
-- scripted behaviors
-- telemetry logging
+The PC service owns everything above the robot's HTTP/sockets layer: camera
+capture and streaming, OpenAI-compatible LLM tool calling, realtime voice
+(Parakeet STT / Qwen TTS sidecar), scripted behaviors, telemetry logging, and
+the person-tracking controller that consumes `tracking/` detections.
 
 See [docs/architecture.md](docs/architecture.md) for the current architecture and
 [DESIGN.md](DESIGN.md) for the long-term Robit design roadmap.

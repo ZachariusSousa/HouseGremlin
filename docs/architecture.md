@@ -155,6 +155,21 @@ The LLM should call PC-side tools like:
 
 Those tools should call the robot API or local camera/speech modules. The LLM should not directly hit firmware endpoints; keep a safety layer in the PC brain.
 
+## Memory Service (standalone)
+
+`memory/` is a self-contained service on port **8092** — nothing else depends on it,
+so it runs in its own venv and can be developed without the robot. It owns:
+
+- **Knowledge graph** — SQLite entity/fact nodes, typed edges, provenance, FTS5 +
+  optional Bekko-embedding hybrid search, LLM-routed retrieval with traces.
+- **Ingestion driver** (`watch-brain`) — tails the brain's telemetry journal and
+  extracts durable facts into the graph.
+- **Web researcher** (`research` / `watch-research`) — LLM-driven BFS over the web,
+  source-agnostic (ddgs), findings stored with provenance.
+
+It calls the same local Gemma llama-server (8081) and Bekko embed server (8093)
+the brain uses; see `memory/README.md` for the CLI and `memory/.env.example`.
+
 ## Safety Defaults
 
 The firmware should:
@@ -181,7 +196,7 @@ The PC brain should:
    - Keep fallback AP mode
 
 2. **Manual PC control**
-   - Run `pc_brain`
+   - Run `brain`
    - Proxy manual commands to the robot
    - Confirm drive/head controls work
 
