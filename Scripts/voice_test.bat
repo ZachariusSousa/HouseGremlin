@@ -45,7 +45,7 @@ call "%VENV%\Scripts\activate.bat" || exit /b 1
 if exist "C:\Tools\llama.cpp\llama-server.exe" set "LLAMA_SERVER_EXE=C:\Tools\llama.cpp\llama-server.exe"
 
 echo [voice-test] Stopping stale realtime voice processes
-python "%ROOT%\Scripts\stop_voice_stack.py" --ports %REALTIME_PORT% %LLAMA_SERVER_PORT% || exit /b 1
+python "%ROOT%\Scripts\stop_stack.py" --ports %REALTIME_PORT% %LLAMA_SERVER_PORT% || exit /b 1
 
 python "%ROOT%\Scripts\patch_speech_to_speech_timeout.py" || exit /b 1
 

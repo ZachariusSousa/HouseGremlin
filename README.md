@@ -57,21 +57,28 @@ Port map: **8080** brain · **8081** llama-server (Gemma LLM) · **8091** tracki
 
 ## Windows Quick Start
 
-Install 64-bit Python 3.13 first, then run from PowerShell:
+Install 64-bit Python 3.13, then open PowerShell in this folder and run:
 
 ```powershell
-py -3.13 --version
-.\Scripts\setup.bat
-.\Scripts\run.bat
+.\setup
 ```
 
-By default, `run.bat` uses Robit's mDNS name, `http://robit.local`. Its bundled
-mDNS discovery resolves the current numeric address internally, including after
-Robit moves to another network; no IP argument is normally needed.
-To override it with a direct IP printed by the robot Serial Monitor:
+## Start
 
 ```powershell
-.\Scripts\run.bat 172.22.1.126
+.\run
+```
+
+When Robit is ready, open [http://localhost:8080](http://localhost:8080) to
+use the control panel.
+
+## Stop
+
+Press `Ctrl+C` in the PowerShell window running Robit for a clean shutdown.
+If an earlier stack was interrupted, run this from another PowerShell window:
+
+```powershell
+.\stop
 ```
 
 ## Robot interfaces

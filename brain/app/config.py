@@ -70,7 +70,7 @@ class Settings:
     tracking_request_timeout_seconds: float = 2.0
     tracking_confidence: float = 0.40
     tracking_pan_sign: int = 1
-    tracking_tilt_sign: int = 1
+    tracking_tilt_sign: int = -1
     control_tcp_port: int = 82
     control_heartbeat_interval_seconds: float = 1.0
     control_command_timeout_seconds: float = 1.5
@@ -148,7 +148,7 @@ def load_settings() -> Settings:
         tracking_request_timeout_seconds=_float_env("ROBIT_TRACKING_REQUEST_TIMEOUT_SECONDS", 2.0),
         tracking_confidence=_float_env("ROBIT_TRACKING_CONFIDENCE", 0.40),
         tracking_pan_sign=_int_env("ROBIT_TRACKING_PAN_SIGN", 1),
-        tracking_tilt_sign=_int_env("ROBIT_TRACKING_TILT_SIGN", 1),
+        tracking_tilt_sign=_int_env("ROBIT_TRACKING_TILT_SIGN", -1),
         control_tcp_port=_int_env("ROBIT_CONTROL_TCP_PORT", 82),
         control_heartbeat_interval_seconds=_float_env(
             "ROBIT_CONTROL_HEARTBEAT_INTERVAL_SECONDS", 1.0

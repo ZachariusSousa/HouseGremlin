@@ -162,7 +162,7 @@ async def test_lifespan_cleans_partial_startup_without_masking_start_error(monke
 
     client = Client()
     monkeypatch.setattr(main, "ensure_data_dirs", lambda path: None)
-    monkeypatch.setattr(main, "get_brain_coordinator", lambda: SimpleNamespace())
+    monkeypatch.setattr(main, "get_brain_coordinator", lambda **_: SimpleNamespace())
     monkeypatch.setattr(main.httpx, "AsyncClient", lambda timeout: client)
     monkeypatch.setattr(main, "telemetry_service", Telemetry())
     monkeypatch.setattr(main, "get_actuator_broker", lambda: Actuators())

@@ -174,6 +174,11 @@ class EventJournal:
             "written": self._written,
         }
 
+    def clear(self) -> None:
+        """Remove persisted brain state before a new Robit startup."""
+        with self._read_lock, self._connect() as connection:
+            connection.execute("DELETE FROM brain_events")
+
     def list_events(
         self,
         conversation_id: str = "default",

@@ -99,7 +99,7 @@ async def lifespan(app: FastAPI):
     tracking = None
     telemetry_started = False
     ensure_data_dirs(settings.data_dir)
-    get_brain_coordinator()
+    get_brain_coordinator(reset=True)
     try:
         robot_http_client = httpx.AsyncClient(timeout=settings.request_timeout)
         event_loop_monitor_task = asyncio.create_task(
@@ -221,13 +221,18 @@ class PerceptionQueryRequest(StrictRequest):
     fresh: bool = True
 
 
-def get_brain_coordinator() -> BrainCoordinator:
+def get_brain_coordinator(*, reset: bool = False) -> BrainCoordinator:
     global brain_journal, brain_coordinator
     if brain_coordinator is None:
         brain_journal = EventJournal(
             settings.data_dir / "brain.db",
             queue_limit=getattr(settings, "journal_queue_limit", 1000),
         )
+        if reset:
+            brain_journal.clear()
+        brain_coordinator = BrainCoordinator(brain_journal)
+    elif reset:
+        brain_journal.clear()
         brain_coordinator = BrainCoordinator(brain_journal)
     return brain_coordinator
 
@@ -381,7 +386,7 @@ def get_tracking_service() -> PersonTrackingService:
             confidence=getattr(settings, "tracking_confidence", 0.40),
             rotate_degrees=getattr(settings, "camera_rotate_degrees", 180),
             pan_sign=getattr(settings, "tracking_pan_sign", 1),
-            tilt_sign=getattr(settings, "tracking_tilt_sign", 1),
+            tilt_sign=getattr(settings, "tracking_tilt_sign", -1),
             search_fps=getattr(settings, "tracking_search_fps", 2.0),
             stable_fps=getattr(settings, "tracking_stable_fps", 1.0),
             voice_fps=getattr(settings, "tracking_voice_fps", 0.5),
@@ -730,6 +735,7 @@ def camera_urls() -> dict:
         "stream_url": stream_url,
         "frame_interval_seconds": interval,
         "effective_fps": fps,
+        "rotation_degrees": getattr(settings, "camera_rotate_degrees", 180),
     }
 
 

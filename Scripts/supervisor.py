@@ -28,6 +28,30 @@ if not DATA.is_absolute():
 LOGS = DATA / "logs"
 
 
+def cached_snapshot_or_model_id(model_id: str, cache_root: Path | None = None) -> str:
+    """Prefer the checked-out main snapshot when a Hugging Face model is cached."""
+    cache = cache_root or Path(
+        os.getenv("HF_HUB_CACHE", str(Path.home() / ".cache" / "huggingface" / "hub"))
+    )
+    model_cache = cache / f"models--{model_id.replace('/', '--')}"
+    ref = model_cache / "refs" / "main"
+    try:
+        revision = ref.read_text(encoding="utf-8").strip()
+    except OSError:
+        return model_id
+    snapshot = model_cache / "snapshots" / revision
+    return str(snapshot) if snapshot.is_dir() else model_id
+
+
+def order_services_for_startup(services: list[Service]) -> list[Service]:
+    """Start the control UI before sidecars whose model warmup takes minutes."""
+    return sorted(services, key=lambda service: service.name != "pc-brain")
+
+
+def open_dashboard(port: int, opener: Callable[[str], object] = webbrowser.open) -> None:
+    opener(f"http://localhost:{port}")
+
+
 def http_ready(url: str) -> bool:
     try:
         with urllib.request.urlopen(url, timeout=2) as response:
@@ -271,6 +295,9 @@ def main() -> int:
     voice = environment.get("ROBIT_REALTIME_VOICE", "serena")
     device = environment.get("ROBIT_TRACKING_DEVICE", "auto")
     model = "ggml-org/gemma-4-E4B-it-GGUF:Q4_0"
+    tts_model = cached_snapshot_or_model_id(
+        "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice"
+    )
     services = [
         Service(
             "llama-server",
@@ -356,7 +383,7 @@ def main() -> int:
                 "--tts",
                 "qwen3",
                 "--qwen3_tts_model_name",
-                "Qwen/Qwen3-TTS-12Hz-1.7B-CustomVoice",
+                tts_model,
                 "--qwen3_tts_device",
                 "cuda",
                 "--qwen3_tts_speaker",
@@ -404,6 +431,8 @@ def main() -> int:
         ),
     ]
 
+    services = order_services_for_startup(services)
+    pc_brain = next(service for service in services if service.name == "pc-brain")
     started: list[Service] = []
     return_code = 0
     try:
@@ -415,6 +444,9 @@ def main() -> int:
         for service in services:
             started.append(service)
             service.start()
+            if service is pc_brain:
+                open_dashboard(args.port)
+                print("[supervisor] Control UI is ready. Press Ctrl+C for clean shutdown.", flush=True)
             if service.name == "llama-server":
                 run_preparation(
                     "prewarming shared language/vision model",
@@ -444,17 +476,18 @@ def main() -> int:
                     ],
                     environment,
                 )
-        webbrowser.open(f"http://localhost:{args.port}")
         print("[supervisor] Robit is ready. Press Ctrl+C for clean shutdown.", flush=True)
         while True:
             time.sleep(1)
-            for service in services[:-1]:
+            for service in services:
+                if service is pc_brain:
+                    continue
                 if service.optional:
                     continue
                 if not service.restart_if_failed():
                     raise RuntimeError(f"required sidecar failed: {service.name}")
-            if services[-1].process and services[-1].process.poll() is not None:
-                raise RuntimeError("Brain exited")
+            if pc_brain.process and pc_brain.process.poll() is not None:
+                raise RuntimeError("PC Brain exited")
     except KeyboardInterrupt:
         print("[supervisor] shutting down", flush=True)
         return_code = 0

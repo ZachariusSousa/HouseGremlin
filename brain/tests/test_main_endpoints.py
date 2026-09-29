@@ -207,9 +207,10 @@ def test_robot_camera_urls_derive_from_configured_robot_base_url(monkeypatch):
         "page_url": "http://172.22.1.126/camera",
         "capture_url": "http://172.22.1.126:81/capture",
         "stream_url": "http://172.22.1.126:81/stream",
-        "frame_interval_seconds": 5.0,
-        "effective_fps": 0.2,
-    }
+            "frame_interval_seconds": 5.0,
+            "effective_fps": 0.2,
+            "rotation_degrees": 180,
+        }
 
 
 def test_camera_capture_returns_shared_frame_headers(monkeypatch):
