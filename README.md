@@ -7,6 +7,11 @@ Robit should be built as two cooperating codebases:
 
 Do not put vision or LLM work on the motor controller. Keep the robot firmware boring and real-time-ish; offload expensive work to the PC.
 
+## Naming
+
+- **HouseGremlin** = this repository / the overall project brand.
+- **Robit** = the physical robot (firmware, mDNS `robit.local`, `ROBIT_*` env vars).
+
 ## Repo Layout
 
 ```text
